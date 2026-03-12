@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@openbrowse/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@openbrowse/orchestrator": [
+        "packages/orchestrator/src/index.ts"
+      ],
+      "@openbrowse/planner": [
+        "packages/planner/src/index.ts"
+      ],
+      "@openbrowse/browser-runtime": [
+        "packages/browser-runtime/src/index.ts"
+      ],
+      "@openbrowse/chat-bridge": [
+        "packages/chat-bridge/src/index.ts"
+      ],
+      "@openbrowse/memory-store": [
+        "packages/memory-store/src/index.ts"
+      ],
+      "@openbrowse/scheduler": [
+        "packages/scheduler/src/index.ts"
+      ],
+      "@openbrowse/observability": [
+        "packages/observability/src/index.ts"
+      ],
+      "@openbrowse/security": [
+        "packages/security/src/index.ts"
+      ]
+    }
+  }
+}
+

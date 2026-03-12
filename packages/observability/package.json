@@ -1,0 +1,16 @@
+{
+  "name": "@openbrowse/observability",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@openbrowse/contracts": "workspace:*"
+  },
+  "scripts": {
+    "build": "echo 'observability scaffold only'",
+    "lint": "echo 'observability scaffold only'",
+    "typecheck": "echo 'observability scaffold only'"
+  }
+}
+

@@ -1,0 +1,16 @@
+{
+  "name": "@openbrowse/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@openbrowse/contracts": "workspace:*"
+  },
+  "scripts": {
+    "build": "echo 'orchestrator scaffold only'",
+    "lint": "echo 'orchestrator scaffold only'",
+    "typecheck": "echo 'orchestrator scaffold only'"
+  }
+}
+

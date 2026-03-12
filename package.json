@@ -1,0 +1,16 @@
+{
+  "name": "project-openbrowse",
+  "private": true,
+  "packageManager": "pnpm@10",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:desktop": "pnpm --dir apps/desktop dev",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
+
