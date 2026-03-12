@@ -1,0 +1,16 @@
+{
+  "name": "@openbrowse/planner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@openbrowse/contracts": "workspace:*"
+  },
+  "scripts": {
+    "build": "echo 'planner scaffold only'",
+    "lint": "echo 'planner scaffold only'",
+    "typecheck": "echo 'planner scaffold only'"
+  }
+}
+

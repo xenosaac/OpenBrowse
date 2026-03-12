@@ -1,0 +1,13 @@
+{
+  "name": "@openbrowse/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "echo 'contracts scaffold only'",
+    "lint": "echo 'contracts scaffold only'",
+    "typecheck": "echo 'contracts scaffold only'"
+  }
+}
+

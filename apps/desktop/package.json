@@ -1,0 +1,25 @@
+{
+  "name": "@openbrowse/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main/index.ts",
+  "dependencies": {
+    "@openbrowse/browser-runtime": "workspace:*",
+    "@openbrowse/chat-bridge": "workspace:*",
+    "@openbrowse/contracts": "workspace:*",
+    "@openbrowse/memory-store": "workspace:*",
+    "@openbrowse/observability": "workspace:*",
+    "@openbrowse/orchestrator": "workspace:*",
+    "@openbrowse/planner": "workspace:*",
+    "@openbrowse/scheduler": "workspace:*",
+    "@openbrowse/security": "workspace:*"
+  },
+  "scripts": {
+    "build": "echo 'desktop scaffold only'",
+    "dev": "echo 'desktop scaffold only'",
+    "lint": "echo 'desktop scaffold only'",
+    "typecheck": "echo 'desktop scaffold only'"
+  }
+}
+
