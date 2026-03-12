@@ -8,3 +8,13 @@ coverage
 *.log
 pnpm-lock.yaml
 
+# Local working logs
+WORKLOG.md
+WORKLOG-*.md
+working-log.md
+working-log-*.md
+*.worklog.md
+worklogs/
+
+# Local project docs kept out of git for now
+docs/*.md
