@@ -1,0 +1,17 @@
+{
+  "name": "@openbrowse/demo-flows",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@openbrowse/browser-runtime": "workspace:*",
+    "@openbrowse/contracts": "workspace:*",
+    "@openbrowse/planner": "workspace:*",
+    "@openbrowse/runtime-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  }
+}

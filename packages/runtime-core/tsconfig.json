@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../orchestrator" },
+    { "path": "../planner" },
+    { "path": "../browser-runtime" },
+    { "path": "../chat-bridge" },
+    { "path": "../memory-store" },
+    { "path": "../scheduler" },
+    { "path": "../observability" },
+    { "path": "../security" }
+  ]
+}

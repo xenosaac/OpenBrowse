@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/main/index.ts",
+  "main": "out/main/index.js",
+  "author": "OpenBrowse",
+  "description": "Local-first agentic browser for macOS",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "@openbrowse/browser-runtime": "workspace:*",
     "@openbrowse/chat-bridge": "workspace:*",
@@ -12,14 +17,60 @@
     "@openbrowse/observability": "workspace:*",
     "@openbrowse/orchestrator": "workspace:*",
     "@openbrowse/planner": "workspace:*",
+    "@openbrowse/runtime-core": "workspace:*",
     "@openbrowse/scheduler": "workspace:*",
-    "@openbrowse/security": "workspace:*"
+    "@openbrowse/security": "workspace:*",
+    "@openbrowse/taskpacks": "workspace:*",
+    "@openbrowse/demo-flows": "workspace:*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "scripts": {
-    "build": "echo 'desktop scaffold only'",
-    "dev": "echo 'desktop scaffold only'",
-    "lint": "echo 'desktop scaffold only'",
-    "typecheck": "echo 'desktop scaffold only'"
+    "build": "electron-vite build",
+    "dev": "electron-vite dev",
+    "lint": "tsc --noEmit",
+    "native:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "typecheck": "tsc --noEmit",
+    "package": "electron-vite build && electron-builder --mac",
+    "package:dir": "electron-vite build && electron-builder --mac --dir"
+  },
+  "build": {
+    "appId": "com.openbrowse.desktop",
+    "productName": "OpenBrowse",
+    "directories": {
+      "buildResources": "resources",
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "OpenBrowse ${version}"
+    },
+    "files": [
+      "out/**/*",
+      "!node_modules/**/*"
+    ],
+    "extraMetadata": {
+      "main": "out/main/index.js"
+    }
+  },
+  "devDependencies": {
+    "@electron/rebuild": "4.0.1",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "electron": "^39.1.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "vite": "^7.3.1"
   }
 }
-

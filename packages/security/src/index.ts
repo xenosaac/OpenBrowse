@@ -1,1 +1,1 @@
-export * from "./ApprovalPolicy";
+export * from "./ApprovalPolicy.js";

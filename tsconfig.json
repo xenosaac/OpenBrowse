@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/contracts" },
+    { "path": "packages/orchestrator" },
+    { "path": "packages/planner" },
+    { "path": "packages/browser-runtime" },
+    { "path": "packages/chat-bridge" },
+    { "path": "packages/memory-store" },
+    { "path": "packages/scheduler" },
+    { "path": "packages/observability" },
+    { "path": "packages/security" },
+    { "path": "apps/desktop" }
+  ]
+}

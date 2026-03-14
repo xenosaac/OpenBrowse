@@ -3,14 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@openbrowse/contracts": "workspace:*"
   },
   "scripts": {
-    "build": "echo 'planner scaffold only'",
-    "lint": "echo 'planner scaffold only'",
-    "typecheck": "echo 'planner scaffold only'"
+    "build": "tsc --build",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   }
 }
-

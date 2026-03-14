@@ -1,0 +1,295 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { RuntimeDescriptor, RuntimeSettings } from "../../shared/runtime";
+import {
+  createDefaultRuntimeSettings,
+  DEFAULT_ANTHROPIC_MODEL,
+  OPUS_ANTHROPIC_MODEL
+} from "../../shared/runtime";
+
+interface Props {
+  runtime: RuntimeDescriptor | null;
+  settings: RuntimeSettings | null;
+  onSaved: (settings: RuntimeSettings) => Promise<void> | void;
+}
+
+export function SettingsPanel({ runtime, settings, onSaved }: Props) {
+  const [form, setForm] = useState<RuntimeSettings>(createDefaultRuntimeSettings());
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const lastHydratedRef = useRef<string | null>(null);
+  const serializedSettings = useMemo(() => (settings ? JSON.stringify(settings) : null), [settings]);
+
+  useEffect(() => {
+    if (settings && (!isDirty || lastHydratedRef.current === null)) {
+      setForm(settings);
+      lastHydratedRef.current = serializedSettings;
+    }
+  }, [isDirty, serializedSettings, settings]);
+
+  const updateForm = (updater: (current: RuntimeSettings) => RuntimeSettings): void => {
+    setForm((current) => {
+      const next = updater(current);
+      if (JSON.stringify(next) !== JSON.stringify(current)) {
+        setIsDirty(true);
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const payload: RuntimeSettings = {
+        ...form,
+        plannerModel: form.plannerModel.trim() || DEFAULT_ANTHROPIC_MODEL
+      };
+      const result = await window.openbrowse.saveSettings(payload);
+      setForm(result.settings);
+      lastHydratedRef.current = JSON.stringify(result.settings);
+      setIsDirty(false);
+      setNotice("Settings saved. Runtime configuration has been refreshed.");
+      await onSaved(result.settings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section style={styles.panel}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.title}>Settings</h2>
+          <p style={styles.subtitle}>
+            Configure Anthropic planner access, model selection, and Telegram bridge settings.
+          </p>
+        </div>
+        <div style={styles.runtimeBadge}>
+          planner: {runtime?.planner.mode ?? "loading"} / chat: {runtime?.chatBridge.mode ?? "loading"}
+        </div>
+      </div>
+
+      <div style={styles.grid}>
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Anthropic Planner</h3>
+          <label style={styles.label}>
+            API Key
+            <input
+              type="password"
+              value={form.anthropicApiKey}
+              onChange={(e) => updateForm((current) => ({ ...current, anthropicApiKey: e.target.value }))}
+              placeholder="sk-ant-..."
+              style={styles.input}
+            />
+          </label>
+
+          <label style={styles.label}>
+            Quick Presets
+            <div style={styles.presetRow}>
+              <button
+                type="button"
+                onClick={() => updateForm((current) => ({ ...current, plannerModel: DEFAULT_ANTHROPIC_MODEL }))}
+                style={styles.presetButton}
+              >
+                Sonnet
+              </button>
+              <button
+                type="button"
+                onClick={() => updateForm((current) => ({ ...current, plannerModel: OPUS_ANTHROPIC_MODEL }))}
+                style={styles.presetButton}
+              >
+                Opus
+              </button>
+            </div>
+          </label>
+
+          <label style={styles.label}>
+            Anthropic Model
+            <input
+              type="text"
+              value={form.plannerModel}
+              onChange={(e) => updateForm((current) => ({ ...current, plannerModel: e.target.value }))}
+              placeholder={DEFAULT_ANTHROPIC_MODEL}
+              style={styles.input}
+            />
+          </label>
+
+          <p style={styles.helpText}>
+            If you leave the model field blank, OpenBrowse falls back to the built-in Sonnet default.
+          </p>
+        </div>
+
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Telegram Bridge</h3>
+          <label style={styles.label}>
+            Bot Token
+            <input
+              type="password"
+              value={form.telegramBotToken}
+              onChange={(e) => updateForm((current) => ({ ...current, telegramBotToken: e.target.value }))}
+              placeholder="123456:ABC-DEF..."
+              style={styles.input}
+            />
+          </label>
+          <p style={styles.helpText}>
+            Create a bot via @BotFather on Telegram. Paste the token here.
+          </p>
+
+          <label style={styles.label}>
+            Your Telegram User ID
+            <input
+              type="text"
+              value={form.telegramChatId}
+              onChange={(e) => updateForm((current) => ({ ...current, telegramChatId: e.target.value }))}
+              placeholder="e.g. 123456789"
+              style={styles.input}
+            />
+          </label>
+
+          <p style={styles.helpText}>
+            <strong>Security:</strong> Setting your Telegram user ID locks the bot so only you can control it.
+            Get your ID by messaging @userinfobot on Telegram.
+            If left blank, the bot pairs with the first person who messages it (one-time auto-bind).
+            Either way, only the bound user can send commands or receive clarification questions.
+          </p>
+        </div>
+      </div>
+
+      <div style={styles.actions}>
+        <button onClick={handleSave} disabled={busy} style={styles.button}>
+          {busy ? "Saving..." : "Save Settings"}
+        </button>
+        {isDirty && !busy && <span style={styles.dirtyHint}>Unsaved changes</span>}
+      </div>
+
+      {notice && <div style={styles.notice}>{notice}</div>}
+      {error && <div style={styles.error}>{error}</div>}
+    </section>
+  );
+}
+
+const styles: Record<string, React.CSSProperties> = {
+  panel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 16
+  },
+  title: {
+    margin: 0,
+    fontSize: "1.35rem"
+  },
+  subtitle: {
+    margin: "6px 0 0",
+    color: "#8f90a6",
+    fontSize: "0.9rem"
+  },
+  runtimeBadge: {
+    background: "#1e1e2e",
+    color: "#cbd5e1",
+    border: "1px solid #2a2a3e",
+    borderRadius: 999,
+    padding: "6px 12px",
+    fontSize: "0.75rem",
+    textTransform: "uppercase"
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+    gap: 16
+  },
+  card: {
+    background: "#151522",
+    border: "1px solid #2a2a3e",
+    borderRadius: 18,
+    padding: 16,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12
+  },
+  cardTitle: {
+    margin: 0,
+    fontSize: "1rem"
+  },
+  label: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    fontSize: "0.85rem",
+    color: "#cbd5e1"
+  },
+  input: {
+    background: "#1e1e2e",
+    border: "1px solid #2a2a3e",
+    borderRadius: 12,
+    padding: "10px 12px",
+    color: "#f5f5ff",
+    fontSize: "0.9rem"
+  },
+  helpText: {
+    margin: 0,
+    fontSize: "0.8rem",
+    color: "#8f90a6",
+    lineHeight: 1.5
+  },
+  presetRow: {
+    display: "flex",
+    gap: 8
+  },
+  presetButton: {
+    background: "#1e1e2e",
+    color: "#e5e7eb",
+    border: "1px solid #2a2a3e",
+    borderRadius: 10,
+    padding: "8px 12px",
+    cursor: "pointer",
+    fontSize: "0.82rem"
+  },
+  actions: {
+    display: "flex",
+    justifyContent: "flex-start",
+    alignItems: "center",
+    gap: 12
+  },
+  button: {
+    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+    color: "#fffdf9",
+    border: "1px solid #8b5cf6",
+    borderRadius: 12,
+    padding: "10px 16px",
+    cursor: "pointer",
+    fontSize: "0.9rem",
+    fontWeight: 700
+  },
+  notice: {
+    padding: "10px 12px",
+    borderRadius: 8,
+    background: "rgba(34,197,94,0.12)",
+    border: "1px solid rgba(34,197,94,0.28)",
+    color: "#bbf7d0",
+    fontSize: "0.9rem"
+  },
+  error: {
+    padding: "10px 12px",
+    borderRadius: 8,
+    background: "rgba(239,68,68,0.12)",
+    border: "1px solid rgba(239,68,68,0.28)",
+    color: "#fecaca",
+    fontSize: "0.9rem"
+  },
+  dirtyHint: {
+    color: "#8f90a6",
+    fontSize: "0.85rem"
+  }
+};

@@ -7,6 +7,17 @@ build
 coverage
 *.log
 pnpm-lock.yaml
+out
+release
+*.tsbuildinfo
+*.dmg
+*.zip
+.node-gyp
+.npm
+.pnpm-store
+Library/
+.electron-gyp
+.claude
 
 # Local working logs
 WORKLOG.md

@@ -1,0 +1,22 @@
+{
+  "name": "@openbrowse/runtime-core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@openbrowse/browser-runtime": "workspace:*",
+    "@openbrowse/chat-bridge": "workspace:*",
+    "@openbrowse/contracts": "workspace:*",
+    "@openbrowse/memory-store": "workspace:*",
+    "@openbrowse/observability": "workspace:*",
+    "@openbrowse/orchestrator": "workspace:*",
+    "@openbrowse/planner": "workspace:*",
+    "@openbrowse/scheduler": "workspace:*",
+    "@openbrowse/security": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit"
+  }
+}
