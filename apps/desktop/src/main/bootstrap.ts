@@ -3,15 +3,13 @@ import path from "node:path";
 import { AppBrowserShell } from "./browser/AppBrowserShell";
 import { createDefaultDemoRegistry, type DemoRegistry } from "@openbrowse/demo-flows";
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
-import {
-  composeRuntime,
-  type RuntimeServices
-} from "./runtime/composeRuntime";
+import { composeRuntime } from "./runtime/composeRuntime";
 import {
   hydrateRuntimeSettings,
   markBrowserRuntimeInitFailed,
   markChatBridgeInitFailed,
-  wireInboundChat
+  wireInboundChat,
+  type RuntimeServices
 } from "@openbrowse/runtime-core";
 
 export interface DesktopBootstrap {

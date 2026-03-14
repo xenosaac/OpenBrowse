@@ -1,11 +1,10 @@
 import type { BrowserWindow, WebContentsView } from "electron";
 import type { EmbeddedViewProvider } from "@openbrowse/browser-runtime";
 import { BrowserViewManager } from "./BrowserViewManager";
-import type { BrowserShellTabDescriptor, BrowserViewportBounds } from "../../shared/runtime";
+import type { BrowserViewportBounds } from "../../shared/runtime";
 
 export class AppBrowserShell implements EmbeddedViewProvider {
   private viewManager: BrowserViewManager | null = null;
-  private readonly fallbackTabs = new Map<string, BrowserShellTabDescriptor>();
 
   attach(hostWindow: BrowserWindow): void {
     // On macOS the main window can be closed and recreated while the app stays alive.
@@ -56,14 +55,6 @@ export class AppBrowserShell implements EmbeddedViewProvider {
 
   clearViewportBounds(): void {
     this.viewManager?.clearViewportBounds();
-  }
-
-  openTab(tab: BrowserShellTabDescriptor): void {
-    this.fallbackTabs.set(tab.groupId, tab);
-  }
-
-  listTabs(): BrowserShellTabDescriptor[] {
-    return [...this.fallbackTabs.values()];
   }
 
   destroyAll(): void {

@@ -166,7 +166,7 @@ export function DemoPanel({ onStarted }: Props) {
       )}
 
       {demos.length === 0 && packs.length === 0 && (
-        <p style={{ color: "#7c735f" }}>No demo flows or task packs registered.</p>
+        <p style={{ color: "#9090a8" }}>No demo flows or task packs registered.</p>
       )}
     </div>
   );
@@ -175,20 +175,20 @@ export function DemoPanel({ onStarted }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     fontSize: "1rem",
-    color: "#3e372f",
+    color: "#e5e7eb",
     margin: "0 0 4px"
   },
   sectionHint: {
     fontSize: "0.82rem",
-    color: "#7c735f",
+    color: "#9090a8",
     margin: "0 0 12px"
   },
   card: {
-    background: "#fffaf2",
-    borderRadius: 8,
+    background: "#151522",
+    borderRadius: 12,
     padding: "12px 16px",
     marginBottom: 8,
-    border: "1px solid #d9c7ac"
+    border: "1px solid #2a2a3e"
   },
   row: {
     display: "flex",
@@ -196,60 +196,62 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   badge: {
-    color: "#fffdf9",
+    color: "#ffffff",
     fontSize: "0.7rem",
     padding: "2px 6px",
     borderRadius: 4,
     textTransform: "uppercase" as const
   },
   liveBadge: {
-    background: "#15803d",
-    color: "#fffdf9",
+    background: "rgba(34,197,94,0.18)",
+    color: "#86efac",
+    border: "1px solid rgba(34,197,94,0.28)",
     fontSize: "0.65rem",
-    padding: "1px 5px",
+    padding: "1px 6px",
     borderRadius: 3,
     textTransform: "uppercase" as const,
     marginLeft: "auto"
   },
   unavailableBadge: {
-    background: "#9ca3af",
-    color: "#fffdf9",
+    background: "rgba(107,114,128,0.18)",
+    color: "#9ca3af",
+    border: "1px solid rgba(107,114,128,0.28)",
     fontSize: "0.65rem",
-    padding: "1px 5px",
+    padding: "1px 6px",
     borderRadius: 3,
     textTransform: "uppercase" as const,
     marginLeft: "auto"
   },
   cardDisabled: {
-    opacity: 0.6
+    opacity: 0.5
   },
   unavailableReason: {
     fontSize: "0.8rem",
-    color: "#b45309",
+    color: "#fbbf24",
     margin: "4px 0 0",
     fontStyle: "italic" as const
   },
   errorBanner: {
-    background: "#fef2f2",
-    border: "1px solid #fca5a5",
-    color: "#991b1b",
-    borderRadius: 6,
+    background: "rgba(239,68,68,0.12)",
+    border: "1px solid rgba(239,68,68,0.28)",
+    color: "#fecaca",
+    borderRadius: 8,
     padding: "8px 12px",
     fontSize: "0.85rem",
     marginBottom: 12
   },
   buttonDisabled: {
-    background: "#9ca3af",
-    color: "#fffdf9",
-    border: "none",
-    borderRadius: 4,
+    background: "#1e1e2e",
+    color: "#6b6b82",
+    border: "1px solid #2a2a3e",
+    borderRadius: 8,
     padding: "6px 16px",
     cursor: "not-allowed",
     fontSize: "0.9rem"
   },
   description: {
     fontSize: "0.85rem",
-    color: "#5f5548",
+    color: "#9090a8",
     margin: "6px 0"
   },
   actions: {
@@ -259,29 +261,30 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8
   },
   button: {
-    background: "#1f4d3f",
-    color: "#fffdf9",
-    border: "none",
-    borderRadius: 4,
+    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+    color: "#ffffff",
+    border: "1px solid #8b5cf6",
+    borderRadius: 8,
     padding: "6px 16px",
     cursor: "pointer",
     fontSize: "0.9rem"
   },
   watchButton: {
-    background: "#995f27"
+    background: "#0e7490",
+    borderColor: "#06b6d4"
   },
   intervalInput: {
     width: 56,
-    background: "#fbf6ed",
-    border: "1px solid #d9c7ac",
-    borderRadius: 4,
+    background: "#1e1e2e",
+    border: "1px solid #2a2a3e",
+    borderRadius: 8,
     padding: "4px 6px",
-    color: "#2f2821",
+    color: "#f5f5ff",
     fontSize: "0.85rem",
     textAlign: "center" as const
   },
   intervalLabel: {
     fontSize: "0.8rem",
-    color: "#7c735f"
+    color: "#9090a8"
   }
 };

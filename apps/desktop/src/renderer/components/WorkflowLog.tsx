@@ -29,7 +29,7 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
   return (
     <div>
       <div style={styles.selector}>
-        <label style={{ color: "#888", fontSize: "0.85rem" }}>Run: </label>
+        <label style={{ color: "#9090a8", fontSize: "0.85rem" }}>Run: </label>
         <select
           value={selectedRunId ?? ""}
           onChange={(e) => onSelectRun(e.target.value)}
@@ -45,7 +45,7 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
       </div>
 
       {logs.length === 0 && (
-        <p style={{ color: "#7c735f" }}>
+        <p style={{ color: "#9090a8" }}>
           {selectedRunId ? "No events for this run." : "Select a run to view its log."}
         </p>
       )}
@@ -116,15 +116,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   select: {
-    background: "#fbf6ed",
-    color: "#2f2821",
-    border: "1px solid #d9c7ac",
-    borderRadius: 4,
+    background: "#1e1e2e",
+    color: "#f5f5ff",
+    border: "1px solid #2a2a3e",
+    borderRadius: 8,
     padding: "4px 8px",
     fontSize: "0.85rem"
   },
   timeline: {
-    borderLeft: "2px solid #d9c7ac",
+    borderLeft: "2px solid #2a2a3e",
     paddingLeft: 16,
     marginLeft: 4
   },
@@ -137,16 +137,16 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     margin: "0 0 10px",
     fontSize: "0.95rem",
-    color: "#5f5548"
+    color: "#e5e7eb"
   },
   emptyText: {
-    color: "#7c735f",
+    color: "#9090a8",
     fontSize: "0.9rem"
   },
   replayPanel: {
-    background: "#fffaf2",
-    border: "1px solid #d9c7ac",
-    borderRadius: 8,
+    background: "#0f0f18",
+    border: "1px solid #2a2a3e",
+    borderRadius: 10,
     padding: 12
   },
   replayStep: {
@@ -155,10 +155,10 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 10,
     alignItems: "start",
     padding: "8px 0",
-    borderBottom: "1px solid #ecdfcb"
+    borderBottom: "1px solid #232335"
   },
   replayElapsed: {
-    color: "#7c735f",
+    color: "#9090a8",
     fontSize: "0.8rem",
     fontVariantNumeric: "tabular-nums"
   },
@@ -178,16 +178,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   eventType: {
     fontSize: "0.8rem",
-    color: "#7c735f",
+    color: "#9090a8",
     textTransform: "uppercase" as const
   },
   eventSummary: {
     fontSize: "0.9rem",
-    color: "#3f372d"
+    color: "#e5e7eb"
   },
   eventTime: {
     fontSize: "0.75rem",
-    color: "#7c735f"
+    color: "#6b6b82"
   },
   payloadList: {
     display: "flex",
@@ -196,8 +196,9 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 6
   },
   payloadItem: {
-    background: "#f5ead8",
-    color: "#6a5b48",
+    background: "rgba(139,92,246,0.12)",
+    color: "#c4b5fd",
+    border: "1px solid rgba(139,92,246,0.2)",
     borderRadius: 999,
     padding: "2px 8px",
     fontSize: "0.72rem"

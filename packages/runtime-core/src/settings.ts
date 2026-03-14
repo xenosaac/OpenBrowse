@@ -138,12 +138,12 @@ export function buildRuntimeDescriptor(status: {
   if (status.hasDemos) {
     const plannerLive = status.planner.mode === "live";
     return {
-      phase: "phase7",
+      phase: "phase4",
       mode: "desktop_runtime",
       ...status,
       notes: [
-        "All Phase 1-6 subsystems are active: embedded browser shell, Telegram bridge, local persistence, approval gates, replay, recovery, and demo runtime.",
-        "Live task packs are registered and gated on planner availability.",
+        "Browser shell, Telegram bridge, local persistence, approval gates, replay, and recovery are active.",
+        "Scripted demo flows and live task packs are registered.",
         plannerLive
           ? "The live Claude planner is active — live task packs can operate on real websites."
           : "The planner is in stub mode — live task packs are visible but disabled until ANTHROPIC_API_KEY is configured."

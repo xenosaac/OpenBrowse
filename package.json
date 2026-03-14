@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "preinstall": "node ./scripts/openbrowse-env.mjs --warn-node",
+    "postinstall": "pnpm --dir apps/desktop run native:rebuild",
     "build": "pnpm run build:packages && pnpm run build:desktop",
     "build:desktop": "pnpm --dir apps/desktop build",
     "build:packages": "tsc -b packages/contracts packages/orchestrator packages/planner packages/browser-runtime packages/chat-bridge packages/memory-store packages/scheduler packages/observability packages/security packages/runtime-core packages/taskpacks packages/demo-flows",

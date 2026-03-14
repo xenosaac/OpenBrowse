@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -90,6 +90,89 @@ function verifyPackageEntry(specifier, relativeEntry, options = {}) {
   return { ok: true, detail: `${specifier} entry is present.` };
 }
 
+// NODE_MODULE_VERSION for each Electron major version (Electron's embedded Node.js ABI).
+// Update this table when upgrading Electron.
+// Source: https://releases.electronjs.org/releases/stable
+const ELECTRON_NMV = {
+  35: 137,
+  36: 138,
+  37: 139,
+  38: 140,
+  39: 140,
+  40: 142
+};
+
+function getInstalledElectronVersion() {
+  const electronPkg = path.join(ROOT, "apps", "desktop", "node_modules", "electron", "package.json");
+  if (!existsSync(electronPkg)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(electronPkg, "utf8"));
+    return pkg.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function checkSqliteAbi() {
+  const electronVersion = getInstalledElectronVersion();
+  if (!electronVersion) {
+    return { ok: false, detail: "better-sqlite3 ABI: Electron not installed yet — run pnpm install first." };
+  }
+
+  const electronMajor = Number(electronVersion.split(".")[0] ?? "0");
+  const electronNMV = ELECTRON_NMV[electronMajor];
+  const nodeNMV = Number(process.versions.modules);
+
+  if (electronNMV == null) {
+    return {
+      ok: false,
+      detail: `better-sqlite3 ABI: Electron ${electronVersion} NMV unknown — update ELECTRON_NMV table in openbrowse-env.mjs.`
+    };
+  }
+
+  // Check that the native binary exists in the pnpm store.
+  const nativeBinDir = findPnpmPackageDir("better-sqlite3");
+  const nativeBinPath = nativeBinDir ? path.join(nativeBinDir, "build", "Release", "better_sqlite3.node") : null;
+  if (!nativeBinPath || !existsSync(nativeBinPath)) {
+    return { ok: false, detail: "better-sqlite3 ABI: native binary not found — run pnpm install." };
+  }
+
+  // electron-rebuild writes a .forge-meta file with the compiled arch--NMV.
+  // If present, use it to confirm the binary was built for the correct Electron NMV.
+  const forgeMetaPath = path.join(path.dirname(nativeBinPath), ".forge-meta");
+  if (existsSync(forgeMetaPath)) {
+    const forgeMeta = readFileSync(forgeMetaPath, "utf8").trim();
+    // Format: "<arch>--<NMV>"
+    const parts = forgeMeta.split("--");
+    const compiledNMV = parts.length === 2 ? Number(parts[1]) : NaN;
+    if (!isNaN(compiledNMV)) {
+      if (compiledNMV === electronNMV) {
+        return {
+          ok: true,
+          detail: `better-sqlite3 ABI OK: rebuilt for Electron ${electronVersion} NMV ${electronNMV} (${forgeMeta}).`
+        };
+      }
+      return {
+        ok: false,
+        detail: `better-sqlite3 ABI mismatch: built for NMV ${compiledNMV} but Electron ${electronVersion} needs NMV ${electronNMV}. Run: pnpm run native:rebuild`
+      };
+    }
+  }
+
+  // No forge-meta: pnpm compiled the binary for system Node.js. Warn if NMVs differ.
+  if (nodeNMV !== electronNMV) {
+    return {
+      ok: false,
+      detail: `better-sqlite3 not rebuilt for Electron: Node.js NMV ${nodeNMV} ≠ Electron ${electronVersion} NMV ${electronNMV}. Run: pnpm run native:rebuild`
+    };
+  }
+
+  return {
+    ok: true,
+    detail: `better-sqlite3 ABI: Node.js NMV ${nodeNMV} matches Electron ${electronVersion} NMV ${electronNMV}.`
+  };
+}
+
 function checkInstallTree() {
   const checks = [
     { label: "electron", ...verifyPackageEntry("electron", "install.js") },
@@ -152,18 +235,24 @@ function run(command, args, extraEnv = {}) {
 function printDoctor({ strict = false } = {}) {
   const node = checkNodeVersion();
   const installTree = checkInstallTree();
+  const sqliteAbi = checkSqliteAbi();
 
   log("OpenBrowse Environment Doctor");
   log(`- Node: ${node.detail}`);
   for (const check of installTree.checks) {
     log(`- ${check.label}: ${check.detail}`);
   }
+  log(`- SQLite ABI: ${sqliteAbi.detail}`);
 
-  const ok = node.ok && installTree.ok;
+  const ok = node.ok && installTree.ok && sqliteAbi.ok;
   if (!ok) {
     log("");
     log("Recommended fix:");
-    log("  pnpm run repair:env");
+    if (!sqliteAbi.ok && (node.ok && installTree.ok)) {
+      log("  pnpm run native:rebuild");
+    } else {
+      log("  pnpm run repair:env");
+    }
   }
 
   if (strict && !ok) {
@@ -226,5 +315,5 @@ if (args.has("--repair")) {
 log("Usage:");
 log("  node scripts/openbrowse-env.mjs --warn-node      (warn if Node < 22, always exits 0)");
 log("  node scripts/openbrowse-env.mjs --check-node     (exit 1 if Node < 22)");
-log("  node scripts/openbrowse-env.mjs --doctor [--strict]");
-log("  node scripts/openbrowse-env.mjs --repair");
+log("  node scripts/openbrowse-env.mjs --doctor [--strict]  (checks Node, install tree, and SQLite ABI)");
+log("  node scripts/openbrowse-env.mjs --repair         (clean install + native:rebuild)");

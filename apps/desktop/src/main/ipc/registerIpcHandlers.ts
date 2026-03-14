@@ -6,7 +6,9 @@ import {
   cancelTrackedRun,
   describeRuntime,
   getRuntimeSettings,
-  handleInboundMessage,
+  handleInboundMessageDetached,
+  listAllRuns,
+  queryShellTabs,
   saveRuntimeSettings,
   type RuntimeServices
 } from "@openbrowse/runtime-core";
@@ -14,10 +16,6 @@ import { listTaskPacks, getTaskPack } from "@openbrowse/taskpacks";
 import type { DemoRegistry } from "@openbrowse/demo-flows";
 import type { AppBrowserShell } from "../browser/AppBrowserShell";
 import type { BrowserViewportBounds, RuntimeSettings } from "@openbrowse/contracts";
-
-export interface IpcSurface {
-  register(channel: string, handlerName: string): void;
-}
 
 export function registerIpcHandlers(
   services: RuntimeServices,
@@ -44,7 +42,12 @@ export function registerIpcHandlers(
   });
 
   register("task:resume", async (_event, message: TaskMessage) => {
-    const run = await handleInboundMessage(services, message);
+    // Use the detached variant so the renderer gets an immediate response with the
+    // session-attached run (browserSessionId is set), while the planner loop continues
+    // in the background and sends a final run_updated when it settles.
+    const run = await handleInboundMessageDetached(services, message, async (updatedRun) => {
+      mainWindow.webContents.send("runtime:event", { type: "run_updated", run: updatedRun });
+    });
     if (run) {
       mainWindow.webContents.send("runtime:event", { type: "run_updated", run });
     }
@@ -60,15 +63,7 @@ export function registerIpcHandlers(
   });
 
   register("runs:list", async () => {
-    const store = services.runCheckpointStore;
-    const running = await store.listByStatus("running");
-    const suspended = await store.listByStatus("suspended_for_clarification");
-    const approvals = await store.listByStatus("suspended_for_approval");
-    const completed = await store.listByStatus("completed");
-    const failed = await store.listByStatus("failed");
-    const cancelled = await store.listByStatus("cancelled");
-    const allRuns = [...running, ...suspended, ...approvals, ...completed, ...failed, ...cancelled];
-    return allRuns;
+    return listAllRuns(services);
   });
 
   register("runs:get", async (_event, runId: string) => {
@@ -90,10 +85,7 @@ export function registerIpcHandlers(
   register("settings:save", async (_event, settings: RuntimeSettings) => {
     const saved = await saveRuntimeSettings(services, settings);
     const descriptor = describeRuntime(services);
-    mainWindow.webContents.send("runtime:event", {
-      type: "runtime_ready",
-      descriptor
-    });
+    mainWindow.webContents.send("runtime:event", { type: "runtime_ready", descriptor });
     return { settings: saved, descriptor };
   });
 
@@ -106,37 +98,7 @@ export function registerIpcHandlers(
   });
 
   register("shell:tabs:list", async () => {
-    const allRuns = await services.runCheckpointStore.listAll();
-    const runtimeSessions = await services.browserKernel.listSessions();
-    const sessionMap = new Map(runtimeSessions.map((session) => [session.runId, session]));
-
-    return allRuns
-      .filter((run) => run.checkpoint.browserSessionId)
-      .map((run) => {
-        const session = sessionMap.get(run.id);
-        if (!session) {
-          return null;
-        }
-
-        return {
-          id: session.id,
-          runId: run.id,
-          groupId: run.id,
-          title: run.goal,
-          url: session.pageUrl || run.checkpoint.lastKnownUrl || "about:blank",
-          profileId: session.profileId,
-          source: run.source,
-          status: run.status,
-          isBackground: run.source === "scheduler",
-          closable: true
-        };
-      })
-      .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab))
-      .sort((a, b) => {
-        const aRun = allRuns.find((run) => run.id === a.runId);
-        const bRun = allRuns.find((run) => run.id === b.runId);
-        return (bRun?.updatedAt ?? "").localeCompare(aRun?.updatedAt ?? "");
-      });
+    return queryShellTabs(services);
   });
 
   // Demo registry handlers
@@ -151,8 +113,7 @@ export function registerIpcHandlers(
   });
 
   register("demo:watch", async (_event, params: { demoId: string; intervalMinutes: number }) => {
-    const watchId = await demoRegistry.registerWatch(params.demoId, services, params.intervalMinutes);
-    return watchId;
+    return demoRegistry.registerWatch(params.demoId, services, params.intervalMinutes);
   });
 
   register("taskpacks:list", async () => {
@@ -164,9 +125,10 @@ export function registerIpcHandlers(
       description: p.description,
       requiresLivePlanner: p.requiresLivePlanner,
       available: !p.requiresLivePlanner || plannerIsLive,
-      unavailableReason: p.requiresLivePlanner && !plannerIsLive
-        ? "Requires a live AI planner. Set ANTHROPIC_API_KEY to enable."
-        : undefined
+      unavailableReason:
+        p.requiresLivePlanner && !plannerIsLive
+          ? "Requires a live AI planner. Set ANTHROPIC_API_KEY to enable."
+          : undefined
     }));
   });
 
