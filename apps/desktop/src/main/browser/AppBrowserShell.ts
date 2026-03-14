@@ -1,19 +1,72 @@
-export interface TabDescriptor {
-  id: string;
-  title: string;
-  url: string;
-  profileId: string;
-}
+import type { BrowserWindow, WebContentsView } from "electron";
+import type { EmbeddedViewProvider } from "@openbrowse/browser-runtime";
+import { BrowserViewManager } from "./BrowserViewManager";
+import type { BrowserShellTabDescriptor, BrowserViewportBounds } from "../../shared/runtime";
 
-export class AppBrowserShell {
-  private readonly tabs = new Map<string, TabDescriptor>();
+export class AppBrowserShell implements EmbeddedViewProvider {
+  private viewManager: BrowserViewManager | null = null;
+  private readonly fallbackTabs = new Map<string, BrowserShellTabDescriptor>();
 
-  openTab(tab: TabDescriptor): void {
-    this.tabs.set(tab.id, tab);
+  attach(hostWindow: BrowserWindow): void {
+    // On macOS the main window can be closed and recreated while the app stays alive.
+    // Preserve live browser sessions by reattaching existing views instead of destroying them.
+    if (this.viewManager) {
+      this.viewManager.reattach(hostWindow);
+    } else {
+      this.viewManager = new BrowserViewManager(hostWindow);
+    }
+    hostWindow.on("resize", () => this.viewManager?.relayout());
   }
 
-  listTabs(): TabDescriptor[] {
-    return [...this.tabs.values()];
+  reattach(hostWindow: BrowserWindow): void {
+    this.attach(hostWindow);
+  }
+
+  get isAttached(): boolean {
+    return this.viewManager !== null;
+  }
+
+  createView(sessionId: string, profileId: string, partition: string): { view: WebContentsView } {
+    if (!this.viewManager) {
+      throw new Error("BrowserViewManager not attached to a host window");
+    }
+    const managed = this.viewManager.create(sessionId, profileId, partition);
+    return { view: managed.view };
+  }
+
+  destroyView(sessionId: string): void {
+    this.viewManager?.destroy(sessionId);
+  }
+
+  showSession(sessionId: string): void {
+    this.viewManager?.show(sessionId);
+  }
+
+  hideAllSessions(): void {
+    this.viewManager?.hideAll();
+  }
+
+  getActiveSessionId(): string | null {
+    return this.viewManager?.getActiveId() ?? null;
+  }
+
+  setViewportBounds(bounds: BrowserViewportBounds): void {
+    this.viewManager?.setViewportBounds(bounds);
+  }
+
+  clearViewportBounds(): void {
+    this.viewManager?.clearViewportBounds();
+  }
+
+  openTab(tab: BrowserShellTabDescriptor): void {
+    this.fallbackTabs.set(tab.groupId, tab);
+  }
+
+  listTabs(): BrowserShellTabDescriptor[] {
+    return [...this.fallbackTabs.values()];
+  }
+
+  destroyAll(): void {
+    this.viewManager?.destroyAll();
   }
 }
-

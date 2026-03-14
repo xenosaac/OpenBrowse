@@ -3,14 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "dependencies": {
-    "@openbrowse/contracts": "workspace:*"
+    "@openbrowse/contracts": "workspace:*",
+    "grammy": "^1.41.1"
   },
   "scripts": {
-    "build": "echo 'chat-bridge scaffold only'",
-    "lint": "echo 'chat-bridge scaffold only'",
-    "typecheck": "echo 'chat-bridge scaffold only'"
+    "build": "tsc --build",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0"
   }
 }
-

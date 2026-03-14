@@ -1,16 +1,34 @@
 {
   "name": "project-openbrowse",
   "private": true,
-  "packageManager": "pnpm@10",
+  "packageManager": "pnpm@10.32.1",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "build": "pnpm -r build",
+    "preinstall": "node ./scripts/openbrowse-env.mjs --warn-node",
+    "build": "pnpm run build:packages && pnpm run build:desktop",
+    "build:desktop": "pnpm --dir apps/desktop build",
+    "build:packages": "tsc -b packages/contracts packages/orchestrator packages/planner packages/browser-runtime packages/chat-bridge packages/memory-store packages/scheduler packages/observability packages/security packages/runtime-core packages/taskpacks packages/demo-flows",
+    "dev": "pnpm run dev:desktop",
+    "dev:safe": "node ./scripts/openbrowse-env.mjs --doctor --strict && pnpm run dev",
+    "doctor:env": "node ./scripts/openbrowse-env.mjs --doctor",
     "dev:desktop": "pnpm --dir apps/desktop dev",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck"
+    "lint": "pnpm run typecheck",
+    "native:rebuild": "pnpm --dir apps/desktop run native:rebuild",
+    "repair:env": "node ./scripts/openbrowse-env.mjs --repair",
+    "test": "pnpm run build:packages && node --experimental-specifier-resolution=node --test tests/*.test.mjs",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "electron", "esbuild"],
+    "ignoredBuiltDependencies": ["electron-winstaller"]
   }
 }
-

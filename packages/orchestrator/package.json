@@ -3,14 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "dependencies": {
     "@openbrowse/contracts": "workspace:*"
   },
   "scripts": {
-    "build": "echo 'orchestrator scaffold only'",
-    "lint": "echo 'orchestrator scaffold only'",
-    "typecheck": "echo 'orchestrator scaffold only'"
+    "build": "tsc --build",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   }
 }
-

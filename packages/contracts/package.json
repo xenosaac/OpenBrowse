@@ -3,11 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
-    "build": "echo 'contracts scaffold only'",
-    "lint": "echo 'contracts scaffold only'",
-    "typecheck": "echo 'contracts scaffold only'"
+    "build": "tsc --build",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   }
 }
-

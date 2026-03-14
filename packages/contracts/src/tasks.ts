@@ -1,4 +1,7 @@
+import type { BrowserAction } from "./browser.js";
+
 export type TaskSource = "desktop" | "telegram" | "scheduler";
+export type RunSuspensionType = "clarification" | "approval";
 
 export type TaskStatus =
   | "queued"
@@ -23,14 +26,31 @@ export interface TaskIntent {
   constraints: string[];
   preferredProfileId?: string;
   metadata: Record<string, string>;
+  createdAt?: string;
 }
 
 export interface RunCheckpoint {
   summary: string;
   lastPageModelId?: string;
   browserSessionId?: string;
+  lastKnownUrl?: string;
   pendingClarificationId?: string;
+  pendingApprovalId?: string;
+  pendingBrowserAction?: BrowserAction;
   notes: string[];
+}
+
+export interface RunSuspension {
+  type: RunSuspensionType;
+  requestId: string;
+  question: string;
+  createdAt: string;
+}
+
+export interface RunOutcome {
+  status: Extract<TaskStatus, "completed" | "failed" | "cancelled">;
+  summary: string;
+  finishedAt: string;
 }
 
 export interface TaskRun {
@@ -39,10 +59,14 @@ export interface TaskRun {
   status: TaskStatus;
   goal: string;
   source: TaskSource;
+  constraints: string[];
+  metadata: Record<string, string>;
   profileId?: string;
   createdAt: string;
   updatedAt: string;
   checkpoint: RunCheckpoint;
+  suspension?: RunSuspension;
+  outcome?: RunOutcome;
 }
 
 export interface ClarificationOption {
@@ -84,4 +108,3 @@ export interface PlannerDecision<TAction = unknown> {
   completionSummary?: string;
   failureSummary?: string;
 }
-

@@ -29,6 +29,12 @@
       "@openbrowse/memory-store": [
         "packages/memory-store/src/index.ts"
       ],
+      "@openbrowse/memory-store/memory": [
+        "packages/memory-store/src/MemoryStore.ts"
+      ],
+      "@openbrowse/memory-store/sqlite": [
+        "packages/memory-store/src/sqlite.ts"
+      ],
       "@openbrowse/scheduler": [
         "packages/scheduler/src/index.ts"
       ],
@@ -37,8 +43,16 @@
       ],
       "@openbrowse/security": [
         "packages/security/src/index.ts"
+      ],
+      "@openbrowse/runtime-core": [
+        "packages/runtime-core/src/index.ts"
+      ],
+      "@openbrowse/taskpacks": [
+        "packages/taskpacks/src/index.ts"
+      ],
+      "@openbrowse/demo-flows": [
+        "packages/demo-flows/src/index.ts"
       ]
     }
   }
 }
-
