@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserProfile, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -79,6 +79,10 @@ export function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -182,6 +186,31 @@ export function App() {
     return { running, suspended, completed };
   }, [runs, suspendedRuns]);
 
+  const handleSidebarDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDraggingRef.current = true;
+      setIsDragging(true);
+      document.body.style.userSelect = "none";
+      const startX = e.clientX;
+      const startWidth = sidebarWidth;
+      const onMove = (ev: MouseEvent) => {
+        const next = Math.max(220, Math.min(580, startWidth + (ev.clientX - startX)));
+        setSidebarWidth(next);
+      };
+      const onUp = () => {
+        isDraggingRef.current = false;
+        setIsDragging(false);
+        document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [sidebarWidth]
+  );
+
   const openRunInBrowser = async (run: TaskRun) => {
     const next = focusRun(run, { openBrowser: true });
     if (run.checkpoint.browserSessionId || next.openBrowser) {
@@ -283,13 +312,10 @@ export function App() {
               await refresh();
               if (!run?.id) return;
               setSelectedRunId(run.id);
-              if (!foregroundRunId && run.source === "desktop") {
-                setForegroundRunId(run.id);
-              }
-              const shouldOpenBrowser =
-                Boolean(run.checkpoint.browserSessionId) &&
-                (foregroundRunId === run.id || (!foregroundRunId && run.source === "desktop"));
-              if (shouldOpenBrowser) {
+              // The detached resume IPC attaches the browser session before returning,
+              // so run.checkpoint.browserSessionId is set when we reach here.
+              // Navigate to browser unconditionally if the run has a session.
+              if (run.checkpoint.browserSessionId) {
                 setSelectedGroupId(run.id);
                 setForegroundRunId(run.id);
                 setMainPanel("browser");
@@ -326,7 +352,15 @@ export function App() {
 
   return (
     <div style={styles.app}>
-      <aside style={styles.sidebar}>
+      <aside
+        style={{
+          ...styles.sidebar,
+          width: sidebarVisible ? sidebarWidth : 0,
+          minWidth: sidebarVisible ? 220 : 0,
+          overflow: "hidden",
+          transition: isDragging ? "none" : "width 0.2s ease, min-width 0.2s ease"
+        }}
+      >
         <div style={styles.sidebarHeader}>
           <div style={styles.brandMark}>✦</div>
           <div>
@@ -416,11 +450,19 @@ export function App() {
         <div style={styles.sidebarContent}>{renderSidebarContent()}</div>
       </aside>
 
+      {sidebarVisible && (
+        <div onMouseDown={handleSidebarDragStart} style={styles.sidebarDragHandle} />
+      )}
+
       <section style={styles.main}>
         <header style={styles.browserHeader}>
           <div style={styles.tabBar}>
-            <button onClick={() => setIsSettingsOpen(true)} style={styles.iconButton} title="Settings">
-              ⚙
+            <button
+              onClick={() => setSidebarVisible((v) => !v)}
+              style={styles.iconButton}
+              title={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+            >
+              ☰
             </button>
             <div style={styles.headerTabs}>
               <button
@@ -475,7 +517,6 @@ export function App() {
                 +
               </button>
             </div>
-            <button style={styles.iconButton}>≡</button>
           </div>
 
           <div style={styles.navBar}>
@@ -503,6 +544,9 @@ export function App() {
               </button>
               <button style={styles.headerPill} onClick={() => setSidebarPanel("questions")}>
                 Questions
+              </button>
+              <button onClick={() => setIsSettingsOpen(true)} style={styles.iconButton} title="Settings">
+                ⚙
               </button>
             </div>
           </div>
@@ -555,29 +599,6 @@ export function App() {
                     →
                   </button>
                 </div>
-              </div>
-
-              <div style={styles.quickGrid}>
-                <QuickActionCard
-                  title="Web Search"
-                  desc="Launch a research or browsing task."
-                  onClick={() => setSidebarPanel("tasks")}
-                />
-                <QuickActionCard
-                  title="Quick Actions"
-                  desc="Run demos and repeatable browser packs."
-                  onClick={() => setSidebarPanel("demos")}
-                />
-                <QuickActionCard
-                  title="Workflow Debug"
-                  desc="Inspect replay and raw event timeline."
-                  onClick={() => setSidebarPanel("log")}
-                />
-                <QuickActionCard
-                  title="Settings"
-                  desc="Configure Anthropic and Telegram."
-                  onClick={() => setIsSettingsOpen(true)}
-                />
               </div>
 
               <div style={styles.homeSections}>
@@ -676,23 +697,6 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
-function QuickActionCard({
-  title,
-  desc,
-  onClick
-}: {
-  title: string;
-  desc: string;
-  onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} style={styles.quickCard}>
-      <div style={styles.quickCardTitle}>{title}</div>
-      <div style={styles.quickCardDesc}>{desc}</div>
-    </button>
-  );
-}
-
 function HomeInfoCard({
   title,
   value,
@@ -724,12 +728,19 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
   sidebar: {
-    width: 340,
-    minWidth: 340,
     display: "flex",
     flexDirection: "column",
-    borderRight: "1px solid #2a2a3e",
-    background: "#0f0f18"
+    background: "#0f0f18",
+    flexShrink: 0
+  },
+  sidebarDragHandle: {
+    width: 4,
+    cursor: "col-resize",
+    background: "transparent",
+    borderLeft: "1px solid #2a2a3e",
+    flexShrink: 0,
+    zIndex: 10,
+    boxSizing: "border-box" as const
   },
   sidebarHeader: {
     padding: "18px 18px 14px",

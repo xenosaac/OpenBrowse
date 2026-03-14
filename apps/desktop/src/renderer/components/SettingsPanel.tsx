@@ -22,7 +22,12 @@ export function SettingsPanel({ runtime, settings, onSaved }: Props) {
   const serializedSettings = useMemo(() => (settings ? JSON.stringify(settings) : null), [settings]);
 
   useEffect(() => {
-    if (settings && (!isDirty || lastHydratedRef.current === null)) {
+    // Only hydrate the form from the settings prop when:
+    // 1. Settings have arrived and the user hasn't started editing (isDirty=false), AND
+    // 2. The incoming settings value is actually different from the last value we hydrated.
+    // This prevents a stale settings prop (not yet refreshed after a save) from overwriting
+    // the form with the old value immediately after handleSave runs setIsDirty(false).
+    if (settings && !isDirty && serializedSettings !== lastHydratedRef.current) {
       setForm(settings);
       lastHydratedRef.current = serializedSettings;
     }
@@ -49,8 +54,13 @@ export function SettingsPanel({ runtime, settings, onSaved }: Props) {
         plannerModel: form.plannerModel.trim() || DEFAULT_ANTHROPIC_MODEL
       };
       const result = await window.openbrowse.saveSettings(payload);
+      // Update the form to the canonical saved values returned by the main process.
+      // Do NOT update lastHydratedRef here: the settings prop hasn't refreshed yet, so
+      // if we wrote the new value to lastHydratedRef now the useEffect (which fires when
+      // isDirty becomes false) would see settings-prop != lastHydratedRef and would
+      // overwrite the form with the stale pre-save settings prop value.
+      // Instead we let the useEffect pick up the update once the prop refreshes via onSaved().
       setForm(result.settings);
-      lastHydratedRef.current = JSON.stringify(result.settings);
       setIsDirty(false);
       setNotice("Settings saved. Runtime configuration has been refreshed.");
       await onSaved(result.settings);

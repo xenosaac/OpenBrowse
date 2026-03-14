@@ -29,7 +29,7 @@
     "build": "electron-vite build",
     "dev": "electron-vite dev",
     "lint": "tsc --noEmit",
-    "native:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "native:rebuild": "electron-rebuild -f -w better-sqlite3 -m ../../packages/memory-store",
     "typecheck": "tsc --noEmit",
     "package": "electron-vite build && electron-builder --mac",
     "package:dir": "electron-vite build && electron-builder --mac --dir"

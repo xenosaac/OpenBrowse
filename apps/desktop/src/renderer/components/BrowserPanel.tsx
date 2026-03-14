@@ -76,6 +76,20 @@ export function BrowserPanel({
     return null;
   }, [activeTab, runs, selectedRunId]);
 
+  // Sync selection state whenever the active tab or resolved run changes.
+  // This is kept separate from the show/hide effect to avoid re-triggering showBrowserSession
+  // on every run status update.
+  useEffect(() => {
+    if (!activeTab) return;
+    onSelectGroup(activeTab.groupId);
+    if (currentRun && currentRun.id !== selectedRunId) {
+      onSelectRun(currentRun.id);
+    }
+  }, [activeTab, currentRun, onSelectGroup, onSelectRun, selectedRunId]);
+
+  // Show / hide the native browser view when the active session changes.
+  // Viewport bounds are set BEFORE showBrowserSession so the view is never briefly
+  // drawn at full-window size (which would cause a black-screen flash over the sidebar).
   useEffect(() => {
     if (!activeTab) {
       void window.openbrowse.hideBrowserSession();
@@ -83,30 +97,28 @@ export function BrowserPanel({
       return;
     }
 
-    onSelectGroup(activeTab.groupId);
-    if (currentRun && currentRun.id !== selectedRunId) {
-      onSelectRun(currentRun.id);
-    }
-
     const showAndBindViewport = async () => {
-      await window.openbrowse.showBrowserSession(activeTab.id);
-
+      // Set bounds first so BrowserViewManager uses them when applyVisibility runs.
       const element = viewportRef.current;
-      if (!element) {
-        return;
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        await window.openbrowse.setBrowserViewport({
+          x: rect.left,
+          y: rect.top,
+          width: rect.width,
+          height: rect.height
+        });
       }
-
-      const rect = element.getBoundingClientRect();
-      await window.openbrowse.setBrowserViewport({
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height
-      });
+      await window.openbrowse.showBrowserSession(activeTab.id);
     };
 
     void showAndBindViewport();
+  // Only re-run when the active session itself changes, not on every run/selection update.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.id]);
 
+  // Keep viewport bounds in sync with element size changes.
+  useEffect(() => {
     const updateViewport = async () => {
       const element = viewportRef.current;
       if (!element) {
@@ -132,7 +144,7 @@ export function BrowserPanel({
       observer.disconnect();
       window.removeEventListener("resize", updateViewport);
     };
-  }, [activeTab, currentRun, onRefresh, onSelectGroup, onSelectRun, selectedRunId]);
+  }, []);
 
   const handleSelectTab = async (tab: BrowserShellTabDescriptor) => {
     onSelectGroup(tab.groupId);
@@ -305,19 +317,19 @@ const styles: Record<string, React.CSSProperties> = {
     placeItems: "center",
     height: "100%",
     minHeight: 360,
-    border: "1px dashed #d9c7ac",
+    border: "1px dashed #2a2a3e",
     borderRadius: 14,
-    background: "#f8f3ea"
+    background: "#0f0f18"
   },
   emptyTitle: {
     margin: 0,
-    color: "#3f372d",
+    color: "#9090a8",
     fontSize: "1rem",
     fontWeight: 600
   },
   emptyHint: {
     margin: 0,
-    color: "#7c735f",
+    color: "#6b6b82",
     fontSize: "0.88rem"
   },
   groupBar: {
@@ -337,15 +349,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    border: "1px solid #d9c7ac",
+    border: "1px solid #2a2a3e",
     borderRadius: 10,
-    background: "#efe5d3",
+    background: "#171726",
+    color: "#e5e7eb",
     padding: "4px 6px 4px 10px",
     minWidth: 0
   },
   groupChipActive: {
-    background: "#1f4d3f",
-    borderColor: "#1f4d3f"
+    background: "#7c3aed",
+    borderColor: "#8b5cf6"
   },
   groupButton: {
     display: "flex",
@@ -390,10 +403,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   hideButton: {
     marginLeft: "auto",
-    background: "#b91c1c",
-    color: "#fffdf9",
-    border: "none",
-    borderRadius: 6,
+    background: "#1a1a26",
+    color: "#cbd5e1",
+    border: "1px solid #2a2a3e",
+    borderRadius: 10,
     padding: "8px 14px",
     cursor: "pointer",
     fontSize: "0.82rem",
@@ -413,8 +426,8 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%"
   },
   viewportFrame: {
-    background: "#f6efe2",
-    border: "1px solid #d9c7ac",
+    background: "#0f0f18",
+    border: "1px solid #2a2a3e",
     borderRadius: 12,
     overflow: "hidden",
     display: "flex",
@@ -429,20 +442,20 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "0 14px",
     height: 42,
     flexShrink: 0,
-    borderBottom: "1px solid #ddceb6",
-    background: "#efe3cf"
+    borderBottom: "1px solid #2a2a3e",
+    background: "#171726"
   },
   viewportDot: {
     width: 10,
     height: 10,
     borderRadius: "50%",
-    background: "#c9b79c",
+    background: "#3a3a50",
     display: "inline-block"
   },
   viewportTitle: {
     marginLeft: 8,
     fontSize: "0.82rem",
-    color: "#675d50",
+    color: "#9090a8",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap" as const
@@ -460,13 +473,13 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    color: "#7c735f",
+    color: "#9090a8",
     fontSize: "0.9rem",
     pointerEvents: "none" as const
   },
   debugPanel: {
-    background: "#fff9f0",
-    border: "1px solid #d9c7ac",
+    background: "#0f0f18",
+    border: "1px solid #2a2a3e",
     borderRadius: 12,
     padding: 16,
     display: "grid",
@@ -481,8 +494,8 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12
   },
   debugBadge: {
-    background: "#e7efe9",
-    color: "#1f4d3f",
+    background: "rgba(139,92,246,0.14)",
+    color: "#c4b5fd",
     borderRadius: 999,
     padding: "4px 10px",
     fontSize: "0.72rem",
@@ -496,16 +509,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.78rem",
     letterSpacing: "0.06em",
     textTransform: "uppercase" as const,
-    color: "#7c735f"
+    color: "#9090a8"
   },
   debugText: {
     fontSize: "0.95rem",
-    color: "#2f2821",
+    color: "#ffffff",
     fontWeight: 600
   },
   debugHint: {
     fontSize: "0.82rem",
-    color: "#6d6253",
+    color: "#9090a8",
     lineHeight: 1.5
   },
   eventList: {
@@ -513,20 +526,20 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   eventItem: {
-    border: "1px solid #e8dcc8",
+    border: "1px solid #2a2a3e",
     borderRadius: 8,
-    background: "#f8f1e4",
+    background: "#151522",
     padding: "8px 10px"
   },
   eventType: {
     fontSize: "0.72rem",
     textTransform: "uppercase" as const,
-    color: "#7c735f"
+    color: "#9090a8"
   },
   eventSummary: {
     marginTop: 3,
     fontSize: "0.84rem",
-    color: "#3f372d",
+    color: "#e5e7eb",
     lineHeight: 1.4
   }
 };

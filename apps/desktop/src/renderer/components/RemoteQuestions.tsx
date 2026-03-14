@@ -140,7 +140,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
-    border: "1px solid #4b2d12"
+    border: "1px solid rgba(245,158,11,0.25)"
   },
   question: {
     color: "#fbbf24",
@@ -176,7 +176,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.9rem"
   },
   telegramButton: {
-    background: "#995f27"
+    background: "#0e7490",
+    borderColor: "#06b6d4"
   },
   approveButton: {
     background: "#15803d"

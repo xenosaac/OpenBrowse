@@ -1,14 +1,13 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import { createDesktopBootstrap } from "./bootstrap";
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
-import { RecoveryManager, shutdownRuntime } from "@openbrowse/runtime-core";
-import type { RecoverySummary } from "@openbrowse/contracts";
+import { shutdownRuntime } from "@openbrowse/runtime-core";
+import { RuntimeEventBridge } from "./RuntimeEventBridge";
 
 let mainWindow: BrowserWindow | null = null;
 let desktopBootstrap: Awaited<ReturnType<typeof createDesktopBootstrap>> | null = null;
-let lastRecoveryReport: RecoverySummary | null = null;
-let workflowSubscriptionAttached = false;
+let runtimeBridge: RuntimeEventBridge | null = null;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -19,7 +18,7 @@ function createWindow(): BrowserWindow {
     title: "OpenBrowse",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
-    backgroundColor: "#f4efe6",
+    backgroundColor: "#0f0f18",
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,
@@ -37,96 +36,38 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function attachWindowLifecycle(window: BrowserWindow): void {
-  window.on("closed", () => {
-    if (mainWindow === window) {
-      mainWindow = null;
-    }
-  });
-}
-
 async function createAndBootstrapWindow(): Promise<BrowserWindow> {
   const window = createWindow();
-  attachWindowLifecycle(window);
+  window.on("closed", () => {
+    if (mainWindow === window) mainWindow = null;
+  });
 
-  if (desktopBootstrap) {
+  // macOS: window reopened while runtime is already running — reattach shell and bridge.
+  if (desktopBootstrap && runtimeBridge) {
     desktopBootstrap.browserShell.reattach(window);
-    registerIpcHandlers(desktopBootstrap.services, desktopBootstrap.browserShell, window, desktopBootstrap.demoRegistry);
-    desktopBootstrap = {
-      ...desktopBootstrap,
-      mainWindow: window
-    };
+    runtimeBridge.attachWindow(window);
+    registerIpcHandlers(
+      desktopBootstrap.services,
+      desktopBootstrap.browserShell,
+      window,
+      desktopBootstrap.demoRegistry
+    );
+    desktopBootstrap = { ...desktopBootstrap, mainWindow: window };
     mainWindow = window;
-    window.webContents.once("did-finish-load", () => {
-      window.webContents.send("runtime:event", {
-        type: "runtime_ready",
-        descriptor: desktopBootstrap?.services.descriptor
-      });
-    });
+    runtimeBridge.sendReopenSignal();
     return window;
   }
 
+  // First window: full bootstrap, recovery, and event wiring.
   const bootstrap = await createDesktopBootstrap(window);
   desktopBootstrap = bootstrap;
   mainWindow = window;
 
-  if (!workflowSubscriptionAttached) {
-    bootstrap.services.eventBus.subscribe("workflow", async (event) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("runtime:event", {
-          type: "workflow_event",
-          event
-        });
-      }
-    });
-    workflowSubscriptionAttached = true;
-  }
-
-  ipcMain.removeHandler("runtime:last-recovery");
-  ipcMain.handle("runtime:last-recovery", async () => lastRecoveryReport);
-
-  const recovery = new RecoveryManager(bootstrap.services);
-  const recoveryReport = await recovery.recoverInterruptedRuns();
-  const recoveredCount = recoveryReport.resumed.length;
-  const awaitingInputCount = recoveryReport.awaitingInput.length;
-  const failedCount = recoveryReport.failed.length;
-  const skippedCount = recoveryReport.skipped.length;
-  const totalRecoveryCount = recoveredCount + awaitingInputCount + failedCount + skippedCount;
-  lastRecoveryReport =
-    totalRecoveryCount > 0
-      ? {
-          resumed: recoveredCount,
-          awaitingInput: awaitingInputCount,
-          failed: failedCount,
-          skipped: skippedCount
-        }
-      : null;
-
-  if (totalRecoveryCount > 0) {
-    console.log(
-      `[startup] Recovery summary: resumed=${recoveredCount}, awaiting_input=${awaitingInputCount}, failed=${failedCount}`
-    );
-  }
-
-  const sendReady = () => {
-    window.webContents.send("runtime:event", {
-      type: "runtime_ready",
-      descriptor: bootstrap.services.descriptor
-    });
-
-    if (totalRecoveryCount > 0) {
-      window.webContents.send("runtime:event", {
-        type: "recovery_complete",
-        report: lastRecoveryReport
-      });
-    }
-  };
-
-  if (window.webContents.isLoading()) {
-    window.webContents.once("did-finish-load", sendReady);
-  } else {
-    sendReady();
-  }
+  runtimeBridge = new RuntimeEventBridge(bootstrap.services, window);
+  runtimeBridge.attachEventBus();
+  runtimeBridge.registerRecoveryIpc();
+  await runtimeBridge.runStartupRecovery();
+  runtimeBridge.sendStartupSignals();
 
   return window;
 }
@@ -149,9 +90,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  if (process.platform !== "darwin") app.quit();
 });
 
 app.on("before-quit", async () => {

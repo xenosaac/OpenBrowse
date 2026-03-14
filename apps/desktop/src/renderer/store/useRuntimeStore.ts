@@ -30,6 +30,7 @@ export function useRuntimeStore() {
 
   const selectedRunIdRef = useRef<string | null>(null);
   const liveEventsRef = useRef<Record<string, WorkflowEvent[]>>({});
+  const runtimeRef = useRef<RuntimeDescriptor | null>(null);
 
   const mergeEvents = useCallback((persisted: WorkflowEvent[], streamed: WorkflowEvent[]): WorkflowEvent[] => {
     const deduped = new Map<string, WorkflowEvent>();
@@ -131,13 +132,19 @@ export function useRuntimeStore() {
   }, [selectedRunId]);
 
   useEffect(() => {
+    runtimeRef.current = runtime;
+  }, [runtime]);
+
+  useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let retries = 0;
 
     const tryRefresh = async () => {
       await refresh();
       retries++;
-      if (!runtime && retries < 10) {
+      // Use runtimeRef (not the stale closure value) so the retry loop stops as soon as
+      // the runtime descriptor arrives, without needing this effect to re-run.
+      if (!runtimeRef.current && retries < 10) {
         retryTimer = setTimeout(() => void tryRefresh(), 500);
       }
     };
@@ -181,7 +188,11 @@ export function useRuntimeStore() {
             return next;
           });
         }
-        void refreshRunAudit(runtimeEvent.run.id);
+        // Only refresh the audit log when the updated run is the one currently being viewed.
+        // Calling refreshRunAudit for a different run would overwrite the displayed logs.
+        if (runtimeEvent.run.id === selectedRunIdRef.current) {
+          void refreshRunAudit(runtimeEvent.run.id);
+        }
         return;
       }
 
@@ -203,7 +214,8 @@ export function useRuntimeStore() {
       unsub();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [mergeEvents, refresh, refreshRunAudit, runtime, upsertRun]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mergeEvents, refresh, refreshRunAudit, upsertRun]);
 
   useEffect(() => {
     void refreshRunAudit(selectedRunId);

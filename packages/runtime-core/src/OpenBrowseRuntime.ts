@@ -151,9 +151,10 @@ export class OpenBrowseRuntime {
     return failedRun;
   }
 
-  private async resumeExecution(run: TaskRun, pendingAction?: BrowserAction): Promise<TaskRun> {
-    if (run.status !== "running") return run;
-
+  // Attaches a browser session to a running run and persists the checkpoint.
+  // Returns the reattached run (with browserSessionId set) and the session.
+  // Callers must ensure run.status === "running" before calling.
+  private async setupResume(run: TaskRun): Promise<{ reattached: TaskRun; session: BrowserSession }> {
     const profile = await this.services.browserKernel.ensureProfile(run.profileId);
     const session = await this.services.browserKernel.attachSession(profile, {
       runId: run.id,
@@ -163,38 +164,159 @@ export class OpenBrowseRuntime {
       status: run.status,
       isBackground: true
     });
-    let reattached = this.services.orchestrator.attachSession(run, profile.id, session.id);
+    const reattached = this.services.orchestrator.attachSession(run, profile.id, session.id);
     await this.services.runCheckpointStore.save(reattached);
+    return { reattached, session };
+  }
 
-    if (reattached.checkpoint.lastKnownUrl) {
+  // Restores the last URL, executes any pending action, then runs the planner loop.
+  // Called after setupResume has already attached the session.
+  private async continueResume(run: TaskRun, session: BrowserSession, pendingAction?: BrowserAction): Promise<TaskRun> {
+    let current = run;
+
+    if (current.checkpoint.lastKnownUrl) {
       const restoreResult = await this.services.browserKernel.executeAction(session, {
         type: "navigate",
-        value: reattached.checkpoint.lastKnownUrl,
-        description: `Restore previous page ${reattached.checkpoint.lastKnownUrl}`
+        value: current.checkpoint.lastKnownUrl,
+        description: `Restore previous page ${current.checkpoint.lastKnownUrl}`
       });
-      reattached = this.services.orchestrator.recordBrowserResult(reattached, restoreResult);
-      await this.services.runCheckpointStore.save(reattached);
+      current = this.services.orchestrator.recordBrowserResult(current, restoreResult);
+      await this.services.runCheckpointStore.save(current);
     }
 
     if (pendingAction) {
       const result = await this.services.browserKernel.executeAction(session, pendingAction);
-      reattached = this.services.orchestrator.recordBrowserResult(reattached, result);
-      await this.services.runCheckpointStore.save(reattached);
-      await this.logWorkflowEvent(reattached.id, "browser_action_executed", result.summary, {
+      current = this.services.orchestrator.recordBrowserResult(current, result);
+      await this.services.runCheckpointStore.save(current);
+      await this.logWorkflowEvent(current.id, "browser_action_executed", result.summary, {
         actionType: pendingAction.type,
         ok: String(result.ok),
         resumed: "true"
       });
 
       if (!result.ok) {
-        const failedRun = this.services.orchestrator.failRun(reattached, result.summary);
+        const failedRun = this.services.orchestrator.failRun(current, result.summary);
         await this.services.runCheckpointStore.save(failedRun);
         await this.logWorkflowEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
         return failedRun;
       }
     }
 
-    return this.plannerLoop(reattached, session);
+    return this.plannerLoop(current, session);
+  }
+
+  private async resumeExecution(run: TaskRun, pendingAction?: BrowserAction): Promise<TaskRun> {
+    if (run.status !== "running") return run;
+    const { reattached, session } = await this.setupResume(run);
+    return this.continueResume(reattached, session, pendingAction);
+  }
+
+  // Like resumeTaskFromMessage but non-blocking: attaches the browser session before returning
+  // (so callers get a run with browserSessionId set), then runs the planner loop in the background.
+  async resumeTaskFromMessageDetached(
+    message: TaskMessage,
+    onSettled?: (run: TaskRun) => Promise<void> | void
+  ): Promise<TaskRun | null> {
+    if (!message.runId) return null;
+    const run = await this.services.runCheckpointStore.load(message.runId);
+    if (!run || !run.suspension) return null;
+
+    if (run.suspension.type === "approval") {
+      const approved = parseApprovalAnswer(message.text);
+      if (approved === null) {
+        await this.services.chatBridge.send({
+          channel: message.channel,
+          runId: run.id,
+          text: `Run "${run.goal}" is waiting for approval. Reply with "approve" or "deny".`
+        });
+        return run;
+      }
+
+      if (!approved) {
+        const cancelledRun = this.services.orchestrator.cancelRun(
+          run,
+          "User denied approval request.",
+          message.createdAt
+        );
+        await this.services.runCheckpointStore.save(cancelledRun);
+        await this.logWorkflowEvent(cancelledRun.id, "approval_answered", "Approval denied by user.", {
+          channel: message.channel,
+          approved: "false"
+        });
+        await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
+        await onSettled?.(cancelledRun);
+        return cancelledRun;
+      }
+
+      const pendingAction = run.checkpoint.pendingBrowserAction;
+      const resumedRun = this.services.orchestrator.resumeFromApproval(run, true, message.createdAt);
+      await this.services.runCheckpointStore.save(resumedRun);
+      await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval granted by user.", {
+        channel: message.channel,
+        approved: "true"
+      });
+
+      if (resumedRun.status !== "running") {
+        await onSettled?.(resumedRun);
+        return resumedRun;
+      }
+
+      let setup: { reattached: TaskRun; session: BrowserSession };
+      try {
+        setup = await this.setupResume(resumedRun);
+      } catch (err) {
+        const failedRun = await this.failUnexpectedRun(resumedRun, err);
+        await onSettled?.(failedRun);
+        return failedRun;
+      }
+
+      void this.continueResume(setup.reattached, setup.session, pendingAction)
+        .then(async (finalRun) => { await onSettled?.(finalRun); })
+        .catch(async (err) => {
+          const failedRun = await this.failUnexpectedRun(setup.reattached, err);
+          await onSettled?.(failedRun);
+        });
+
+      return setup.reattached;
+    }
+
+    if (!run.checkpoint.pendingClarificationId) {
+      return run;
+    }
+
+    const resumedRun = this.services.orchestrator.resumeFromClarification(run, {
+      requestId: run.checkpoint.pendingClarificationId,
+      runId: run.id,
+      answer: message.text,
+      respondedAt: message.createdAt
+    });
+    await this.services.runCheckpointStore.save(resumedRun);
+    await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
+      channel: message.channel
+    });
+
+    if (resumedRun.status !== "running") {
+      await onSettled?.(resumedRun);
+      return resumedRun;
+    }
+
+    let setup: { reattached: TaskRun; session: BrowserSession };
+    try {
+      setup = await this.setupResume(resumedRun);
+    } catch (err) {
+      const failedRun = await this.failUnexpectedRun(resumedRun, err);
+      await onSettled?.(failedRun);
+      return failedRun;
+    }
+
+    void this.continueResume(setup.reattached, setup.session)
+      .then(async (finalRun) => { await onSettled?.(finalRun); })
+      .catch(async (err) => {
+        const failedRun = await this.failUnexpectedRun(setup.reattached, err);
+        await onSettled?.(failedRun);
+      });
+
+    return setup.reattached;
   }
 
   private async plannerLoop(run: TaskRun, session: BrowserSession): Promise<TaskRun> {
@@ -345,6 +467,20 @@ export async function handleInboundMessage(services: RuntimeServices, message: T
   if (!run) return null;
   const effectiveServices = await resolveRuntimeServicesForRun(services, run);
   return new OpenBrowseRuntime(effectiveServices).resumeTaskFromMessage(message);
+}
+
+// Non-blocking variant: attaches the browser session synchronously (so the returned run has
+// browserSessionId set), then fires the planner loop in the background via onSettled.
+export async function handleInboundMessageDetached(
+  services: RuntimeServices,
+  message: TaskMessage,
+  onSettled?: (run: TaskRun) => Promise<void> | void
+): Promise<TaskRun | null> {
+  if (!message.runId) return null;
+  const run = await services.runCheckpointStore.load(message.runId);
+  if (!run) return null;
+  const effectiveServices = await resolveRuntimeServicesForRun(services, run);
+  return new OpenBrowseRuntime(effectiveServices).resumeTaskFromMessageDetached(message, onSettled);
 }
 
 export async function recoverRun(services: RuntimeServices, run: TaskRun): Promise<TaskRun> {

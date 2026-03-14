@@ -1,34 +1,21 @@
 import path from "node:path";
-import { StubBrowserKernel, ElectronBrowserKernel, type BrowserKernel, type EmbeddedViewProvider } from "@openbrowse/browser-runtime";
+import {
+  ElectronBrowserKernel,
+  StubBrowserKernel,
+  type BrowserKernel,
+  type EmbeddedViewProvider
+} from "@openbrowse/browser-runtime";
 import type { BrowserWindow } from "electron";
-import type {
-  RuntimeConfig,
-  RuntimeDescriptor,
-  TaskIntent,
-  WorkflowEvent
-} from "@openbrowse/contracts";
+import type { RuntimeConfig, RuntimeDescriptor } from "@openbrowse/contracts";
 import { createDefaultRuntimeSettings } from "@openbrowse/contracts";
 import {
-  InMemoryPreferenceStore,
-  InMemoryRunCheckpointStore,
-  InMemoryWorkflowLogStore,
-  type PreferenceStore,
-  type RunCheckpointStore,
-  type WorkflowLogStore
-} from "@openbrowse/memory-store/memory";
-import { EventBus } from "@openbrowse/observability";
-import { DefaultClarificationPolicy, TaskOrchestrator } from "@openbrowse/orchestrator";
-import { IntervalWatchScheduler, type WatchScheduler } from "@openbrowse/scheduler";
-import { DefaultApprovalPolicy } from "@openbrowse/security";
-import {
-  bootstrapRun as bootstrapRuntimeRun,
-  buildRuntimeDescriptor,
+  assembleRuntimeServices,
   createChatBridge,
   createPlanner,
+  createRuntimeStorage,
   type RuntimeServices
 } from "@openbrowse/runtime-core";
 
-export type { RuntimeServices } from "@openbrowse/runtime-core";
 
 export function createDefaultRuntimeConfig(): RuntimeConfig {
   return {
@@ -91,106 +78,41 @@ export async function composeRuntime(options: ComposeRuntimeOptions = {}): Promi
     options.enableExperimentalBrowser ??
     (Boolean(options.mainWindow) && process.env.OPENBROWSE_DISABLE_BROWSER !== "1");
   const enableRemoteChat =
-    options.enableRemoteChat ??
-    (process.env.OPENBROWSE_DISABLE_TELEGRAM !== "1");
+    options.enableRemoteChat ?? process.env.OPENBROWSE_DISABLE_TELEGRAM !== "1";
   const enableModelPlanner =
     options.enableModelPlanner ??
     (Boolean(runtimeSettings.anthropicApiKey.trim() || process.env.ANTHROPIC_API_KEY) &&
       process.env.OPENBROWSE_DISABLE_MODEL_PLANNER !== "1");
 
-  let workflowLogStore: WorkflowLogStore;
-  let runCheckpointStore: RunCheckpointStore;
-  let preferenceStore: PreferenceStore;
-  let sqliteDb: { close(): void } | undefined;
-  let storageDescriptor: RuntimeDescriptor["storage"];
-
-  if (options.dbPath) {
-    try {
-      const {
-        SqliteDatabase,
-        SqliteWorkflowLogStore,
-        SqliteRunCheckpointStore,
-        SqlitePreferenceStore
-      } = await import("@openbrowse/memory-store/sqlite");
-
-      const sqliteDbInstance = new SqliteDatabase(options.dbPath);
-      workflowLogStore = new SqliteWorkflowLogStore(sqliteDbInstance);
-      runCheckpointStore = new SqliteRunCheckpointStore(sqliteDbInstance);
-      preferenceStore = new SqlitePreferenceStore(sqliteDbInstance);
-      sqliteDb = sqliteDbInstance;
-      storageDescriptor = {
-        mode: "sqlite",
-        detail: `Local SQLite persistence is enabled at ${options.dbPath}.`
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[runtime] Failed to initialize SQLite store, falling back to memory:", message);
-      workflowLogStore = new InMemoryWorkflowLogStore();
-      runCheckpointStore = new InMemoryRunCheckpointStore();
-      preferenceStore = new InMemoryPreferenceStore();
-      storageDescriptor = {
-        mode: "memory",
-        detail: `Falling back to in-memory storage because SQLite failed to initialize: ${message}`
-      };
-    }
-  } else {
-    workflowLogStore = new InMemoryWorkflowLogStore();
-    runCheckpointStore = new InMemoryRunCheckpointStore();
-    preferenceStore = new InMemoryPreferenceStore();
-    storageDescriptor = {
-      mode: "memory",
-      detail: "Falling back to in-memory storage because no desktop app data path was provided."
-    };
-  }
-
+  const storage = await createRuntimeStorage(options.dbPath);
   const plannerSetup = createPlanner(enableModelPlanner, runtimeSettings);
+
   const telegramStatePath = options.dbPath
     ? path.join(path.dirname(options.dbPath), "telegram-bridge-state.json")
     : path.resolve(process.cwd(), "openbrowse-telegram-state.json");
   const chatBridgeSetup = createChatBridge(enableRemoteChat, telegramStatePath, runtimeSettings);
+
   const resolvedProfilesPath = runtimeConfig.managedProfilesPath.replace(/^~/, process.env.HOME ?? "");
-  const browserKernelSetup = createBrowserKernel(options.mainWindow, enableExperimentalBrowser, resolvedProfilesPath, options.viewProvider);
+  const browserKernelSetup = createBrowserKernel(
+    options.mainWindow,
+    enableExperimentalBrowser,
+    resolvedProfilesPath,
+    options.viewProvider
+  );
 
-  let services!: RuntimeServices;
-  const scheduler: WatchScheduler = new IntervalWatchScheduler(async (intent) => {
-    const schedulerIntent: TaskIntent = {
-      ...intent,
-      id: `${intent.id}_${Date.now()}`,
-      source: "scheduler",
-      createdAt: new Date().toISOString()
-    };
-
-    await bootstrapRuntimeRun(services, schedulerIntent);
-  });
-
-  services = {
-    descriptor: buildRuntimeDescriptor({
-      planner: plannerSetup.descriptor,
-      browser: browserKernelSetup.descriptor,
-      chatBridge: chatBridgeSetup.descriptor,
-      storage: storageDescriptor,
-      hasDemos: options.hasDemos
-    }),
-    browserKernel: browserKernelSetup.browserKernel,
-    browserKernelInit: browserKernelSetup.browserKernelInit,
-    chatBridge: chatBridgeSetup.chatBridge,
-    chatBridgeInit: chatBridgeSetup.chatBridgeInit,
-    eventBus: new EventBus<{ workflow: WorkflowEvent }>(),
-    hasDemos: options.hasDemos,
-    orchestrator: new TaskOrchestrator({
-      clarificationPolicy: new DefaultClarificationPolicy()
-    }),
-    planner: plannerSetup.planner,
-    preferenceStore,
-    runCheckpointStore,
+  return assembleRuntimeServices({
     runtimeConfig,
     runtimeSettings,
-    scheduler,
-    securityPolicy: new DefaultApprovalPolicy(),
-    sqliteDb,
-    telegramStatePath,
-    workflowLogStore
-  };
-
-  return services;
+    planner: plannerSetup.planner,
+    plannerDescriptor: plannerSetup.descriptor,
+    chatBridge: chatBridgeSetup.chatBridge,
+    chatBridgeInit: chatBridgeSetup.chatBridgeInit,
+    chatBridgeDescriptor: chatBridgeSetup.descriptor,
+    browserKernel: browserKernelSetup.browserKernel,
+    browserKernelInit: browserKernelSetup.browserKernelInit,
+    browserDescriptor: browserKernelSetup.descriptor,
+    ...storage,
+    hasDemos: options.hasDemos,
+    telegramStatePath
+  });
 }
