@@ -204,7 +204,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "18px 18px 0 0",
     display: "flex",
     flexDirection: "column",
-    maxHeight: "88vh",
+    // Fixed height so the panel never resizes when switching tabs.
+    // Content that doesn't fit scrolls inside the body area.
+    height: "67vh",
     overflow: "hidden",
     boxShadow: "0 -16px 60px rgba(0,0,0,0.5)"
   },
@@ -260,6 +262,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   body: {
     flex: 1,
+    // minHeight: 0 is required for a flex child to scroll rather than expand.
+    // Without it the child keeps its intrinsic content height and overflow: auto
+    // never triggers — the sheet just grows instead of the body scrolling.
+    minHeight: 0,
     overflow: "auto",
     padding: "20px 24px 24px"
   },

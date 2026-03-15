@@ -3,18 +3,27 @@ import type { BrowserShellTabDescriptor } from "../../shared/runtime";
 
 interface Props {
   activeTab: BrowserShellTabDescriptor | null;
+  /** When true the native browser view is retracted so DOM overlays (e.g. management
+   *  panel) are not occluded by the OS-level compositor surface. */
+  covered: boolean;
 }
 
-export function BrowserPanel({ activeTab }: Props) {
+export function BrowserPanel({ activeTab, covered }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
-  // Show / hide the native browser view when the active session changes.
+  // Show / hide the native browser view when the active session changes OR when a
+  // DOM overlay opens/closes.  The native WebContentsView lives outside the renderer
+  // compositor, so CSS z-index cannot push it behind a modal — we must retract it via
+  // IPC whenever a covering overlay is visible.
+  //
   // Viewport bounds are set BEFORE showBrowserSession so the view is never briefly
   // drawn at full-window size (which would cause a black-screen flash over the sidebar).
   useEffect(() => {
-    if (!activeTab) {
+    if (covered || !activeTab) {
       void window.openbrowse.hideBrowserSession();
-      void window.openbrowse.clearBrowserViewport();
+      // Only clear the stored bounds when there is genuinely no tab — keeps restore
+      // seamless when the overlay closes while the same tab is still active.
+      if (!activeTab) void window.openbrowse.clearBrowserViewport();
       return;
     }
 
@@ -33,9 +42,9 @@ export function BrowserPanel({ activeTab }: Props) {
     };
 
     void showAndBindViewport();
-    // Only re-run when the active session itself changes.
+    // Re-run when the active session changes or overlay coverage changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab?.id]);
+  }, [activeTab?.id, covered]);
 
   // Keep viewport bounds in sync with element size changes.
   useEffect(() => {

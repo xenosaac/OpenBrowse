@@ -1,10 +1,10 @@
-import type { RunHandoffArtifact, TaskRun } from "@openbrowse/contracts";
+import type { PageModel, RunHandoffArtifact, TaskRun } from "@openbrowse/contracts";
 
 /**
  * Builds a structured RunHandoffArtifact from a TaskRun's persisted checkpoint.
  * The artifact is the canonical handoff surface — consumable by humans and agents.
  */
-export function buildHandoffArtifact(run: TaskRun): RunHandoffArtifact {
+export function buildHandoffArtifact(run: TaskRun, pageModelSnapshot?: PageModel): RunHandoffArtifact {
   const { checkpoint, suspension } = run;
 
   return {
@@ -27,7 +27,8 @@ export function buildHandoffArtifact(run: TaskRun): RunHandoffArtifact {
     suspensionType: suspension?.type,
     suspensionQuestion: suspension?.question,
     notes: checkpoint.notes,
-    outcome: run.outcome?.summary
+    outcome: run.outcome?.summary,
+    pageModelSnapshot: pageModelSnapshot
   };
 }
 

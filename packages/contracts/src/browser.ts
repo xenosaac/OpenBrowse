@@ -10,7 +10,9 @@ export type BrowserActionType =
   | "extract"
   | "focus"
   | "hover"
-  | "keyboard_shortcut";
+  | "keyboard_shortcut"
+  | "pressKey"
+  | "screenshot";
 
 export type BrowserActionFailureClass =
   | "element_not_found"
@@ -59,6 +61,15 @@ export interface PageElementModel {
   disabled?: boolean;
   readonly?: boolean;
   boundingVisible?: boolean;
+  boundingBox?: { x: number; y: number; width: number; height: number };
+}
+
+export type PageType = "search_results" | "form" | "login" | "checkout" | "article" | "unknown";
+
+export interface PageFormSummary {
+  action: string;
+  method: string;
+  fieldCount: number;
 }
 
 export interface PageModel {
@@ -70,6 +81,10 @@ export interface PageModel {
   elements: PageElementModel[];
   visibleText?: string;
   createdAt: string;
+  pageType?: PageType;
+  forms?: PageFormSummary[];
+  alerts?: string[];
+  captchaDetected?: boolean;
 }
 
 export interface BrowserAction {
@@ -86,4 +101,5 @@ export interface BrowserActionResult {
   pageModelId?: string;
   summary: string;
   failureClass?: BrowserActionFailureClass;
+  screenshotBase64?: string;
 }

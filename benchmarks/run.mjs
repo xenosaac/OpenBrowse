@@ -19,9 +19,11 @@ import {
 import {
   InMemoryRunCheckpointStore,
   InMemoryWorkflowLogStore,
+  InMemoryPreferenceStore,
   SqliteDatabase,
   SqliteRunCheckpointStore,
   SqliteWorkflowLogStore,
+  SqlitePreferenceStore,
 } from "../packages/memory-store/dist/index.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -221,6 +223,123 @@ try {
   if (!sqliteAvailable) {
     console.log(`  [skipped] better-sqlite3 native addon not compatible with this Node.js version.`);
     console.log(`  Run under Electron to benchmark SQLite. (${err.message.split("\n")[0]})`);
+  } else {
+    throw err;
+  }
+}
+
+// ── Section 7: PreferenceStore — API key save, old vs new pattern ──────────
+//
+// Bug fixed: the old `upsertRuntimeSetting` pattern issued 1 GET + 1 UPSERT per key,
+// 5 keys = 10 sequential DB ops with no transaction.  A crash after key 2 left
+// partial state (API key written but Telegram token missing).
+//
+// Fix: `saveNamespaceSettings` wraps all 5 writes in a single transaction and
+// eliminates the pre-read entirely (id is deterministic: `pref_${key}`).
+//
+// Worst case modelled: all 5 runtime settings written in rapid succession as the
+// user clicks "Save" in the settings UI.
+section("7. PreferenceStore: API key save — old vs new pattern");
+
+const PREF_NS = "runtime_settings";
+const PREF_KEYS = [
+  "anthropic_api_key",
+  "planner_model",
+  "telegram_bot_token",
+  "telegram_chat_id",
+  "telegram_notification_level",
+];
+const PREF_VALUES = [
+  "sk-ant-api03-benchmark-key-value",
+  "claude-opus-4-6",
+  "1234567890:AAFbenchmark",
+  "987654321",
+  "all",
+];
+const PREF_ENTRIES = PREF_KEYS.map((key, i) => ({ key, value: PREF_VALUES[i] }));
+
+// InMemory — old pattern (simulating 1 GET + 1 UPSERT per key, sequential)
+const memPrefOld = new InMemoryPreferenceStore();
+await benchAsync("InMemory PreferenceStore: OLD (5×get+upsert sequential)", async () => {
+  for (let i = 0; i < PREF_KEYS.length; i++) {
+    const key = PREF_KEYS[i];
+    const existing = await memPrefOld.get(PREF_NS, key);
+    await memPrefOld.upsert({
+      id: existing?.id ?? `pref_${key}`,
+      namespace: PREF_NS,
+      key,
+      value: PREF_VALUES[i],
+      capturedAt: new Date().toISOString(),
+    });
+  }
+});
+
+// InMemory — new pattern (single saveNamespaceSettings call)
+const memPrefNew = new InMemoryPreferenceStore();
+await benchAsync("InMemory PreferenceStore: NEW (saveNamespaceSettings)", async () => {
+  await memPrefNew.saveNamespaceSettings(PREF_NS, PREF_ENTRIES);
+});
+
+// InMemory — worst case: empty value triggers delete
+const memPrefDel = new InMemoryPreferenceStore();
+await memPrefDel.saveNamespaceSettings(PREF_NS, PREF_ENTRIES); // seed data
+await benchAsync("InMemory PreferenceStore: NEW with empty (delete path)", async () => {
+  await memPrefDel.saveNamespaceSettings(PREF_NS, [
+    { key: "anthropic_api_key", value: "" }, // delete
+    { key: "planner_model", value: "claude-opus-4-6" },
+    { key: "telegram_bot_token", value: "" }, // delete
+    { key: "telegram_chat_id", value: "987654321" },
+    { key: "telegram_notification_level", value: "quiet" },
+  ]);
+});
+
+// SQLite preference store benchmarks (same NODE_MODULE_VERSION caveat as section 6)
+let sqlitePrefAvailable = false;
+try {
+  const dbPath2 = path.join(os.tmpdir(), `openbrowse_bench_pref_${Date.now()}.db`);
+  const sqliteDb2 = new SqliteDatabase(dbPath2);
+  await sqliteDb2.migrate();
+  const sqlitePrefOld = new SqlitePreferenceStore(sqliteDb2);
+  const sqlitePrefNew = new SqlitePreferenceStore(sqliteDb2);
+  sqlitePrefAvailable = true;
+
+  // SQLite old pattern: 5 sequential GET + UPSERT
+  await benchAsync("SQLite PreferenceStore: OLD (5×get+upsert sequential)", async () => {
+    for (let i = 0; i < PREF_KEYS.length; i++) {
+      const key = PREF_KEYS[i];
+      const existing = await sqlitePrefOld.get(PREF_NS, key);
+      await sqlitePrefOld.upsert({
+        id: existing?.id ?? `pref_${key}`,
+        namespace: PREF_NS,
+        key,
+        value: PREF_VALUES[i],
+        capturedAt: new Date().toISOString(),
+      });
+    }
+  }, 300);
+
+  // SQLite new pattern: single transaction
+  await benchAsync("SQLite PreferenceStore: NEW (saveNamespaceSettings, 1 txn)", async () => {
+    await sqlitePrefNew.saveNamespaceSettings(PREF_NS, PREF_ENTRIES);
+  }, 300);
+
+  // SQLite worst case: mixed delete + upsert in one transaction
+  await sqlitePrefNew.saveNamespaceSettings(PREF_NS, PREF_ENTRIES); // seed
+  await benchAsync("SQLite PreferenceStore: NEW with empty (delete+upsert txn)", async () => {
+    await sqlitePrefNew.saveNamespaceSettings(PREF_NS, [
+      { key: "anthropic_api_key", value: "" },
+      { key: "planner_model", value: "claude-opus-4-6" },
+      { key: "telegram_bot_token", value: "" },
+      { key: "telegram_chat_id", value: "987654321" },
+      { key: "telegram_notification_level", value: "quiet" },
+    ]);
+  }, 300);
+
+  sqliteDb2.close();
+  try { fs.unlinkSync(dbPath2); } catch {}
+} catch (err) {
+  if (!sqlitePrefAvailable) {
+    console.log(`  [skipped] SQLite not available: ${err.message.split("\n")[0]}`);
   } else {
     throw err;
   }

@@ -1,5 +1,5 @@
 import { StubBrowserKernel } from "@openbrowse/browser-runtime";
-import type { BrowserAction, BrowserSession, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import type { BrowserAction, BrowserSession, PageModel, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { TelegramChatBridge, StubChatBridge } from "@openbrowse/chat-bridge";
 import { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
@@ -9,8 +9,8 @@ const MAX_LOOP_STEPS = 20;
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
 
 /** Module-level handoff emitter — usable outside the OpenBrowseRuntime class. */
-export async function emitHandoffEvent(services: RuntimeServices, run: TaskRun): Promise<void> {
-  const artifact = buildHandoffArtifact(run);
+export async function emitHandoffEvent(services: RuntimeServices, run: TaskRun, pageModelSnapshot?: PageModel): Promise<void> {
+  const artifact = buildHandoffArtifact(run, pageModelSnapshot);
   const markdown = renderHandoffMarkdown(artifact);
   const event = createWorkflowEvent(run.id, "handoff_written", `Handoff written: ${run.status}`, {
     status: run.status,
@@ -263,6 +263,26 @@ export class OpenBrowseRuntime {
       }
 
       if (!approved) {
+        const pendingAction = run.checkpoint.pendingBrowserAction;
+        const denialOutcome = pendingAction
+          ? this.services.securityPolicy.resolveDenial(run, pendingAction)
+          : "denied";
+
+        if (denialOutcome === "denied_continue") {
+          // Resume the planner loop with a note that the action was denied
+          const resumedRun = this.services.orchestrator.resumeFromApproval(run, false, message.createdAt);
+          // Add a note so the planner knows the action was denied
+          resumedRun.checkpoint.notes.push(`Action denied by user: "${pendingAction?.description ?? "unknown"}". Try a different approach.`);
+          resumedRun.checkpoint.pendingBrowserAction = undefined;
+          await this.services.runCheckpointStore.save(resumedRun);
+          await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied — continuing with alternative.", {
+            channel: message.channel,
+            approved: "false",
+            outcome: "denied_continue"
+          });
+          return this.resumeExecution(resumedRun);
+        }
+
         const cancelledRun = this.services.orchestrator.cancelRun(
           run,
           "User denied approval request.",
@@ -432,6 +452,46 @@ export class OpenBrowseRuntime {
       }
 
       if (!approved) {
+        const pendingAction = run.checkpoint.pendingBrowserAction;
+        const denialOutcome = pendingAction
+          ? this.services.securityPolicy.resolveDenial(run, pendingAction)
+          : "denied";
+
+        if (denialOutcome === "denied_continue") {
+          const resumedRun = this.services.orchestrator.resumeFromApproval(run, false, message.createdAt);
+          resumedRun.checkpoint.notes.push(`Action denied by user: "${pendingAction?.description ?? "unknown"}". Try a different approach.`);
+          resumedRun.checkpoint.pendingBrowserAction = undefined;
+          await this.services.runCheckpointStore.save(resumedRun);
+          await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied — continuing with alternative.", {
+            channel: message.channel,
+            approved: "false",
+            outcome: "denied_continue"
+          });
+
+          if (resumedRun.status !== "running") {
+            await onSettled?.(resumedRun);
+            return resumedRun;
+          }
+
+          let setup: { reattached: TaskRun; session: BrowserSession };
+          try {
+            setup = await this.setupResume(resumedRun);
+          } catch (err) {
+            const failedRun = await this.failUnexpectedRun(resumedRun, err);
+            await onSettled?.(failedRun);
+            return failedRun;
+          }
+
+          void this.continueResume(setup.reattached, setup.session)
+            .then(async (finalRun) => { await onSettled?.(finalRun); })
+            .catch(async (err) => {
+              const failedRun = await this.failUnexpectedRun(setup.reattached, err);
+              await onSettled?.(failedRun);
+            });
+
+          return setup.reattached;
+        }
+
         const cancelledRun = this.services.orchestrator.cancelRun(
           run,
           "User denied approval request.",
@@ -671,8 +731,20 @@ export class OpenBrowseRuntime {
     await appendWorkflowEvent(this.services.workflowLogStore, this.services.eventBus, event);
   }
 
-  private async writeHandoff(run: TaskRun): Promise<void> {
-    await emitHandoffEvent(this.services, run);
+  private async writeHandoff(run: TaskRun, pageModelSnapshot?: PageModel): Promise<void> {
+    // Capture current page model if session is still alive and no snapshot was provided
+    let snapshot = pageModelSnapshot;
+    if (!snapshot && run.checkpoint.browserSessionId) {
+      try {
+        const session = await this.services.browserKernel.getSession(run.checkpoint.browserSessionId);
+        if (session && session.state === "attached") {
+          snapshot = await this.services.browserKernel.capturePageModel(session);
+        }
+      } catch {
+        // Session may already be destroyed
+      }
+    }
+    await emitHandoffEvent(this.services, run, snapshot);
     await notifyTerminalEvent(this.services, run);
     await this.services.chatBridge.clearRunState?.(run.id);
   }

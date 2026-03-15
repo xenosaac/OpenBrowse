@@ -26,6 +26,7 @@ export class SqlitePreferenceStore implements PreferenceStore {
   private readonly stmtGet: Database.Statement;
   private readonly stmtList: Database.Statement;
   private readonly stmtDelete: Database.Statement;
+  private readonly stmtDeleteByKey: Database.Statement;
 
   constructor(private readonly sqlite: SqliteDatabase) {
     this.stmtUpsert = sqlite.db.prepare(
@@ -44,6 +45,9 @@ export class SqlitePreferenceStore implements PreferenceStore {
     );
     this.stmtDelete = sqlite.db.prepare(
       "DELETE FROM user_preferences WHERE id = ?"
+    );
+    this.stmtDeleteByKey = sqlite.db.prepare(
+      "DELETE FROM user_preferences WHERE namespace = ? AND key = ?"
     );
   }
 
@@ -70,5 +74,24 @@ export class SqlitePreferenceStore implements PreferenceStore {
   async delete(id: string): Promise<boolean> {
     const result = this.stmtDelete.run(id);
     return result.changes > 0;
+  }
+
+  async deleteByKey(namespace: string, key: string): Promise<boolean> {
+    const result = this.stmtDeleteByKey.run(namespace, key);
+    return result.changes > 0;
+  }
+
+  async saveNamespaceSettings(namespace: string, entries: Array<{ key: string; value: string }>): Promise<void> {
+    const now = new Date().toISOString();
+    this.sqlite.transaction(() => {
+      for (const { key, value } of entries) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          this.stmtDeleteByKey.run(namespace, key);
+        } else {
+          this.stmtUpsert.run(`pref_${key}`, namespace, key, trimmed, now);
+        }
+      }
+    });
   }
 }

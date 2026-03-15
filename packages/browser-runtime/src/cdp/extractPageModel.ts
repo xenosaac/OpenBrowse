@@ -3,11 +3,12 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
   const targetAttr = 'data-openbrowse-target-id';
   const actionableRoles = new Set([
     'button', 'link', 'textbox', 'checkbox', 'radio',
-    'combobox', 'menuitem', 'tab', 'searchbox', 'slider'
+    'combobox', 'menuitem', 'tab', 'searchbox', 'slider',
+    'switch', 'option', 'spinbutton', 'progressbar'
   ]);
 
   const actionableTags = new Set([
-    'A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA'
+    'A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'DETAILS'
   ]);
 
   function getRole(el) {
@@ -25,19 +26,53 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     }
     if (tag === 'SELECT') return 'combobox';
     if (tag === 'TEXTAREA') return 'textbox';
+    if (tag === 'SUMMARY') return 'button';
+    if (tag === 'DETAILS') return 'group';
+    if (el.getAttribute('contenteditable') === 'true') return 'textbox';
     return tag.toLowerCase();
   }
 
   function getLabel(el) {
-    return el.getAttribute('aria-label')
-      || el.getAttribute('title')
-      || el.getAttribute('placeholder')
-      || el.innerText?.slice(0, 80)?.trim()
-      || '';
+    // 1. aria-label
+    var label = el.getAttribute('aria-label');
+    if (label) return label.slice(0, 80).trim();
+
+    // 2. aria-labelledby
+    var labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      var parts = labelledBy.split(/\\s+/).map(function(id) {
+        var ref = document.getElementById(id);
+        return ref ? ref.textContent || '' : '';
+      }).filter(Boolean);
+      if (parts.length > 0) return parts.join(' ').slice(0, 80).trim();
+    }
+
+    // 3. <label for="...">
+    if (el.id) {
+      var labelEl = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+      if (labelEl) return (labelEl.textContent || '').slice(0, 80).trim();
+    }
+
+    // 4. title, placeholder
+    label = el.getAttribute('title') || el.getAttribute('placeholder');
+    if (label) return label.slice(0, 80).trim();
+
+    // 5. innerText
+    label = el.innerText;
+    if (label) return label.slice(0, 80).trim();
+
+    // 6. Nearest heading
+    var heading = el.closest('section, article, fieldset, div');
+    if (heading) {
+      var h = heading.querySelector('h1, h2, h3, h4, h5, h6, legend');
+      if (h) return (h.textContent || '').slice(0, 60).trim() + ' (section)';
+    }
+
+    return '';
   }
 
   function isVisible(el) {
-    const style = window.getComputedStyle(el);
+    var style = window.getComputedStyle(el);
     return style.display !== 'none'
       && style.visibility !== 'hidden'
       && style.opacity !== '0'
@@ -46,28 +81,155 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
   }
 
   function isBoundingVisible(el) {
-    const rect = el.getBoundingClientRect();
+    var rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0
       && rect.top < window.innerHeight && rect.bottom > 0
       && rect.left < window.innerWidth && rect.right > 0;
   }
 
-  const elements = [];
-  let idCounter = 0;
-
-  const allElements = document.querySelectorAll('a, button, input, select, textarea, [role]');
-
-  for (const el of allElements) {
-    el.removeAttribute(targetAttr);
+  function getBoundingBox(el) {
+    var rect = el.getBoundingClientRect();
+    return {
+      x: Math.round(rect.left),
+      y: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height)
+    };
   }
 
-  for (const el of allElements) {
+  // --- Smart text compression: skip nav/header/footer/aside/script/style ---
+  function extractVisibleText() {
+    var SKIP_TAGS = new Set(['NAV', 'HEADER', 'FOOTER', 'ASIDE', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG']);
+    var result = [];
+    var charCount = 0;
+    var MAX_CHARS = 2000;
+
+    var walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: function(node) {
+          var parent = node.parentElement;
+          while (parent && parent !== document.body) {
+            if (SKIP_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
+            parent = parent.parentElement;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      }
+    );
+
+    var node;
+    while ((node = walker.nextNode()) && charCount < MAX_CHARS) {
+      var text = (node.textContent || '').trim();
+      if (text.length > 0) {
+        // Collapse whitespace runs
+        text = text.replace(/\\s+/g, ' ');
+        result.push(text);
+        charCount += text.length;
+      }
+    }
+    return result.join(' ').slice(0, MAX_CHARS);
+  }
+
+  // --- Page type detection ---
+  function detectPageType() {
+    var url = document.location.href.toLowerCase();
+    var hasPasswordField = !!document.querySelector('input[type=password]');
+    var searchRole = !!document.querySelector('[role=search]');
+    var searchInput = !!document.querySelector('input[type=search]');
+    var formCount = document.querySelectorAll('form').length;
+
+    // Login detection
+    if (hasPasswordField) return 'login';
+
+    // Checkout detection
+    if (url.includes('checkout') || url.includes('payment') || url.includes('cart')) return 'checkout';
+    if (document.querySelector('input[autocomplete=cc-number], input[name*=card]')) return 'checkout';
+
+    // Search results detection
+    if (searchRole || url.includes('/search') || url.includes('?q=') || url.includes('?query=')) return 'search_results';
+    if (searchInput && document.querySelectorAll('[class*=result], [class*=Result], [data-result]').length > 2) return 'search_results';
+
+    // Form-heavy page
+    if (formCount >= 1 && document.querySelectorAll('input, select, textarea').length >= 3) return 'form';
+
+    // Article detection
+    if (document.querySelector('article') || document.querySelector('[role=article]')) return 'article';
+    var mainContent = document.querySelector('main, [role=main]');
+    if (mainContent) {
+      var paragraphs = mainContent.querySelectorAll('p');
+      if (paragraphs.length >= 3) return 'article';
+    }
+
+    return 'unknown';
+  }
+
+  // --- Forms extraction ---
+  function extractForms() {
+    var forms = document.querySelectorAll('form');
+    var result = [];
+    for (var i = 0; i < Math.min(forms.length, 5); i++) {
+      var form = forms[i];
+      result.push({
+        action: form.getAttribute('action') || '',
+        method: (form.getAttribute('method') || 'get').toUpperCase(),
+        fieldCount: form.querySelectorAll('input, select, textarea').length
+      });
+    }
+    return result;
+  }
+
+  // --- Alerts extraction ---
+  function extractAlerts() {
+    var alertEls = document.querySelectorAll('[role=alert], [role=alertdialog], .error, .notification, .alert, .warning');
+    var alerts = [];
+    for (var i = 0; i < Math.min(alertEls.length, 5); i++) {
+      var text = (alertEls[i].textContent || '').trim().slice(0, 200);
+      if (text.length > 0) alerts.push(text);
+    }
+    return alerts;
+  }
+
+  // --- CAPTCHA detection ---
+  function detectCaptcha() {
+    // reCAPTCHA
+    if (document.querySelector('iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"], .g-recaptcha')) return true;
+    // hCaptcha
+    if (document.querySelector('iframe[src*="hcaptcha"], .h-captcha')) return true;
+    // Cloudflare Turnstile
+    if (document.querySelector('iframe[src*="challenges.cloudflare"], .cf-turnstile')) return true;
+    // aria-label hints
+    if (document.querySelector('[aria-label*="captcha" i], [aria-label*="CAPTCHA"]')) return true;
+    return false;
+  }
+
+  // --- Element enumeration ---
+  var elements = [];
+  var idCounter = 0;
+
+  var allElements = document.querySelectorAll(
+    'a, button, input, select, textarea, [role], [tabindex], [contenteditable], summary, details, [onclick]'
+  );
+
+  for (var j = 0; j < allElements.length; j++) {
+    allElements[j].removeAttribute(targetAttr);
+  }
+
+  for (var k = 0; k < allElements.length; k++) {
+    var el = allElements[k];
     if (!isVisible(el)) continue;
-    const role = getRole(el);
-    const isActionable = actionableRoles.has(role) || actionableTags.has(el.tagName);
-    const targetId = 'el_' + (idCounter++);
+    var role = getRole(el);
+    var isActionable = actionableRoles.has(role) || actionableTags.has(el.tagName)
+      || el.hasAttribute('onclick') || el.hasAttribute('tabindex');
+    var targetId = 'el_' + (idCounter++);
 
     el.setAttribute(targetAttr, targetId);
+
+    var rect = el.getBoundingClientRect();
+    var bv = rect.width > 0 && rect.height > 0
+      && rect.top < window.innerHeight && rect.bottom > 0
+      && rect.left < window.innerWidth && rect.right > 0;
 
     elements.push({
       id: targetId,
@@ -79,19 +241,18 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       inputType: el.tagName === 'INPUT' ? (el.type || 'text') : undefined,
       disabled: el.disabled || undefined,
       readonly: el.readOnly || undefined,
-      boundingVisible: isBoundingVisible(el)
+      boundingVisible: bv,
+      boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });
 
-    if (elements.length >= 200) break;
+    if (elements.length >= 300) break;
   }
 
-  const bodyText = document.body?.innerText?.slice(0, 3000) || '';
-
   // Detect focused element among enumerated elements
-  let focusedElementId = undefined;
-  const active = document.activeElement;
+  var focusedElementId = undefined;
+  var active = document.activeElement;
   if (active && active !== document.body && active !== document.documentElement && active.closest) {
-    const resolved = active.closest('[' + targetAttr + ']');
+    var resolved = active.closest('[' + targetAttr + ']');
     focusedElementId = resolved ? resolved.getAttribute(targetAttr) || undefined : undefined;
   }
 
@@ -101,7 +262,11 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     summary: document.title + ' - ' + (document.querySelector('meta[name="description"]')?.getAttribute('content') || ''),
     focusedElementId: focusedElementId,
     elements: elements,
-    visibleText: bodyText
+    visibleText: extractVisibleText(),
+    pageType: detectPageType(),
+    forms: extractForms(),
+    alerts: extractAlerts(),
+    captchaDetected: detectCaptcha()
   };
 })()
 `;

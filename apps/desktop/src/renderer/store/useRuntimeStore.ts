@@ -31,7 +31,10 @@ export function useRuntimeStore() {
   const [notice, setNotice] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
+  const [foregroundRunEvents, setForegroundRunEvents] = useState<WorkflowEvent[]>([]);
+
   const selectedRunIdRef = useRef<string | null>(null);
+  const foregroundRunIdRef = useRef<string | null>(null);
   const liveEventsRef = useRef<Record<string, WorkflowEvent[]>>({});
   const runtimeRef = useRef<RuntimeDescriptor | null>(null);
 
@@ -135,6 +138,15 @@ export function useRuntimeStore() {
   }, [selectedRunId]);
 
   useEffect(() => {
+    foregroundRunIdRef.current = foregroundRunId;
+    // Seed foregroundRunEvents from the live buffer when foregroundRunId changes.
+    const buffer = foregroundRunId ? liveEventsRef.current[foregroundRunId] ?? [] : [];
+    setForegroundRunEvents(
+      buffer.filter((e) => e.type === "browser_action_executed").slice(-8)
+    );
+  }, [foregroundRunId]);
+
+  useEffect(() => {
     runtimeRef.current = runtime;
   }, [runtime]);
 
@@ -231,6 +243,15 @@ export function useRuntimeStore() {
         if (selectedRunIdRef.current === eventRunId) {
           setLogs((current) => mergeEvents(current, [runtimeEvent.event!]));
         }
+
+        if (
+          foregroundRunIdRef.current === eventRunId &&
+          runtimeEvent.event.type === "browser_action_executed"
+        ) {
+          setForegroundRunEvents((current) =>
+            mergeEvents(current, [runtimeEvent.event!]).slice(-8)
+          );
+        }
       }
     });
 
@@ -265,10 +286,17 @@ export function useRuntimeStore() {
 
   useEffect(() => {
     if (selectedRunId) return;
+    const isRealRun = (id: string | undefined): id is string =>
+      !!id && runs.some((r) => r.id === id);
+    const fromGroup = selectedGroupId
+      ? shellTabs.find((tab) => tab.groupId === selectedGroupId)?.runId
+      : undefined;
+    const fromForeground = foregroundRunId
+      ? shellTabs.find((tab) => tab.groupId === foregroundRunId)?.runId
+      : undefined;
     const preferredRunId =
-      (selectedGroupId ? shellTabs.find((tab) => tab.groupId === selectedGroupId)?.runId : null) ??
-      (foregroundRunId ? shellTabs.find((tab) => tab.groupId === foregroundRunId)?.runId : null) ??
-      shellTabs[0]?.runId ??
+      (isRealRun(fromGroup) ? fromGroup : undefined) ??
+      (isRealRun(fromForeground) ? fromForeground : undefined) ??
       runs.find((run) => run.status === "running")?.id ??
       runs[0]?.id;
     if (preferredRunId) {
@@ -287,6 +315,7 @@ export function useRuntimeStore() {
   return {
     errorNotice,
     focusRun,
+    foregroundRunEvents,
     foregroundRunId,
     logs,
     notice,

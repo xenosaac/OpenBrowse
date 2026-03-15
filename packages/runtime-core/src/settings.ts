@@ -198,29 +198,6 @@ async function readStoredRuntimeSettings(services: RuntimeServices): Promise<Run
   };
 }
 
-async function upsertRuntimeSetting(
-  services: RuntimeServices,
-  preferenceKey: string,
-  value: string
-): Promise<void> {
-  const existing = await services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, preferenceKey);
-  const nextValue = value.trim();
-
-  if (!nextValue) {
-    if (existing) {
-      await services.preferenceStore.delete(existing.id);
-    }
-    return;
-  }
-
-  await services.preferenceStore.upsert({
-    id: existing?.id ?? `pref_${preferenceKey}`,
-    namespace: RUNTIME_SETTINGS_NAMESPACE,
-    key: preferenceKey,
-    value: nextValue,
-    capturedAt: new Date().toISOString()
-  });
-}
 
 async function applyRuntimeSettings(
   services: RuntimeServices,
@@ -277,11 +254,13 @@ export async function saveRuntimeSettings(
   services: RuntimeServices,
   nextSettings: RuntimeSettings
 ): Promise<RuntimeSettings> {
-  await upsertRuntimeSetting(services, "anthropic_api_key", nextSettings.anthropicApiKey);
-  await upsertRuntimeSetting(services, "planner_model", nextSettings.plannerModel || DEFAULT_ANTHROPIC_MODEL);
-  await upsertRuntimeSetting(services, "telegram_bot_token", nextSettings.telegramBotToken);
-  await upsertRuntimeSetting(services, "telegram_chat_id", nextSettings.telegramChatId);
-  await upsertRuntimeSetting(services, "telegram_notification_level", nextSettings.telegramNotificationLevel ?? "quiet");
+  await services.preferenceStore.saveNamespaceSettings(RUNTIME_SETTINGS_NAMESPACE, [
+    { key: "anthropic_api_key", value: nextSettings.anthropicApiKey },
+    { key: "planner_model", value: nextSettings.plannerModel || DEFAULT_ANTHROPIC_MODEL },
+    { key: "telegram_bot_token", value: nextSettings.telegramBotToken },
+    { key: "telegram_chat_id", value: nextSettings.telegramChatId },
+    { key: "telegram_notification_level", value: nextSettings.telegramNotificationLevel ?? "quiet" }
+  ]);
 
   const stored = await readStoredRuntimeSettings(services);
   await applyRuntimeSettings(services, stored, { startChatBridge: true });
