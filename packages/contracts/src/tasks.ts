@@ -3,6 +3,41 @@ import type { BrowserAction } from "./browser.js";
 export type TaskSource = "desktop" | "telegram" | "scheduler";
 export type RunSuspensionType = "clarification" | "approval";
 
+/** A compact record of a single browser action taken during a run. Stored in RunCheckpoint.actionHistory. */
+export interface RunActionRecord {
+  step: number;
+  type: string;
+  description: string;
+  ok: boolean;
+  failureClass?: string;
+  url?: string;
+  createdAt: string;
+}
+
+/** Structured handoff artifact for a run — consumable by humans and agents alike. */
+export interface RunHandoffArtifact {
+  runId: string;
+  goal: string;
+  constraints: string[];
+  source: TaskSource;
+  status: TaskStatus;
+  startedAt: string;
+  updatedAt: string;
+  stepCount: number;
+  currentUrl?: string;
+  currentPageTitle?: string;
+  currentPageSummary?: string;
+  actionHistory: RunActionRecord[];
+  stopReason?: string;
+  nextSuggestedStep?: string;
+  lastFailureClass?: string;
+  consecutiveSoftFailures: number;
+  suspensionType?: RunSuspensionType;
+  suspensionQuestion?: string;
+  notes: string[];
+  outcome?: string;
+}
+
 export type TaskStatus =
   | "queued"
   | "running"
@@ -34,10 +69,26 @@ export interface RunCheckpoint {
   lastPageModelId?: string;
   browserSessionId?: string;
   lastKnownUrl?: string;
+  /** Page title from the last captured page model. */
+  lastPageTitle?: string;
+  /** Page summary from the last captured page model. */
+  lastPageSummary?: string;
   pendingClarificationId?: string;
   pendingApprovalId?: string;
   pendingBrowserAction?: BrowserAction;
   notes: string[];
+  /** Number of planner steps taken so far. */
+  stepCount?: number;
+  /** Last N browser actions taken (most recent last). Max 10. */
+  actionHistory?: RunActionRecord[];
+  /** Human-readable reason why the run stopped, paused, or failed. */
+  stopReason?: string;
+  /** Description of the last planned next action. */
+  nextSuggestedStep?: string;
+  /** Failure class from the most recent failed browser action. */
+  lastFailureClass?: string;
+  /** Number of consecutive element_not_found soft failures. */
+  consecutiveSoftFailures?: number;
 }
 
 export interface RunSuspension {

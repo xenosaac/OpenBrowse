@@ -25,13 +25,20 @@ export interface PreferenceStore {
 
 export class InMemoryWorkflowLogStore implements WorkflowLogStore {
   private readonly events: WorkflowEvent[] = [];
+  private readonly byRun = new Map<string, WorkflowEvent[]>();
 
   async append(event: WorkflowEvent): Promise<void> {
     this.events.push(event);
+    let bucket = this.byRun.get(event.runId);
+    if (!bucket) {
+      bucket = [];
+      this.byRun.set(event.runId, bucket);
+    }
+    bucket.push(event);
   }
 
   async listByRun(runId: string): Promise<WorkflowEvent[]> {
-    return this.events.filter((e) => e.runId === runId);
+    return this.byRun.get(runId) ?? [];
   }
 
   async listRecent(limit: number): Promise<WorkflowEvent[]> {
@@ -39,15 +46,18 @@ export class InMemoryWorkflowLogStore implements WorkflowLogStore {
   }
 
   async countByRun(runId: string): Promise<number> {
-    return this.events.filter((e) => e.runId === runId).length;
+    return this.byRun.get(runId)?.length ?? 0;
   }
 
   async deleteByRun(runId: string): Promise<number> {
-    const before = this.events.length;
+    const bucket = this.byRun.get(runId);
+    if (!bucket || bucket.length === 0) return 0;
+    const deleted = bucket.length;
+    this.byRun.delete(runId);
     const remaining = this.events.filter((e) => e.runId !== runId);
     this.events.length = 0;
     this.events.push(...remaining);
-    return before - remaining.length;
+    return deleted;
   }
 }
 

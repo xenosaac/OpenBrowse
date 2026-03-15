@@ -1,4 +1,4 @@
-import { StubChatBridge, TelegramChatBridge, resolveTelegramConfig, type ChatBridge } from "@openbrowse/chat-bridge";
+import { StubChatBridge, TelegramChatBridge, resolveTelegramConfig, type ChatBridge, type TelegramNotificationLevel } from "@openbrowse/chat-bridge";
 import {
   createDefaultRuntimeSettings,
   DEFAULT_ANTHROPIC_MODEL,
@@ -7,7 +7,7 @@ import {
 } from "@openbrowse/contracts";
 import { StubPlannerGateway, ClaudePlannerGateway, type PlannerGateway } from "@openbrowse/planner";
 import type { RuntimeServices } from "./types.js";
-import { wireInboundChat } from "./OpenBrowseRuntime.js";
+import { wireInboundChat, wireBotCommands } from "./OpenBrowseRuntime.js";
 
 export const RUNTIME_SETTINGS_NAMESPACE = "runtime_settings";
 
@@ -57,7 +57,8 @@ export function createChatBridge(
   const telegramConfig = resolveTelegramConfig({
     botToken: runtimeSettings.telegramBotToken.trim() || undefined,
     chatId: runtimeSettings.telegramChatId.trim() || undefined,
-    statePath: telegramStatePath
+    statePath: telegramStatePath,
+    notificationLevel: (runtimeSettings.telegramNotificationLevel as TelegramNotificationLevel) ?? "quiet"
   });
   if (enableRemoteChat && telegramConfig) {
     const bridge = new TelegramChatBridge(telegramConfig);
@@ -178,18 +179,22 @@ export function buildRuntimeDescriptor(status: {
 
 async function readStoredRuntimeSettings(services: RuntimeServices): Promise<RuntimeSettings> {
   const defaults = createDefaultRuntimeSettings();
-  const [anthropicApiKey, plannerModel, telegramBotToken, telegramChatId] = await Promise.all([
+  const [anthropicApiKey, plannerModel, telegramBotToken, telegramChatId, telegramNotificationLevel] = await Promise.all([
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "anthropic_api_key"),
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "planner_model"),
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_bot_token"),
-    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_chat_id")
+    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_chat_id"),
+    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_notification_level")
   ]);
 
   return {
     anthropicApiKey: anthropicApiKey?.value ?? defaults.anthropicApiKey,
     plannerModel: plannerModel?.value ?? defaults.plannerModel,
     telegramBotToken: telegramBotToken?.value ?? defaults.telegramBotToken,
-    telegramChatId: telegramChatId?.value ?? defaults.telegramChatId
+    telegramChatId: telegramChatId?.value ?? defaults.telegramChatId,
+    telegramNotificationLevel:
+      (telegramNotificationLevel?.value as RuntimeSettings["telegramNotificationLevel"]) ??
+      defaults.telegramNotificationLevel
   };
 }
 
@@ -247,6 +252,7 @@ async function applyRuntimeSettings(
   });
 
   wireInboundChat(services);
+  wireBotCommands(services);
 
   if (options.startChatBridge) {
     await services.chatBridgeInit?.();
@@ -275,6 +281,7 @@ export async function saveRuntimeSettings(
   await upsertRuntimeSetting(services, "planner_model", nextSettings.plannerModel || DEFAULT_ANTHROPIC_MODEL);
   await upsertRuntimeSetting(services, "telegram_bot_token", nextSettings.telegramBotToken);
   await upsertRuntimeSetting(services, "telegram_chat_id", nextSettings.telegramChatId);
+  await upsertRuntimeSetting(services, "telegram_notification_level", nextSettings.telegramNotificationLevel ?? "quiet");
 
   const stored = await readStoredRuntimeSettings(services);
   await applyRuntimeSettings(services, stored, { startChatBridge: true });

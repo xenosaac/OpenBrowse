@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type {
   BrowserAction,
+  BrowserActionFailureClass,
   BrowserActionResult,
   BrowserProfile,
   BrowserSession,
@@ -37,6 +38,13 @@ interface ManagedSession {
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const TARGET_ATTR = "data-openbrowse-target-id";
+
+function classifyFailure(message: string): BrowserActionFailureClass {
+  if (message.includes("Target not found") || message.includes("not found")) return "element_not_found";
+  if (message.includes("timed out") || message.includes("timeout")) return "navigation_timeout";
+  if (message.includes("Invalid") || message.includes("Disallowed")) return "validation_error";
+  return "interaction_failed";
+}
 
 function rejectAfterTimeout(ms: number, message: string): Promise<never> {
   return new Promise((_resolve, reject) => {
@@ -242,7 +250,10 @@ export class ElectronBrowserKernel implements BrowserKernel {
       title: string;
       summary: string;
       focusedElementId?: string;
-      elements: Array<{ id: string; role: string; label: string; value?: string; isActionable: boolean }>;
+      elements: Array<{
+        id: string; role: string; label: string; value?: string; isActionable: boolean;
+        href?: string; inputType?: string; disabled?: boolean; readonly?: boolean; boundingVisible?: boolean;
+      }>;
       visibleText: string;
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
 
@@ -276,41 +287,62 @@ export class ElectronBrowserKernel implements BrowserKernel {
               rejectAfterTimeout(NAVIGATION_TIMEOUT_MS, `Navigation to ${safeUrl} timed out after ${NAVIGATION_TIMEOUT_MS}ms`)
             ]);
           }
+          managed.cdp.invalidateContext();
           break;
         }
 
         case "click": {
           const targetId = this.requireTargetId(action);
-          await managed.cdp.callFunction(
+          // Scroll element into view and get its center coordinates
+          const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
             `function(targetAttr, targetId) {
               const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) {
-                throw new Error('Target not found: ' + targetId);
-              }
-              el.click();
+              if (!el) return null;
+              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              const rect = el.getBoundingClientRect();
+              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
             }`,
             TARGET_ATTR,
             targetId
           );
+          if (!coords) throw new Error(`Target not found: ${targetId}`);
+          // Dispatch native mouse events via CDP
+          await managed.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: coords.x, y: coords.y });
+          await managed.cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: coords.x, y: coords.y, button: "left", clickCount: 1 });
+          await managed.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: coords.x, y: coords.y, button: "left", clickCount: 1 });
+          // Wait for navigation that may have been triggered
+          await this.waitForLoadIfNavigating(wc);
+          managed.cdp.invalidateContext();
           break;
         }
 
         case "type": {
           const targetId = this.requireTargetId(action);
           const value = this.requireActionValue(action);
-          await managed.cdp.callFunction(
-            `function(targetAttr, targetId, value) {
+          // Focus element, scroll into view, select all existing text
+          const found = await managed.cdp.callFunction<boolean>(
+            `function(targetAttr, targetId) {
               const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) {
-                throw new Error('Target not found: ' + targetId);
-              }
+              if (!el) return false;
+              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
               el.focus();
-              el.value = value;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
+              if (typeof el.select === 'function') el.select();
+              return true;
             }`,
             TARGET_ATTR,
-            targetId,
-            value
+            targetId
+          );
+          if (!found) throw new Error(`Target not found: ${targetId}`);
+          // Insert text natively — triggers beforeinput/input events in the browser
+          await managed.cdp.send("Input.insertText", { text: value });
+          // Dispatch change for framework compatibility
+          await managed.cdp.callFunction(
+            `function(targetAttr, targetId) {
+              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
+              if (el) el.dispatchEvent(new Event('change', { bubbles: true }));
+            }`,
+            TARGET_ATTR,
+            targetId
           );
           break;
         }
@@ -321,10 +353,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           await managed.cdp.callFunction(
             `function(targetAttr, targetId, value) {
               const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) {
-                throw new Error('Target not found: ' + targetId);
-              }
+              if (!el) throw new Error('Target not found: ' + targetId);
+              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              el.focus();
               el.value = value;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
             }`,
             TARGET_ATTR,
@@ -336,9 +369,66 @@ export class ElectronBrowserKernel implements BrowserKernel {
 
         case "scroll": {
           const direction = validateScrollDirection(action.value ?? "down");
-          await managed.cdp.evaluate(
-            `window.scrollBy(0, ${direction === "up" ? -400 : 400})`
+          const delta = direction === "up" ? -400 : 400;
+          if (action.targetId) {
+            // Element-level scroll
+            const tid = action.targetId;
+            validateElementTargetId(tid);
+            await managed.cdp.callFunction(
+              `function(targetAttr, targetId, delta) {
+                const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
+                if (el) el.scrollBy({ top: delta, behavior: 'smooth' });
+              }`,
+              TARGET_ATTR,
+              tid,
+              delta
+            );
+          } else {
+            await managed.cdp.evaluate(`window.scrollBy({ top: ${delta}, behavior: 'smooth' })`);
+          }
+          break;
+        }
+
+        case "focus": {
+          const targetId = this.requireTargetId(action);
+          const found = await managed.cdp.callFunction<boolean>(
+            `function(targetAttr, targetId) {
+              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
+              if (!el) return false;
+              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              el.focus();
+              return true;
+            }`,
+            TARGET_ATTR,
+            targetId
           );
+          if (!found) throw new Error(`Target not found: ${targetId}`);
+          break;
+        }
+
+        case "hover": {
+          const targetId = this.requireTargetId(action);
+          const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
+            `function(targetAttr, targetId) {
+              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
+              if (!el) return null;
+              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              const rect = el.getBoundingClientRect();
+              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+            }`,
+            TARGET_ATTR,
+            targetId
+          );
+          if (!coords) throw new Error(`Target not found: ${targetId}`);
+          await managed.cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: coords.x, y: coords.y });
+          break;
+        }
+
+        case "keyboard_shortcut": {
+          const shortcut = this.requireActionValue(action);
+          await this.dispatchKeyboardShortcut(managed.cdp, shortcut);
+          await this.waitForLoadIfNavigating(wc);
+          managed.cdp.invalidateContext();
           break;
         }
 
@@ -360,10 +450,13 @@ export class ElectronBrowserKernel implements BrowserKernel {
         summary: `Executed ${action.type}: ${action.description}`
       };
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const failureClass = classifyFailure(message);
       return {
         ok: false,
         action,
-        summary: `Failed to execute ${action.type}: ${err instanceof Error ? err.message : String(err)}`
+        summary: `Failed to execute ${action.type}: ${message}`,
+        failureClass
       };
     }
   }
@@ -437,6 +530,49 @@ export class ElectronBrowserKernel implements BrowserKernel {
     }
 
     return action.value;
+  }
+
+  private waitForLoadIfNavigating(wc: WebContents): Promise<void> {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 3000);
+      const onLoad = () => { clearTimeout(timeout); resolve(); };
+      if (wc.isLoadingMainFrame()) {
+        wc.once("did-finish-load", onLoad);
+      } else {
+        setTimeout(() => {
+          if (wc.isLoadingMainFrame()) {
+            wc.once("did-finish-load", onLoad);
+          } else {
+            clearTimeout(timeout);
+            resolve();
+          }
+        }, 150);
+      }
+    });
+  }
+
+  private async dispatchKeyboardShortcut(cdp: CdpClient, shortcut: string): Promise<void> {
+    const MODIFIER_BITS: Record<string, number> = { ctrl: 2, shift: 4, alt: 1, meta: 8, cmd: 8 };
+    const KEY_NAMES: Record<string, string> = {
+      enter: "Return", escape: "Escape", tab: "Tab", backspace: "Backspace",
+      delete: "Delete", arrowup: "ArrowUp", arrowdown: "ArrowDown",
+      arrowleft: "ArrowLeft", arrowright: "ArrowRight", space: " "
+    };
+
+    const parts = shortcut.split("+").map((p) => p.trim());
+    let modifiers = 0;
+    let key = "";
+    for (const part of parts) {
+      const lp = part.toLowerCase();
+      if (lp in MODIFIER_BITS) {
+        modifiers |= MODIFIER_BITS[lp];
+      } else {
+        key = KEY_NAMES[lp] ?? part;
+      }
+    }
+
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", modifiers, key });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers, key });
   }
 
   private async ensureReadyDocument(webContents: WebContents): Promise<void> {

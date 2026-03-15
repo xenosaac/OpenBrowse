@@ -45,6 +45,13 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       && el.offsetHeight > 0;
   }
 
+  function isBoundingVisible(el) {
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0
+      && rect.top < window.innerHeight && rect.bottom > 0
+      && rect.left < window.innerWidth && rect.right > 0;
+  }
+
   const elements = [];
   let idCounter = 0;
 
@@ -67,7 +74,12 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       role: role,
       label: getLabel(el),
       value: el.value || undefined,
-      isActionable: isActionable
+      isActionable: isActionable,
+      href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
+      inputType: el.tagName === 'INPUT' ? (el.type || 'text') : undefined,
+      disabled: el.disabled || undefined,
+      readonly: el.readOnly || undefined,
+      boundingVisible: isBoundingVisible(el)
     });
 
     if (elements.length >= 200) break;

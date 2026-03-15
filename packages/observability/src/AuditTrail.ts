@@ -104,6 +104,8 @@ export class AuditTrail {
         case "recovery_skipped":
           recoveryEvents++;
           break;
+        case "handoff_written":
+          break;
       }
     }
 
@@ -178,6 +180,8 @@ function getPhaseForEvent(event: WorkflowEvent): string {
     case "recovery_failed":
     case "recovery_skipped":
       return "Recovery";
+    case "handoff_written":
+      return "Handoff";
     default:
       return "Other";
   }

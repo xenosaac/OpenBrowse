@@ -7,7 +7,17 @@ export type BrowserActionType =
   | "scroll"
   | "select"
   | "wait"
-  | "extract";
+  | "extract"
+  | "focus"
+  | "hover"
+  | "keyboard_shortcut";
+
+export type BrowserActionFailureClass =
+  | "element_not_found"
+  | "navigation_timeout"
+  | "interaction_failed"
+  | "validation_error"
+  | "unknown";
 
 export type BrowserSessionState = "warm" | "attached" | "terminated";
 
@@ -44,6 +54,11 @@ export interface PageElementModel {
   label: string;
   value?: string;
   isActionable: boolean;
+  href?: string;
+  inputType?: string;
+  disabled?: boolean;
+  readonly?: boolean;
+  boundingVisible?: boolean;
 }
 
 export interface PageModel {
@@ -62,6 +77,7 @@ export interface BrowserAction {
   targetId?: string;
   value?: string;
   description: string;
+  interactionHint?: string;
 }
 
 export interface BrowserActionResult {
@@ -69,4 +85,5 @@ export interface BrowserActionResult {
   action: BrowserAction;
   pageModelId?: string;
   summary: string;
+  failureClass?: BrowserActionFailureClass;
 }

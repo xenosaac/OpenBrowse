@@ -8,12 +8,8 @@ import type {
   RuntimeSettings
 } from "../../shared/runtime";
 import { BrowserPanel } from "./BrowserPanel";
-import { DemoPanel } from "./DemoPanel";
-import { LiveTasks } from "./LiveTasks";
-import { ManagedProfiles } from "./ManagedProfiles";
+import { ManagementPanel, type ManagementTab } from "./ManagementPanel";
 import { RemoteQuestions } from "./RemoteQuestions";
-import { SettingsPanel } from "./SettingsPanel";
-import { WorkflowLog } from "./WorkflowLog";
 import { useRuntimeStore } from "../store/useRuntimeStore";
 
 declare global {
@@ -59,11 +55,21 @@ declare global {
       clearBrowserViewport: () => Promise<unknown>;
       closeBrowserGroup: (groupId: string) => Promise<TaskRun | null>;
       onRuntimeEvent: (callback: (event: unknown) => void) => () => void;
+      browserNewTab: (url?: string) => Promise<BrowserShellTabDescriptor>;
+      browserNavigate: (sessionId: string, url: string) => Promise<void>;
+      browserBack: (sessionId: string) => Promise<void>;
+      browserForward: (sessionId: string) => Promise<void>;
+      browserReload: (sessionId: string) => Promise<void>;
+      browserNavState: (sessionId: string) => Promise<{
+        canGoBack: boolean;
+        canGoForward: boolean;
+        url: string;
+        title: string;
+      } | null>;
     };
   }
 }
 
-type SidebarPanel = "tasks" | "questions" | "log" | "demos" | "profiles";
 type MainPanel = "home" | "browser";
 type ChatMessage = {
   id: string;
@@ -73,16 +79,30 @@ type ChatMessage = {
   timestamp: string;
 };
 
+function normalizeUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "about:blank";
+  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)) return trimmed;
+  if (/^about:|^data:|^file:/i.test(trimmed)) return trimmed;
+  if (!trimmed.includes(" ") && (trimmed.includes(".") || trimmed.startsWith("localhost"))) {
+    return `https://${trimmed}`;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+}
+
 export function App() {
-  const [sidebarPanel, setSidebarPanel] = useState<SidebarPanel>("tasks");
   const [mainPanel, setMainPanel] = useState<MainPanel>("home");
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [managementOpen, setManagementOpen] = useState(false);
+  const [managementTab, setManagementTab] = useState<ManagementTab>("config");
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(340);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
+  const [addressInput, setAddressInput] = useState("");
+  const [addressEditing, setAddressEditing] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -91,6 +111,7 @@ export function App() {
       timestamp: new Date().toISOString()
     }
   ]);
+
   const {
     errorNotice,
     focusRun,
@@ -122,6 +143,18 @@ export function App() {
     );
   }, [foregroundRunId, selectedGroupId, shellTabs]);
 
+  // Keep address bar in sync with active tab URL when not editing.
+  useEffect(() => {
+    if (!addressEditing) {
+      setAddressInput(mainPanel === "browser" && activeBrowserTab ? activeBrowserTab.url : "");
+    }
+  }, [activeBrowserTab?.url, mainPanel, addressEditing]);
+
+  // Scroll chat to bottom when messages change.
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, suspendedRuns]);
+
   useEffect(() => {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
@@ -138,7 +171,7 @@ export function App() {
   useEffect(() => {
     if (!notice) return;
     setMessages((current) =>
-      current.some((message) => message.id === `notice:${notice}`)
+      current.some((m) => m.id === `notice:${notice}`)
         ? current
         : [
             ...current,
@@ -156,7 +189,7 @@ export function App() {
   useEffect(() => {
     if (!errorNotice) return;
     setMessages((current) =>
-      current.some((message) => message.id === `error:${errorNotice}`)
+      current.some((m) => m.id === `error:${errorNotice}`)
         ? current
         : [
             ...current,
@@ -171,21 +204,6 @@ export function App() {
     );
   }, [errorNotice]);
 
-  const sidebarSections: { key: SidebarPanel; label: string; count?: number }[] = [
-    { key: "tasks", label: "Live Tasks", count: runs.length || undefined },
-    { key: "questions", label: "Remote Questions", count: suspendedRuns.length || undefined },
-    { key: "log", label: "Workflow Log", count: selectedRunId ? logs.length || undefined : undefined },
-    { key: "demos", label: "Demos" },
-    { key: "profiles", label: "Profiles", count: profiles.length || undefined }
-  ];
-
-  const taskSummary = useMemo(() => {
-    const running = runs.filter((run) => run.status === "running").length;
-    const suspended = suspendedRuns.length;
-    const completed = runs.filter((run) => run.status === "completed").length;
-    return { running, suspended, completed };
-  }, [runs, suspendedRuns]);
-
   const handleSidebarDragStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -195,7 +213,7 @@ export function App() {
       const startX = e.clientX;
       const startWidth = sidebarWidth;
       const onMove = (ev: MouseEvent) => {
-        const next = Math.max(220, Math.min(580, startWidth + (ev.clientX - startX)));
+        const next = Math.max(240, Math.min(520, startWidth + (ev.clientX - startX)));
         setSidebarWidth(next);
       };
       const onUp = () => {
@@ -215,6 +233,22 @@ export function App() {
     const next = focusRun(run, { openBrowser: true });
     if (run.checkpoint.browserSessionId || next.openBrowser) {
       setMainPanel("browser");
+    }
+  };
+
+  const handleNewTab = async (url?: string) => {
+    const tab = await window.openbrowse.browserNewTab(url);
+    setSelectedGroupId(tab.groupId);
+    setForegroundRunId(tab.runId);
+    setMainPanel("browser");
+  };
+
+  const handleNavigate = async (input: string) => {
+    const url = normalizeUrl(input);
+    if (activeBrowserTab && mainPanel === "browser") {
+      await window.openbrowse.browserNavigate(activeBrowserTab.id, url);
+    } else {
+      await handleNewTab(url);
     }
   };
 
@@ -258,7 +292,7 @@ export function App() {
           timestamp: new Date().toISOString()
         }
       ]);
-      setIsSettingsOpen(true);
+      openManagement("config");
       return;
     }
 
@@ -300,76 +334,54 @@ export function App() {
     }
   };
 
-  const renderSidebarContent = () => {
-    switch (sidebarPanel) {
-      case "tasks":
-        return <LiveTasks runs={runs} onSelectRun={(runId) => setSelectedRunId(runId)} />;
-      case "questions":
-        return (
-          <RemoteQuestions
-            runs={suspendedRuns}
-            onResume={async (run) => {
-              await refresh();
-              if (!run?.id) return;
-              setSelectedRunId(run.id);
-              // The detached resume IPC attaches the browser session before returning,
-              // so run.checkpoint.browserSessionId is set when we reach here.
-              // Navigate to browser unconditionally if the run has a session.
-              if (run.checkpoint.browserSessionId) {
-                setSelectedGroupId(run.id);
-                setForegroundRunId(run.id);
-                setMainPanel("browser");
-              }
-            }}
-          />
-        );
-      case "log":
-        return (
-          <WorkflowLog
-            logs={logs}
-            replaySteps={replaySteps}
-            selectedRunId={selectedRunId}
-            runs={runs}
-            onSelectRun={(runId) => setSelectedRunId(runId)}
-          />
-        );
-      case "demos":
-        return (
-          <DemoPanel
-            onStarted={async (run) => {
-              await refresh();
-              if (!run) return;
-              await openRunInBrowser(run);
-            }}
-          />
-        );
-      case "profiles":
-        return <ManagedProfiles profiles={profiles} />;
-      default:
-        return null;
-    }
+  const openManagement = (tab: ManagementTab) => {
+    setManagementTab(tab);
+    setManagementOpen(true);
   };
+
+  const displayUrl = mainPanel === "browser" && activeBrowserTab ? activeBrowserTab.url : "";
+  const isSecure = displayUrl.startsWith("https://");
+
+  const runningCount = runs.filter((r) => r.status === "running").length;
+  const waitingCount = suspendedRuns.length;
 
   return (
     <div style={styles.app}>
+      {/* Agent workspace sidebar */}
       <aside
         style={{
           ...styles.sidebar,
           width: sidebarVisible ? sidebarWidth : 0,
-          minWidth: sidebarVisible ? 220 : 0,
+          minWidth: sidebarVisible ? 240 : 0,
           overflow: "hidden",
-          transition: isDragging ? "none" : "width 0.2s ease, min-width 0.2s ease"
+          transition: isDragging ? "none" : "width 0.18s ease, min-width 0.18s ease"
         }}
       >
+        {/* Sidebar header */}
         <div style={styles.sidebarHeader}>
           <div style={styles.brandMark}>✦</div>
-          <div>
-            <div style={styles.sidebarTitle}>Agent Assistant</div>
-            <div style={styles.sidebarSubtitle}>Ready to help</div>
+          <div style={styles.brandInfo}>
+            <div style={styles.brandName}>Agent Workspace</div>
+            {(runningCount > 0 || waitingCount > 0) && (
+              <div style={styles.statusRow}>
+                {runningCount > 0 && (
+                  <span style={{ ...styles.statusPip, color: "#22c55e" }}>
+                    ● {runningCount} running
+                  </span>
+                )}
+                {waitingCount > 0 && (
+                  <span style={{ ...styles.statusPip, color: "#f59e0b" }}>
+                    ◉ {waitingCount} waiting
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        <div style={styles.chatTimeline}>
+        {/* Conversation area — messages + inline pending questions */}
+        <div style={styles.conversationArea}>
+          {/* Chat messages */}
           {messages.map((message) => (
             <div
               key={message.id}
@@ -399,529 +411,577 @@ export function App() {
               {message.role === "user" && <div style={styles.chatAvatarUser}>•</div>}
             </div>
           ))}
+
+          {/* Inline pending questions — integrated into the conversation workspace */}
+          {suspendedRuns.length > 0 && (
+            <div style={styles.questionsSection}>
+              <div style={styles.questionsDivider}>
+                <span style={styles.questionsDividerLabel}>Awaiting your input</span>
+              </div>
+              <RemoteQuestions
+                runs={suspendedRuns}
+                onResume={async (run) => {
+                  await refresh();
+                  if (!run?.id) return;
+                  setSelectedRunId(run.id);
+                  if (run.checkpoint.browserSessionId) {
+                    setSelectedGroupId(run.id);
+                    setForegroundRunId(run.id);
+                    setMainPanel("browser");
+                  }
+                }}
+              />
+            </div>
+          )}
+
+          <div ref={chatEndRef} />
         </div>
 
-        <div style={styles.sidebarComposer}>
+        {/* Agent task composer */}
+        <div style={styles.composer}>
           <div style={styles.composerRow}>
             <input
               type="text"
               value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
                   void submitChatTask();
                 }
               }}
-              placeholder="Ask agent to do something..."
+              placeholder="Ask the agent to do something…"
               style={styles.composerInput}
             />
-            <button onClick={() => void submitChatTask()} style={styles.composerButton} disabled={chatBusy}>
-              {chatBusy ? "..." : "→"}
+            <button
+              onClick={() => void submitChatTask()}
+              style={styles.composerButton}
+              disabled={chatBusy}
+            >
+              {chatBusy ? "…" : "→"}
             </button>
           </div>
+          <div style={styles.composerHint}>
+            {runtime?.planner.mode === "live"
+              ? "Live agent ready"
+              : runtime
+              ? "No API key — settings needed"
+              : "Runtime loading…"}
+          </div>
         </div>
-
-        <div style={styles.statGrid}>
-          <StatCard label="Running" value={String(taskSummary.running)} accent="#8b5cf6" />
-          <StatCard label="Waiting" value={String(taskSummary.suspended)} accent="#f59e0b" />
-          <StatCard label="Done" value={String(taskSummary.completed)} accent="#22c55e" />
-        </div>
-
-        <nav style={styles.sidebarNav}>
-          {sidebarSections.map((section) => {
-            const active = sidebarPanel === section.key;
-            return (
-              <button
-                key={section.key}
-                onClick={() => setSidebarPanel(section.key)}
-                style={{
-                  ...styles.sidebarButton,
-                  ...(active ? styles.sidebarButtonActive : {})
-                }}
-              >
-                <span>{section.label}</span>
-                {section.count ? <span style={styles.sidebarCount}>{section.count}</span> : null}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div style={styles.sidebarContent}>{renderSidebarContent()}</div>
       </aside>
 
       {sidebarVisible && (
         <div onMouseDown={handleSidebarDragStart} style={styles.sidebarDragHandle} />
       )}
 
+      {/* Main browser area */}
       <section style={styles.main}>
-        <header style={styles.browserHeader}>
-          <div style={styles.tabBar}>
+        {/* Tab bar — window drag region */}
+        <div style={styles.tabBar}>
+          <button
+            onClick={() => setSidebarVisible((v) => !v)}
+            style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            title={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+          >
+            ☰
+          </button>
+          <div style={styles.headerTabs}>
             <button
-              onClick={() => setSidebarVisible((v) => !v)}
-              style={styles.iconButton}
-              title={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
+              onClick={() => setMainPanel("home")}
+              style={{
+                ...(styles.headerTab as React.CSSProperties),
+                ...(mainPanel === "home" ? styles.headerTabActive : {}),
+                WebkitAppRegion: "no-drag"
+              } as React.CSSProperties}
             >
-              ☰
+              <span style={styles.headerTabDot} />
+              <span style={styles.headerTabTitle}>New Tab</span>
             </button>
-            <div style={styles.headerTabs}>
-              <button
-                onClick={() => setMainPanel("home")}
-                style={{
-                  ...styles.headerTab,
-                  ...(mainPanel === "home" ? styles.headerTabActive : {})
-                }}
-              >
-                <span style={styles.headerTabDot} />
-                <span style={styles.headerTabTitle}>New Tab</span>
-              </button>
-              {shellTabs.map((tab) => {
-                const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
-                return (
-                  <div
-                    key={tab.groupId}
-                    style={{
-                      ...styles.headerTabWrap,
-                      ...(active ? styles.headerTabWrapActive : {})
+            {shellTabs.map((tab) => {
+              const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+              return (
+                <div
+                  key={tab.groupId}
+                  style={{
+                    ...styles.headerTabWrap,
+                    ...(active ? styles.headerTabWrapActive : {})
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setSelectedGroupId(tab.groupId);
+                      setSelectedRunId(tab.runId);
+                      setForegroundRunId(tab.runId);
+                      setMainPanel("browser");
                     }}
+                    style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
-                    <button
-                      onClick={() => {
-                        setSelectedGroupId(tab.groupId);
-                        setSelectedRunId(tab.runId);
-                        setForegroundRunId(tab.runId);
-                        setMainPanel("browser");
-                      }}
-                      style={styles.headerTabInner}
-                    >
-                      <span style={styles.headerTabDot} />
-                      <span style={styles.headerTabTitle}>{tab.title}</span>
-                    </button>
-                    <button
-                      style={styles.headerTabClose}
-                      onClick={async () => {
-                        await window.openbrowse.closeBrowserGroup(tab.groupId);
-                        await refresh();
-                        clearGroupSelection(tab.groupId, selectedRunId);
-                        if (activeBrowserTab?.groupId === tab.groupId) {
-                          setMainPanel("home");
-                        }
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                );
-              })}
-              <button style={styles.addTabButton} onClick={() => setMainPanel("home")}>
-                +
-              </button>
-            </div>
-          </div>
-
-          <div style={styles.navBar}>
-            <div style={styles.navButtons}>
-              <button style={styles.iconButton}>←</button>
-              <button style={styles.iconButton}>→</button>
-              <button style={styles.iconButton} onClick={() => void refresh()}>
-                ↻
-              </button>
-              <button style={styles.iconButton} onClick={() => setMainPanel("home")}>
-                ⌂
-              </button>
-            </div>
-
-            <div style={styles.addressBar}>
-              <span style={styles.addressLock}>●</span>
-              <span style={styles.addressText}>
-                {mainPanel === "browser" ? activeBrowserTab?.url ?? "about:blank" : "agent://newtab"}
-              </span>
-            </div>
-
-            <div style={styles.headerActions}>
-              <button style={styles.headerPill} onClick={() => setSidebarPanel("demos")}>
-                Demos
-              </button>
-              <button style={styles.headerPill} onClick={() => setSidebarPanel("questions")}>
-                Questions
-              </button>
-              <button onClick={() => setIsSettingsOpen(true)} style={styles.iconButton} title="Settings">
-                ⚙
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <div style={styles.mainBody}>
-          {mainPanel === "browser" && shellTabs.length > 0 ? (
-            <BrowserPanel
-              tabs={shellTabs}
-              runs={runs}
-              logs={logs}
-              selectedRunId={selectedRunId}
-              selectedGroupId={selectedGroupId}
-              foregroundRunId={foregroundRunId}
-              runtime={runtime}
-              plannerModel={settings?.plannerModel ?? null}
-              onSelectRun={setSelectedRunId}
-              onSelectGroup={setSelectedGroupId}
-              onFocusRun={(run) => {
-                void openRunInBrowser(run);
-              }}
-              onCloseGroup={async (groupId) => {
-                await window.openbrowse.closeBrowserGroup(groupId);
-                await refresh();
-                clearGroupSelection(groupId, selectedRunId);
-              }}
-              onHideBrowser={() => setMainPanel("home")}
-              onRefresh={refresh}
-            />
-          ) : (
-            <div style={styles.homePage}>
-              <div style={styles.hero}>
-                <div style={styles.heroBadge}>Powered by AI Agent</div>
-                <h1 style={styles.heroTitle}>What can I help you browse today?</h1>
-                <div style={styles.heroSearchWrap}>
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(event) => setChatInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        void submitChatTask();
+                    <span style={styles.headerTabDot} />
+                    <span style={styles.headerTabTitle}>{tab.title}</span>
+                  </button>
+                  <button
+                    style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                    onClick={async () => {
+                      await window.openbrowse.closeBrowserGroup(tab.groupId);
+                      await refresh();
+                      clearGroupSelection(tab.groupId, selectedRunId);
+                      if (activeBrowserTab?.groupId === tab.groupId) {
+                        setMainPanel("home");
                       }
                     }}
-                    placeholder="Search or ask your agent..."
-                    style={styles.heroSearch}
-                  />
-                  <button onClick={() => void submitChatTask()} style={styles.heroSearchButton} disabled={chatBusy}>
-                    →
+                  >
+                    ✕
                   </button>
                 </div>
-              </div>
+              );
+            })}
+            <button
+              style={{ ...styles.addTabButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => void handleNewTab()}
+            >
+              +
+            </button>
+          </div>
+        </div>
 
-              <div style={styles.homeSections}>
-                <div style={styles.homeSection}>
-                  <div style={styles.sectionEyebrow}>Recent Pages</div>
-                  <div style={styles.recentList}>
-                    {shellTabs.length === 0 ? (
-                      <div style={styles.recentEmpty}>No browser groups yet. Start a task from the agent chat.</div>
-                    ) : (
-                      shellTabs.map((tab) => (
-                        <button
-                          key={tab.groupId}
-                          onClick={() => {
-                            setSelectedGroupId(tab.groupId);
-                            setSelectedRunId(tab.runId);
-                            setForegroundRunId(tab.runId);
-                            setMainPanel("browser");
-                          }}
-                          style={styles.recentItem}
-                        >
-                          <div>
-                            <div style={styles.recentTitle}>{tab.title}</div>
-                            <div style={styles.recentMeta}>{tab.url}</div>
-                          </div>
-                          <div style={styles.recentBadge}>{tab.status}</div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
+        {/* Nav bar — window drag region */}
+        <div style={styles.navBar}>
+          <div style={styles.navButtons}>
+            <button
+              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => {
+                if (activeBrowserTab && mainPanel === "browser") {
+                  void window.openbrowse.browserBack(activeBrowserTab.id);
+                }
+              }}
+            >
+              ←
+            </button>
+            <button
+              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => {
+                if (activeBrowserTab && mainPanel === "browser") {
+                  void window.openbrowse.browserForward(activeBrowserTab.id);
+                }
+              }}
+            >
+              →
+            </button>
+            <button
+              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => {
+                if (activeBrowserTab && mainPanel === "browser") {
+                  void window.openbrowse.browserReload(activeBrowserTab.id);
+                } else {
+                  void refresh();
+                }
+              }}
+            >
+              ↻
+            </button>
+            <button
+              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => setMainPanel("home")}
+            >
+              ⌂
+            </button>
+          </div>
 
-                <div style={styles.homeSection}>
-                  <div style={styles.sectionEyebrow}>Agent Stats</div>
-                  <div style={styles.actionCards}>
-                    <HomeInfoCard
-                      title="Pages Browsed"
-                      value={String(shellTabs.length)}
-                      detail="Live browser groups currently tracked by the runtime."
-                      accent="#8b5cf6"
-                    />
-                    <HomeInfoCard
-                      title="Tasks Automated"
-                      value={String(runs.length)}
-                      detail="Total runs currently visible in the desktop runtime."
-                      accent="#38bdf8"
-                    />
-                    <HomeInfoCard
-                      title="Waiting Replies"
-                      value={String(suspendedRuns.length)}
-                      detail="Clarification or approval loops waiting on you."
-                      accent="#f59e0b"
-                    />
-                  </div>
-                </div>
+          <div style={styles.addressBarWrap}>
+            <span style={{ ...styles.addressLock, color: isSecure ? "#22c55e" : "#9090a8" }}>
+              {isSecure ? "🔒" : "●"}
+            </span>
+            <input
+              type="text"
+              value={addressEditing ? addressInput : displayUrl}
+              placeholder="Search or enter address"
+              onChange={(e) => setAddressInput(e.target.value)}
+              onFocus={() => {
+                setAddressInput(displayUrl);
+                setAddressEditing(true);
+              }}
+              onBlur={() => setAddressEditing(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleNavigate(addressInput);
+                  e.currentTarget.blur();
+                }
+                if (e.key === "Escape") {
+                  setAddressEditing(false);
+                  e.currentTarget.blur();
+                }
+              }}
+              style={{ ...styles.addressInput, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+            />
+          </div>
+
+          <div style={styles.headerActions}>
+            {/* Demos — browser chrome action, opens management panel */}
+            <button
+              style={{ ...styles.headerPill, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              onClick={() => openManagement("demos")}
+            >
+              Demos
+            </button>
+            {/* Waiting-input indicator — quick context clue */}
+            {waitingCount > 0 && (
+              <div style={styles.waitingPip}>
+                <span style={styles.waitingDot} />
+                {waitingCount}
               </div>
-            </div>
+            )}
+            {/* Settings — opens management panel */}
+            <button
+              onClick={() => openManagement("config")}
+              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              title="Settings & Management"
+            >
+              ⚙
+            </button>
+          </div>
+        </div>
+
+        {/* Main content */}
+        <div style={styles.mainBody}>
+          {mainPanel === "browser" ? (
+            <BrowserPanel activeTab={activeBrowserTab} />
+          ) : (
+            <HomePage
+              shellTabs={shellTabs}
+              onOpenTab={(tab) => {
+                setSelectedGroupId(tab.groupId);
+                setSelectedRunId(tab.runId);
+                setForegroundRunId(tab.runId);
+                setMainPanel("browser");
+              }}
+            />
           )}
         </div>
       </section>
 
-      {isSettingsOpen && (
-        <div style={styles.modalBackdrop} onClick={() => setIsSettingsOpen(false)}>
-          <div style={styles.modalCard} onClick={(event) => event.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <div>
-                <div style={styles.modalTitle}>Settings</div>
-                <div style={styles.modalSubtitle}>Configure your browser agent.</div>
-              </div>
-              <button style={styles.iconButton} onClick={() => setIsSettingsOpen(false)}>
-                ✕
-              </button>
-            </div>
-            <div style={styles.modalBody}>
-              <SettingsPanel
-                runtime={runtime}
-                settings={settings}
-                onSaved={async () => {
-                  await refresh();
-                  setIsSettingsOpen(false);
-                }}
-              />
-            </div>
-          </div>
-        </div>
+      {/* Management panel — bottom-sheet modal */}
+      {managementOpen && (
+        <ManagementPanel
+          runtime={runtime}
+          settings={settings}
+          runs={runs}
+          logs={logs}
+          replaySteps={replaySteps}
+          profiles={profiles}
+          selectedRunId={selectedRunId}
+          initialTab={managementTab}
+          onSaved={async (saved) => {
+            await refresh();
+            // Keep the management panel open after saving — the user may want
+            // to review or continue configuring.
+          }}
+          onSelectRun={setSelectedRunId}
+          onStartDemo={async (run) => {
+            setManagementOpen(false);
+            await refresh();
+            if (run) await openRunInBrowser(run);
+          }}
+          onClose={() => setManagementOpen(false)}
+        />
       )}
     </div>
   );
 }
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent: string }) {
+// ---- Home page ----
+
+function HomePage({
+  shellTabs,
+  onOpenTab
+}: {
+  shellTabs: BrowserShellTabDescriptor[];
+  onOpenTab: (tab: BrowserShellTabDescriptor) => void;
+}) {
   return (
-    <div style={{ ...styles.statCard, boxShadow: `inset 0 0 0 1px ${accent}33` }}>
-      <div style={styles.statValue}>{value}</div>
-      <div style={{ ...styles.statLabel, color: accent }}>{label}</div>
+    <div style={homeStyles.page}>
+      <div style={homeStyles.recentSection}>
+        <div style={homeStyles.eyebrow}>Recent</div>
+        {shellTabs.length === 0 ? (
+          <div style={homeStyles.emptyHint}>
+            No browser tabs yet. Press <kbd style={homeStyles.kbd}>+</kbd> or type an address above.
+          </div>
+        ) : (
+          <div style={homeStyles.recentGrid}>
+            {shellTabs.map((tab) => (
+              <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={homeStyles.recentCard}>
+                <div style={homeStyles.recentFavicon}>⊙</div>
+                <div style={homeStyles.recentInfo}>
+                  <div style={homeStyles.recentTitle}>{tab.title || "Untitled"}</div>
+                  <div style={homeStyles.recentUrl}>{tab.url}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function HomeInfoCard({
-  title,
-  value,
-  detail,
-  accent
-}: {
-  title: string;
-  value: string;
-  detail: string;
-  accent: string;
-}) {
-  return (
-    <div style={{ ...styles.infoCard, boxShadow: `inset 0 0 0 1px ${accent}33` }}>
-      <div style={styles.infoValue}>{value}</div>
-      <div style={{ ...styles.infoTitle, color: accent }}>{title}</div>
-      <div style={styles.infoDetail}>{detail}</div>
-    </div>
-  );
-}
+const homeStyles: Record<string, React.CSSProperties> = {
+  page: {
+    height: "100%",
+    overflow: "auto",
+    padding: "40px 32px 32px",
+    background: "linear-gradient(180deg, #0a0a12 0%, #12121a 100%)"
+  },
+  recentSection: {
+    maxWidth: 860,
+    margin: "0 auto"
+  },
+  eyebrow: {
+    fontSize: "0.78rem",
+    color: "#9090a8",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    marginBottom: 14
+  },
+  emptyHint: {
+    background: "#12121a",
+    border: "1px solid #2a2a3e",
+    borderRadius: 14,
+    padding: "18px 20px",
+    color: "#9090a8",
+    fontSize: "0.9rem"
+  },
+  recentGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+    gap: 10
+  },
+  recentCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    background: "#12121a",
+    border: "1px solid #2a2a3e",
+    borderRadius: 14,
+    padding: "12px 16px",
+    cursor: "pointer",
+    textAlign: "left",
+    color: "#e5e7eb"
+  },
+  recentFavicon: {
+    fontSize: "1.1rem",
+    color: "#8b5cf6",
+    flexShrink: 0
+  },
+  recentInfo: {
+    minWidth: 0
+  },
+  recentTitle: {
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    color: "#ffffff",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  recentUrl: {
+    fontSize: "0.78rem",
+    color: "#9090a8",
+    marginTop: 3,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
+  },
+  kbd: {
+    background: "#1e1e2e",
+    border: "1px solid #2a2a3e",
+    borderRadius: 4,
+    padding: "1px 5px",
+    fontSize: "0.82rem",
+    color: "#e5e7eb"
+  }
+};
+
+// ---- Shared styles ----
 
 const styles: Record<string, React.CSSProperties> = {
   app: {
     display: "flex",
-    minHeight: "100vh",
     height: "100vh",
     overflow: "hidden",
     background: "#0a0a12",
     color: "#e8e8f0",
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
+  // Sidebar
   sidebar: {
     display: "flex",
     flexDirection: "column",
     background: "#0f0f18",
+    borderRight: "1px solid #2a2a3e",
     flexShrink: 0
   },
   sidebarDragHandle: {
     width: 4,
     cursor: "col-resize",
     background: "transparent",
-    borderLeft: "1px solid #2a2a3e",
     flexShrink: 0,
     zIndex: 10,
     boxSizing: "border-box" as const
   },
   sidebarHeader: {
-    padding: "18px 18px 14px",
+    padding: "16px 16px 12px",
     display: "flex",
-    alignItems: "center",
-    gap: 12,
+    alignItems: "flex-start",
+    gap: 10,
     borderBottom: "1px solid #2a2a3e",
-    background: "linear-gradient(90deg, rgba(139,92,246,0.16), rgba(15,15,24,0))"
+    flexShrink: 0
   },
   brandMark: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     display: "grid",
     placeItems: "center",
-    background: "rgba(139,92,246,0.14)",
+    background: "rgba(139,92,246,0.16)",
     color: "#c4b5fd",
-    fontSize: 18
+    fontSize: 16,
+    flexShrink: 0,
+    marginTop: 2
   },
-  sidebarTitle: {
-    fontSize: "0.96rem",
+  brandInfo: {
+    minWidth: 0
+  },
+  brandName: {
+    fontSize: "0.9rem",
     fontWeight: 700,
     color: "#ffffff"
   },
-  sidebarSubtitle: {
-    fontSize: "0.78rem",
-    color: "#9090a8",
-    marginTop: 2
+  statusRow: {
+    display: "flex",
+    gap: 10,
+    marginTop: 4
   },
-  chatTimeline: {
+  statusPip: {
+    fontSize: "0.72rem"
+  },
+  conversationArea: {
     flex: 1,
     minHeight: 0,
     overflow: "auto",
-    padding: "14px 16px 4px",
+    padding: "14px 14px 6px",
     display: "flex",
     flexDirection: "column",
-    gap: 12
+    gap: 10
   },
   chatRow: {
     display: "flex",
     alignItems: "flex-end",
-    gap: 10
+    gap: 8
   },
   chatRowUser: {
     justifyContent: "flex-end"
   },
   chatAvatar: {
-    width: 30,
-    height: 30,
+    width: 26,
+    height: 26,
     borderRadius: 999,
     display: "grid",
     placeItems: "center",
     background: "rgba(139,92,246,0.14)",
     color: "#c4b5fd",
-    flexShrink: 0
+    flexShrink: 0,
+    fontSize: "0.7rem"
   },
   chatAvatarUser: {
-    width: 30,
-    height: 30,
+    width: 26,
+    height: 26,
     borderRadius: 999,
     display: "grid",
     placeItems: "center",
     background: "#334155",
     color: "#e2e8f0",
-    flexShrink: 0
+    flexShrink: 0,
+    fontSize: "0.7rem"
   },
   chatBubble: {
-    maxWidth: "78%",
+    maxWidth: "82%",
     background: "#171726",
     border: "1px solid #2a2a3e",
     color: "#e5e7eb",
-    borderRadius: 16,
-    padding: "10px 12px"
+    borderRadius: 14,
+    padding: "9px 12px",
+    fontSize: "0.88rem",
+    lineHeight: 1.45
   },
   chatBubbleUser: {
     background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
     borderColor: "#8b5cf6",
     color: "#ffffff"
   },
-  chatBubbleSuccess: {
-    borderColor: "rgba(34,197,94,0.3)"
-  },
-  chatBubbleWarning: {
-    borderColor: "rgba(245,158,11,0.3)"
-  },
-  chatBubbleError: {
-    borderColor: "rgba(239,68,68,0.3)"
-  },
+  chatBubbleSuccess: { borderColor: "rgba(34,197,94,0.3)" },
+  chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
+  chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
   chatTime: {
-    marginTop: 8,
-    color: "rgba(255,255,255,0.58)",
-    fontSize: "0.72rem"
+    marginTop: 6,
+    color: "rgba(255,255,255,0.42)",
+    fontSize: "0.68rem"
   },
-  sidebarComposer: {
-    padding: "12px 16px 14px",
+  // Pending questions inline section
+  questionsSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6
+  },
+  questionsDivider: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: "6px 0 2px"
+  },
+  questionsDividerLabel: {
+    fontSize: "0.72rem",
+    color: "#f59e0b",
+    textTransform: "uppercase",
+    letterSpacing: "0.06em",
+    fontWeight: 600
+  },
+  // Composer
+  composer: {
+    padding: "10px 14px 12px",
     borderTop: "1px solid #232335",
-    borderBottom: "1px solid #232335",
-    background: "#12121a"
+    background: "#0f0f18",
+    flexShrink: 0
   },
   composerRow: {
     display: "flex",
-    gap: 10
+    gap: 8
   },
   composerInput: {
     flex: 1,
     background: "#1e1e2e",
     color: "#f8fafc",
     border: "1px solid #2a2a3e",
-    borderRadius: 14,
-    padding: "12px 14px",
-    fontSize: "0.92rem"
+    borderRadius: 12,
+    padding: "10px 12px",
+    fontSize: "0.88rem"
   },
   composerButton: {
-    width: 46,
-    borderRadius: 14,
+    width: 40,
+    borderRadius: 12,
     border: "1px solid #8b5cf6",
     background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
     color: "#ffffff",
     cursor: "pointer",
-    fontWeight: 700
-  },
-  statGrid: {
-    padding: "14px 16px 16px",
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10
-  },
-  statCard: {
-    background: "#151522",
-    borderRadius: 14,
-    padding: 12
-  },
-  statValue: {
-    fontSize: "1.25rem",
     fontWeight: 700,
-    color: "#ffffff"
+    fontSize: "1rem"
   },
-  statLabel: {
+  composerHint: {
     marginTop: 6,
-    fontSize: "0.76rem",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em"
+    fontSize: "0.7rem",
+    color: "#6b6b82"
   },
-  sidebarNav: {
-    padding: "0 12px 12px",
-    display: "grid",
-    gap: 6
-  },
-  sidebarButton: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    background: "transparent",
-    color: "#9090a8",
-    border: "1px solid transparent",
-    borderRadius: 12,
-    padding: "10px 12px",
-    cursor: "pointer",
-    fontSize: "0.88rem"
-  },
-  sidebarButtonActive: {
-    background: "#7c3aed",
-    color: "#ffffff",
-    borderColor: "#8b5cf6"
-  },
-  sidebarCount: {
-    background: "rgba(255,255,255,0.12)",
-    borderRadius: 999,
-    minWidth: 22,
-    height: 22,
-    display: "grid",
-    placeItems: "center",
-    padding: "0 6px",
-    fontSize: "0.75rem"
-  },
-  sidebarContent: {
-    minHeight: 0,
-    overflow: "auto",
-    padding: "0 16px 16px"
-  },
+  // Main area
   main: {
     flex: 1,
     minWidth: 0,
@@ -930,44 +990,44 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     background: "#0a0a12"
   },
-  browserHeader: {
-    borderBottom: "1px solid #2a2a3e",
-    background: "#12121a"
-  },
   tabBar: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    padding: "10px 12px 0",
-    background: "#0f0f18"
-  },
+    gap: 8,
+    padding: "10px 10px 0",
+    background: "#0f0f18",
+    WebkitAppRegion: "drag",
+    borderBottom: "1px solid #1f2030"
+  } as React.CSSProperties,
   headerTabs: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
     overflowX: "auto",
-    flex: 1
-  },
+    flex: 1,
+    WebkitAppRegion: "no-drag"
+  } as React.CSSProperties,
   headerTab: {
     display: "flex",
     alignItems: "center",
-    gap: 10,
-    minWidth: 180,
-    maxWidth: 260,
-    padding: "10px 16px",
-    borderRadius: "12px 12px 0 0",
+    gap: 8,
+    minWidth: 100,
+    maxWidth: 200,
+    padding: "8px 12px",
+    borderRadius: "9px 9px 0 0",
     background: "#0a0a12",
     color: "#9090a8",
     border: "1px solid #1f2030",
     borderBottom: "none",
-    cursor: "pointer"
+    cursor: "pointer",
+    fontSize: "0.82rem"
   },
   headerTabWrap: {
     display: "flex",
     alignItems: "center",
-    minWidth: 180,
-    maxWidth: 260,
-    borderRadius: "12px 12px 0 0",
+    minWidth: 100,
+    maxWidth: 200,
+    borderRadius: "9px 9px 0 0",
     background: "#0a0a12",
     border: "1px solid #1f2030",
     borderBottom: "none"
@@ -981,12 +1041,13 @@ const styles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 7,
     background: "transparent",
     border: "none",
     color: "inherit",
-    padding: "10px 10px 10px 16px",
-    cursor: "pointer"
+    padding: "8px 6px 8px 10px",
+    cursor: "pointer",
+    fontSize: "0.82rem"
   },
   headerTabActive: {
     background: "#12121a",
@@ -994,8 +1055,8 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: "#2a2a3e"
   },
   headerTabDot: {
-    width: 8,
-    height: 8,
+    width: 6,
+    height: 6,
     borderRadius: "50%",
     background: "#8b5cf6",
     flexShrink: 0
@@ -1006,291 +1067,117 @@ const styles: Record<string, React.CSSProperties> = {
     whiteSpace: "nowrap"
   },
   headerTabClose: {
-    width: 28,
-    height: 28,
-    marginRight: 8,
-    borderRadius: 8,
+    width: 22,
+    height: 22,
+    marginRight: 5,
+    borderRadius: 5,
     background: "transparent",
     border: "none",
     color: "#9090a8",
-    cursor: "pointer"
+    cursor: "pointer",
+    fontSize: "0.72rem",
+    display: "grid",
+    placeItems: "center"
   },
   addTabButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     background: "#141422",
     border: "1px solid #2a2a3e",
     color: "#cbd5e1",
-    cursor: "pointer"
+    cursor: "pointer",
+    fontSize: "1rem"
   },
   navBar: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
-    padding: "12px 16px"
-  },
+    gap: 8,
+    padding: "7px 10px",
+    background: "#12121a",
+    borderBottom: "1px solid #2a2a3e",
+    WebkitAppRegion: "drag"
+  } as React.CSSProperties,
   navButtons: {
     display: "flex",
     alignItems: "center",
-    gap: 6
-  },
+    gap: 3,
+    WebkitAppRegion: "no-drag"
+  } as React.CSSProperties,
   iconButton: {
     background: "#1a1a26",
     color: "#cbd5e1",
     border: "1px solid #2a2a3e",
-    borderRadius: 10,
-    minWidth: 34,
-    height: 34,
+    borderRadius: 9,
+    minWidth: 30,
+    height: 30,
     display: "grid",
     placeItems: "center",
-    cursor: "pointer"
+    cursor: "pointer",
+    fontSize: "0.88rem"
   },
-  addressBar: {
+  addressBarWrap: {
     flex: 1,
     display: "flex",
     alignItems: "center",
-    gap: 10,
+    gap: 7,
     minWidth: 0,
     background: "#1e1e2e",
     border: "1px solid #2a2a3e",
-    borderRadius: 12,
-    padding: "10px 14px"
-  },
+    borderRadius: 9,
+    padding: "0 10px",
+    height: 30,
+    WebkitAppRegion: "no-drag"
+  } as React.CSSProperties,
   addressLock: {
-    color: "#22c55e",
-    fontSize: 10
+    fontSize: "0.68rem",
+    flexShrink: 0
   },
-  addressText: {
+  addressInput: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    outline: "none",
     color: "#e5e7eb",
-    fontSize: "0.88rem",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
+    fontSize: "0.86rem",
+    minWidth: 0
   },
   headerActions: {
     display: "flex",
-    gap: 8
-  },
+    alignItems: "center",
+    gap: 5,
+    WebkitAppRegion: "no-drag"
+  } as React.CSSProperties,
   headerPill: {
     background: "#1a1a26",
     color: "#e5e7eb",
     border: "1px solid #2a2a3e",
     borderRadius: 999,
-    padding: "8px 14px",
+    padding: "5px 11px",
     cursor: "pointer",
-    fontSize: "0.82rem"
+    fontSize: "0.8rem"
+  },
+  waitingPip: {
+    display: "flex",
+    alignItems: "center",
+    gap: 5,
+    background: "rgba(245,158,11,0.12)",
+    border: "1px solid rgba(245,158,11,0.3)",
+    borderRadius: 999,
+    padding: "4px 9px",
+    fontSize: "0.78rem",
+    color: "#fbbf24"
+  },
+  waitingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    background: "#f59e0b",
+    display: "inline-block"
   },
   mainBody: {
     flex: 1,
     minHeight: 0,
-    overflow: "hidden",
-    padding: 16
-  },
-  homePage: {
-    height: "100%",
-    overflow: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 24,
-    background: "linear-gradient(180deg, #0a0a12 0%, #12121a 100%)"
-  },
-  hero: {
-    padding: "56px 24px 0",
-    textAlign: "center"
-  },
-  heroBadge: {
-    display: "inline-block",
-    background: "rgba(139,92,246,0.14)",
-    color: "#c4b5fd",
-    border: "1px solid rgba(139,92,246,0.26)",
-    borderRadius: 999,
-    padding: "8px 14px",
-    fontSize: "0.8rem"
-  },
-  heroTitle: {
-    margin: "22px 0 16px",
-    fontSize: "2.4rem",
-    color: "#ffffff"
-  },
-  heroSearchWrap: {
-    position: "relative",
-    maxWidth: 760,
-    margin: "0 auto"
-  },
-  heroSearch: {
-    width: "100%",
-    boxSizing: "border-box",
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
-    borderRadius: 18,
-    padding: "18px 56px 18px 22px",
-    color: "#ffffff",
-    fontSize: "1rem"
-  },
-  heroSearchButton: {
-    position: "absolute",
-    right: 10,
-    top: "50%",
-    transform: "translateY(-50%)",
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    border: "1px solid #8b5cf6",
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
-    color: "#ffffff",
-    cursor: "pointer"
-  },
-  quickGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-    gap: 14,
-    padding: "0 24px"
-  },
-  quickCard: {
-    textAlign: "left",
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 18,
-    padding: 18,
-    color: "#e5e7eb",
-    cursor: "pointer"
-  },
-  quickCardTitle: {
-    fontSize: "0.98rem",
-    fontWeight: 700
-  },
-  quickCardDesc: {
-    marginTop: 8,
-    color: "#9090a8",
-    fontSize: "0.84rem",
-    lineHeight: 1.45
-  },
-  homeSections: {
-    padding: "0 24px 24px"
-  },
-  homeSection: {
-    display: "grid",
-    gap: 10,
-    marginBottom: 18
-  },
-  sectionEyebrow: {
-    color: "#9090a8",
-    fontSize: "0.78rem",
-    letterSpacing: "0.08em",
-    textTransform: "uppercase"
-  },
-  actionCards: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 14
-  },
-  infoCard: {
-    textAlign: "left",
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 18,
-    padding: 18,
-    color: "#e5e7eb"
-  },
-  infoValue: {
-    fontSize: "1.65rem",
-    fontWeight: 700,
-    color: "#ffffff"
-  },
-  infoTitle: {
-    marginTop: 8,
-    fontSize: "0.9rem",
-    fontWeight: 700
-  },
-  infoDetail: {
-    marginTop: 8,
-    color: "#9090a8",
-    fontSize: "0.82rem",
-    lineHeight: 1.45
-  },
-  recentList: {
-    display: "grid",
-    gap: 10
-  },
-  recentItem: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 16,
-    textAlign: "left",
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 18,
-    padding: 16,
-    color: "#e5e7eb",
-    cursor: "pointer"
-  },
-  recentTitle: {
-    fontSize: "0.92rem",
-    fontWeight: 700,
-    color: "#ffffff"
-  },
-  recentMeta: {
-    marginTop: 6,
-    color: "#9090a8",
-    fontSize: "0.8rem",
-    lineHeight: 1.4
-  },
-  recentBadge: {
-    color: "#c4b5fd",
-    fontSize: "0.75rem",
-    textTransform: "uppercase"
-  },
-  recentEmpty: {
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 18,
-    padding: 16,
-    color: "#9090a8"
-  },
-  modalBackdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.6)",
-    backdropFilter: "blur(6px)",
-    display: "grid",
-    placeItems: "center",
-    padding: 24,
-    zIndex: 1000
-  },
-  modalCard: {
-    width: "min(1100px, 100%)",
-    maxHeight: "84vh",
-    display: "flex",
-    flexDirection: "column",
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 24,
-    boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
     overflow: "hidden"
-  },
-  modalHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 16,
-    padding: "20px 24px",
-    borderBottom: "1px solid #2a2a3e",
-    background: "linear-gradient(90deg, rgba(139,92,246,0.14), rgba(18,18,26,0))"
-  },
-  modalTitle: {
-    color: "#ffffff",
-    fontSize: "1.2rem",
-    fontWeight: 700
-  },
-  modalSubtitle: {
-    marginTop: 4,
-    color: "#9090a8",
-    fontSize: "0.85rem"
-  },
-  modalBody: {
-    overflow: "auto",
-    padding: 24
   }
 };

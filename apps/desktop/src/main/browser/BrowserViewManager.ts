@@ -19,6 +19,7 @@ export class BrowserViewManager {
   private activeViewId: string | null = null;
   private hostWindow: BrowserWindow;
   private viewportBounds: ViewportBounds | null = null;
+  onNavigate: ((sessionId: string, url: string, title: string) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -47,6 +48,19 @@ export class BrowserViewManager {
     view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
     view.setVisible(false);
 
+    view.webContents.on("did-navigate", (_, url) => {
+      this.onNavigate?.(sessionId, url, view.webContents.getTitle());
+    });
+
+    view.webContents.on("did-navigate-in-page", (_, url) => {
+      this.onNavigate?.(sessionId, url, view.webContents.getTitle());
+    });
+
+    view.webContents.on("page-title-updated", (_, title) => {
+      const url = view.webContents.getURL();
+      this.onNavigate?.(sessionId, url, title);
+    });
+
     view.webContents.on("destroyed", () => {
       this.views.delete(sessionId);
       if (this.activeViewId === sessionId) {
@@ -55,6 +69,43 @@ export class BrowserViewManager {
     });
 
     return managed;
+  }
+
+  navigate(sessionId: string, url: string): void {
+    const managed = this.views.get(sessionId);
+    if (managed) {
+      void managed.view.webContents.loadURL(url);
+    }
+  }
+
+  goBack(sessionId: string): void {
+    const managed = this.views.get(sessionId);
+    if (managed?.view.webContents.canGoBack()) {
+      managed.view.webContents.goBack();
+    }
+  }
+
+  goForward(sessionId: string): void {
+    const managed = this.views.get(sessionId);
+    if (managed?.view.webContents.canGoForward()) {
+      managed.view.webContents.goForward();
+    }
+  }
+
+  reload(sessionId: string): void {
+    const managed = this.views.get(sessionId);
+    managed?.view.webContents.reload();
+  }
+
+  getNavState(sessionId: string): { canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null {
+    const managed = this.views.get(sessionId);
+    if (!managed) return null;
+    return {
+      canGoBack: managed.view.webContents.canGoBack(),
+      canGoForward: managed.view.webContents.canGoForward(),
+      url: managed.view.webContents.getURL() || "about:blank",
+      title: managed.view.webContents.getTitle() || "Untitled"
+    };
   }
 
   show(sessionId: string): void {

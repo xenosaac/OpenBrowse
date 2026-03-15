@@ -67,6 +67,10 @@ export interface RuntimeSettings {
   plannerModel: string;
   telegramBotToken: string;
   telegramChatId: string;
+  /** Controls how many run events are forwarded to the Telegram chat.
+   *  "quiet" (default) — only suspension and terminal events.
+   *  "verbose" — every browser action step. */
+  telegramNotificationLevel: "quiet" | "verbose";
 }
 
 export function createDefaultRuntimeSettings(): RuntimeSettings {
@@ -74,6 +78,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     anthropicApiKey: "",
     plannerModel: DEFAULT_ANTHROPIC_MODEL,
     telegramBotToken: "",
-    telegramChatId: ""
+    telegramChatId: "",
+    telegramNotificationLevel: "quiet"
   };
 }

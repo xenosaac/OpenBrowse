@@ -9,6 +9,7 @@ import {
   markBrowserRuntimeInitFailed,
   markChatBridgeInitFailed,
   wireInboundChat,
+  wireBotCommands,
   type RuntimeServices
 } from "@openbrowse/runtime-core";
 
@@ -43,6 +44,7 @@ export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise
 
   registerIpcHandlers(services, browserShell, mainWindow, demoRegistry);
   wireInboundChat(services);
+  wireBotCommands(services);
 
   try {
     await services.browserKernelInit?.();

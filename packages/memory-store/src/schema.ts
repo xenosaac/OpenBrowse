@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const DDL = `
 CREATE TABLE IF NOT EXISTS workflow_events (
@@ -66,5 +66,11 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
         // Skip rows with invalid JSON
       }
     }
+  },
+  3: (db) => {
+    // V2 -> V3: Add created_at DESC index on workflow_events for listRecent() query
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_workflow_events_created_at ON workflow_events(created_at DESC, id DESC)`
+    );
   }
 };

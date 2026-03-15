@@ -4,6 +4,7 @@ import type {
   ClarificationResponse,
   PageModel,
   PlannerDecision,
+  RunActionRecord,
   TaskIntent,
   TaskRun
 } from "@openbrowse/contracts";
@@ -33,7 +34,10 @@ export class TaskOrchestrator {
       updatedAt: now,
       checkpoint: {
         summary: "Run created from task intent.",
-        notes: []
+        notes: [],
+        stepCount: 0,
+        actionHistory: [],
+        consecutiveSoftFailures: 0
       }
     };
   }
@@ -73,7 +77,10 @@ export class TaskOrchestrator {
         ...run.checkpoint,
         browserSessionId: browserSessionId ?? run.checkpoint.browserSessionId,
         lastPageModelId: pageModel.id,
-        lastKnownUrl: pageModel.url
+        lastKnownUrl: pageModel.url,
+        lastPageTitle: pageModel.title || undefined,
+        lastPageSummary: pageModel.summary || undefined,
+        stepCount: (run.checkpoint.stepCount ?? 0) + 1
       }
     };
   }
@@ -83,6 +90,7 @@ export class TaskOrchestrator {
 
     if (this.deps.clarificationPolicy.shouldSuspend(run, decision)) {
       assertTransition(run.status, "suspended_for_clarification");
+      const question = decision.clarificationRequest?.question ?? "Clarification needed.";
 
       return {
         ...run,
@@ -93,7 +101,9 @@ export class TaskOrchestrator {
           summary: decision.reasoning,
           pendingClarificationId: decision.clarificationRequest?.id,
           pendingApprovalId: undefined,
-          pendingBrowserAction: undefined
+          pendingBrowserAction: undefined,
+          stopReason: `Waiting for clarification: ${question}`,
+          nextSuggestedStep: undefined
         },
         suspension: decision.clarificationRequest
           ? {
@@ -108,6 +118,7 @@ export class TaskOrchestrator {
 
     if (decision.type === "approval_request" && decision.approvalRequest) {
       assertTransition(run.status, "suspended_for_approval");
+      const actionDesc = decision.action?.description ?? decision.approvalRequest.irreversibleActionSummary;
 
       return {
         ...run,
@@ -118,7 +129,9 @@ export class TaskOrchestrator {
           summary: decision.reasoning,
           pendingApprovalId: decision.approvalRequest.id,
           pendingClarificationId: undefined,
-          pendingBrowserAction: decision.action
+          pendingBrowserAction: decision.action,
+          stopReason: `Waiting for approval: ${actionDesc}`,
+          nextSuggestedStep: `Approve or deny: "${actionDesc}"`
         },
         suspension: {
           type: "approval",
@@ -131,6 +144,7 @@ export class TaskOrchestrator {
 
     if (decision.type === "task_complete") {
       assertTransition(run.status, "completed");
+      const completionSummary = decision.completionSummary ?? decision.reasoning;
 
       return {
         ...run,
@@ -138,14 +152,16 @@ export class TaskOrchestrator {
         updatedAt,
         checkpoint: {
           ...run.checkpoint,
-          summary: decision.completionSummary ?? decision.reasoning,
+          summary: completionSummary,
           pendingApprovalId: undefined,
           pendingClarificationId: undefined,
-          pendingBrowserAction: undefined
+          pendingBrowserAction: undefined,
+          stopReason: `Completed: ${completionSummary}`,
+          nextSuggestedStep: undefined
         },
         outcome: {
           status: "completed",
-          summary: decision.completionSummary ?? decision.reasoning,
+          summary: completionSummary,
           finishedAt: updatedAt
         },
         suspension: undefined
@@ -154,6 +170,7 @@ export class TaskOrchestrator {
 
     if (decision.type === "task_failed") {
       assertTransition(run.status, "failed");
+      const failureSummary = decision.failureSummary ?? decision.reasoning;
 
       return {
         ...run,
@@ -161,14 +178,16 @@ export class TaskOrchestrator {
         updatedAt,
         checkpoint: {
           ...run.checkpoint,
-          summary: decision.failureSummary ?? decision.reasoning,
+          summary: failureSummary,
           pendingApprovalId: undefined,
           pendingClarificationId: undefined,
-          pendingBrowserAction: undefined
+          pendingBrowserAction: undefined,
+          stopReason: `Failed: ${failureSummary}`,
+          nextSuggestedStep: undefined
         },
         outcome: {
           status: "failed",
-          summary: decision.failureSummary ?? decision.reasoning,
+          summary: failureSummary,
           finishedAt: updatedAt
         },
         suspension: undefined
@@ -179,6 +198,9 @@ export class TaskOrchestrator {
       assertTransition(run.status, "running");
     }
 
+    // browser_action or other continuation — record next planned step
+    const nextStep = decision.action?.description ?? decision.reasoning;
+
     return {
       ...run,
       status: run.status === "queued" ? "running" : run.status,
@@ -186,7 +208,8 @@ export class TaskOrchestrator {
       checkpoint: {
         ...run.checkpoint,
         summary: decision.reasoning,
-        pendingApprovalId: undefined
+        pendingApprovalId: undefined,
+        nextSuggestedStep: nextStep
       },
       suspension: undefined
     };
@@ -197,6 +220,24 @@ export class TaskOrchestrator {
       assertTransition(run.status, "running");
     }
 
+    const record: RunActionRecord = {
+      step: run.checkpoint.stepCount ?? 0,
+      type: result.action.type,
+      description: result.action.description,
+      ok: result.ok,
+      failureClass: result.failureClass,
+      url: run.checkpoint.lastKnownUrl,
+      createdAt: new Date().toISOString()
+    };
+
+    const existingHistory = run.checkpoint.actionHistory ?? [];
+    const actionHistory = [...existingHistory, record].slice(-10);
+
+    const isSoftFailure = !result.ok && result.failureClass === "element_not_found";
+    const consecutiveSoftFailures = isSoftFailure
+      ? (run.checkpoint.consecutiveSoftFailures ?? 0) + 1
+      : 0;
+
     return {
       ...run,
       status: "running",
@@ -205,7 +246,10 @@ export class TaskOrchestrator {
         ...run.checkpoint,
         summary: result.summary,
         lastPageModelId: result.pageModelId,
-        pendingBrowserAction: undefined
+        pendingBrowserAction: undefined,
+        actionHistory,
+        lastFailureClass: result.failureClass ?? (result.ok ? undefined : run.checkpoint.lastFailureClass),
+        consecutiveSoftFailures
       }
     };
   }
@@ -264,7 +308,9 @@ export class TaskOrchestrator {
         summary,
         pendingApprovalId: undefined,
         pendingClarificationId: undefined,
-        pendingBrowserAction: undefined
+        pendingBrowserAction: undefined,
+        stopReason: `Failed: ${summary}`,
+        nextSuggestedStep: undefined
       },
       outcome: {
         status: "failed",
@@ -287,7 +333,9 @@ export class TaskOrchestrator {
         summary,
         pendingApprovalId: undefined,
         pendingClarificationId: undefined,
-        pendingBrowserAction: undefined
+        pendingBrowserAction: undefined,
+        stopReason: `Cancelled: ${summary}`,
+        nextSuggestedStep: undefined
       },
       outcome: {
         status: "cancelled",
