@@ -146,7 +146,9 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
     runtimeConfig: params.runtimeConfig,
     runtimeSettings: params.runtimeSettings,
     scheduler,
-    securityPolicy: new DefaultApprovalPolicy(),
+    securityPolicy: new DefaultApprovalPolicy({
+      riskClassPolicies: params.runtimeSettings.riskClassPolicies
+    }),
     sqliteDb: params.sqliteDb,
     telegramStatePath: params.telegramStatePath,
     workflowLogStore: params.workflowLogStore

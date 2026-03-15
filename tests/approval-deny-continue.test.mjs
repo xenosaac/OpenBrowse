@@ -158,3 +158,57 @@ test("destructive keywords in click actions classify as high", () => {
   });
   assert.equal(risk, "high");
 });
+
+// ---------------------------------------------------------------------------
+// per-class approval policies
+// ---------------------------------------------------------------------------
+
+test("per-class always_ask overrides auto run mode", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { submission: "always_ask" } });
+  const run = makeRun({ metadata: { approval_mode: "auto" } });
+  // Submit is "high" risk — auto mode skips high, but always_ask forces approval
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Submit form" }), true);
+});
+
+test("per-class auto_approve skips approval in default mode", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { submission: "auto_approve" } });
+  const run = makeRun();
+  // Submit is normally "high" risk (requires approval), but auto_approve bypasses
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Submit form" }), false);
+});
+
+test("per-class auto_approve does NOT override strict run mode", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { submission: "auto_approve" } });
+  const run = makeRun({ metadata: { approval_mode: "strict" } });
+  // Strict means strict — auto_approve is overridden
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Submit form" }), true);
+});
+
+test("per-class default preserves existing behavior", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { submission: "default" } });
+  const run = makeRun();
+  // Submit is high risk — same as no config
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Submit form" }), true);
+});
+
+test("unconfigured class falls through to default behavior", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { financial: "always_ask" } });
+  const run = makeRun();
+  // Destructive class is not configured — uses default risk-level logic
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Delete account" }), true);   // high risk
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Open filters" }), false);          // low risk
+});
+
+test("per-class always_ask on navigation forces approval for navigate actions", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { navigation: "always_ask" } });
+  const run = makeRun();
+  // Navigate actions are normally low risk — always_ask overrides
+  assert.equal(policy.requiresApproval(run, { type: "navigate", description: "Go to google.com" }), true);
+});
+
+test("per-class auto_approve on financial bypasses even critical risk", () => {
+  const policy = new DefaultApprovalPolicy({ riskClassPolicies: { financial: "auto_approve" } });
+  const run = makeRun();
+  // Purchase is critical risk, but user configured auto_approve for financial
+  assert.equal(policy.requiresApproval(run, { type: "click", description: "Click Purchase now" }), false);
+});

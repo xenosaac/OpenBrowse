@@ -176,7 +176,7 @@ test("approval request includes risk label in question", () => {
     description: "Click Purchase now"
   });
 
-  assert.match(request.question, /\[CRITICAL\]/);
+  assert.match(request.question, /\[CRITICAL:FINANCIAL\]/);
   assert.match(request.question, /Purchase now/);
 });
 

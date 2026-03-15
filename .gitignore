@@ -6,7 +6,6 @@ build
 .env.*
 coverage
 *.log
-pnpm-lock.yaml
 out
 release
 *.tsbuildinfo
@@ -28,7 +27,8 @@ working-log-*.md
 worklogs/
 
 # Local project docs kept out of git for now
-docs/
+docs/*
+!docs/working_log.md
 
 # Figma Design Files ignored for now.
 UI_Design_Figma/
