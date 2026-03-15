@@ -30,7 +30,12 @@ export class InMemoryWorkflowLogStore implements WorkflowLogStore {
   private readonly events: WorkflowEvent[] = [];
   private readonly byRun = new Map<string, WorkflowEvent[]>();
 
+  private readonly seenIds = new Set<string>();
+
   async append(event: WorkflowEvent): Promise<void> {
+    // Match SQLite INSERT OR IGNORE: skip if id already appended
+    if (this.seenIds.has(event.id)) return;
+    this.seenIds.add(event.id);
     this.events.push(event);
     let bucket = this.byRun.get(event.runId);
     if (!bucket) {
@@ -76,11 +81,14 @@ export class InMemoryRunCheckpointStore implements RunCheckpointStore {
   }
 
   async listByStatus(status: TaskStatus): Promise<TaskRun[]> {
-    return [...this.runs.values()].filter((r) => r.status === status);
+    return [...this.runs.values()]
+      .filter((r) => r.status === status)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async listAll(): Promise<TaskRun[]> {
-    return [...this.runs.values()];
+    return [...this.runs.values()]
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
   async delete(runId: string): Promise<boolean> {

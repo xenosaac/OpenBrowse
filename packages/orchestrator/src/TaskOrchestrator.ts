@@ -154,6 +154,7 @@ export class TaskOrchestrator {
           type: "approval",
           requestId: decision.approvalRequest.id,
           question: decision.approvalRequest.question,
+          riskClass: decision.approvalRequest.riskClass,
           createdAt: decision.approvalRequest.createdAt
         }
       };

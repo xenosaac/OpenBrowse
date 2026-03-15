@@ -6,6 +6,24 @@ interface Props {
   onResume: (run: TaskRun | null) => void | Promise<void>;
 }
 
+const RISK_CLASS_LABELS: Record<string, string> = {
+  financial: "Financial Transaction",
+  credential: "Credential / Sensitive Data",
+  destructive: "Destructive Action",
+  submission: "Form Submission",
+  navigation: "Navigation",
+  general: "General"
+};
+
+const RISK_CLASS_COLORS: Record<string, string> = {
+  financial: "#ef4444",
+  credential: "#f59e0b",
+  destructive: "#dc2626",
+  submission: "#8b5cf6",
+  navigation: "#06b6d4",
+  general: "#6b7280"
+};
+
 export function RemoteQuestions({ runs, onResume }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -74,62 +92,86 @@ export function RemoteQuestions({ runs, onResume }: Props) {
 
   return (
     <div>
-      {runs.map((run) => (
-        <div key={run.id} style={styles.card}>
-          <strong>{run.goal}</strong>
-          {run.suspension && (
-            <p style={styles.question}>{run.suspension.question}</p>
-          )}
-          {run.suspension?.type === "approval" && (
-            <div style={styles.quickActions}>
-              <button
-                onClick={() => handleQuickApproval(run, "approve")}
+      {runs.map((run) => {
+        const riskClass = run.suspension?.riskClass;
+        const borderColor = riskClass
+          ? RISK_CLASS_COLORS[riskClass] + "40"
+          : "rgba(245,158,11,0.25)";
+
+        return (
+          <div key={run.id} style={{ ...styles.card, borderColor }}>
+            <strong>{run.goal}</strong>
+            {run.suspension?.type === "approval" && riskClass && (
+              <span style={{
+                display: "inline-block",
+                background: RISK_CLASS_COLORS[riskClass] + "22",
+                border: `1px solid ${RISK_CLASS_COLORS[riskClass]}55`,
+                color: RISK_CLASS_COLORS[riskClass],
+                borderRadius: 8,
+                padding: "2px 10px",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                marginLeft: 8
+              }}>
+                {RISK_CLASS_LABELS[riskClass] ?? riskClass}
+              </span>
+            )}
+            {run.suspension && (
+              <p style={styles.question}>{run.suspension.question}</p>
+            )}
+            {run.suspension?.type === "approval" && (
+              <div style={styles.quickActions}>
+                <button
+                  onClick={() => handleQuickApproval(run, "approve")}
+                  disabled={busy === run.id}
+                  style={{ ...styles.button, ...styles.approveButton }}
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => handleQuickApproval(run, "deny")}
+                  disabled={busy === run.id}
+                  style={{ ...styles.button, ...styles.denyButton }}
+                >
+                  Deny
+                </button>
+              </div>
+            )}
+            <div style={styles.form}>
+              <input
+                type="text"
+                value={getAnswer(run.id)}
+                onChange={(e) => setAnswer(run.id, e.target.value)}
+                placeholder={run.suspension?.type === "approval" ? "Type approve / deny..." : "Type your answer..."}
+                style={styles.input}
+                onKeyDown={(e) => e.key === "Enter" && handleResume(run)}
                 disabled={busy === run.id}
-                style={{ ...styles.button, ...styles.approveButton }}
+              />
+              <button
+                onClick={() => handleResume(run, "desktop")}
+                disabled={busy === run.id}
+                style={styles.button}
               >
-                Approve
+                {busy === run.id ? "Resuming..." : "Resume"}
               </button>
               <button
-                onClick={() => handleQuickApproval(run, "deny")}
+                onClick={() => handleResume(run, "telegram")}
                 disabled={busy === run.id}
-                style={{ ...styles.button, ...styles.denyButton }}
+                style={{ ...styles.button, ...styles.telegramButton }}
               >
-                Deny
+                Fake Telegram
               </button>
             </div>
-          )}
-          <div style={styles.form}>
-            <input
-              type="text"
-              value={getAnswer(run.id)}
-              onChange={(e) => setAnswer(run.id, e.target.value)}
-              placeholder={run.suspension?.type === "approval" ? "Type approve / deny..." : "Type your answer..."}
-              style={styles.input}
-              onKeyDown={(e) => e.key === "Enter" && handleResume(run)}
-              disabled={busy === run.id}
-            />
-            <button
-              onClick={() => handleResume(run, "desktop")}
-              disabled={busy === run.id}
-              style={styles.button}
-            >
-              {busy === run.id ? "Resuming..." : "Resume"}
-            </button>
-            <button
-              onClick={() => handleResume(run, "telegram")}
-              disabled={busy === run.id}
-              style={{ ...styles.button, ...styles.telegramButton }}
-            >
-              Fake Telegram
-            </button>
+            {busy === run.id && (
+              <p style={styles.pendingNote}>
+                Resuming this run and refreshing Browser/Workflow Log...
+              </p>
+            )}
           </div>
-          {busy === run.id && (
-            <p style={styles.pendingNote}>
-              Resuming this run and refreshing Browser/Workflow Log...
-            </p>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

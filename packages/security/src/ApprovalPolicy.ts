@@ -1,4 +1,4 @@
-import type { ApprovalRequest, BrowserAction, TaskRun } from "@openbrowse/contracts";
+import type { ApprovalRequest, BrowserAction, RiskClass, RiskClassPolicies, TaskRun } from "@openbrowse/contracts";
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type ApprovalMode = "strict" | "auto" | "default";
@@ -8,11 +8,16 @@ export interface ApprovalPolicy {
   requiresApproval(run: TaskRun, action: BrowserAction): boolean;
   buildApprovalRequest(run: TaskRun, action: BrowserAction): ApprovalRequest;
   classifyRisk(run: TaskRun, action: BrowserAction): RiskLevel;
+  classifyRiskClass(run: TaskRun, action: BrowserAction): RiskClass;
   resolveDenial(run: TaskRun, action: BrowserAction): ApprovalOutcome;
 }
 
+export interface ApprovalPolicyConfig {
+  riskClassPolicies?: RiskClassPolicies;
+}
+
 // ---------------------------------------------------------------------------
-// Keyword sets
+// Keyword sets — used by classifyRisk() (risk LEVEL: low/medium/high/critical)
 // ---------------------------------------------------------------------------
 
 const FINALIZE_KEYWORDS = [
@@ -90,6 +95,20 @@ const HIGH_KEYWORDS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Risk CLASS keyword sets — used by classifyRiskClass() (orthogonal to level)
+// ---------------------------------------------------------------------------
+
+const RISK_CLASS_KEYWORDS: Record<Exclude<RiskClass, "navigation" | "general">, string[]> = {
+  financial: ["purchase", "pay", "checkout", "buy", "place order", "transfer", "credit card", "card number", "bank account", "routing number"],
+  credential: ["password", "passcode", "verification code", "2fa", "otp", "cvv", "security code", "ssn"],
+  destructive: ["delete", "remove", "cancel order", "unsubscribe", "revoke", "disconnect"],
+  submission: ["submit", "confirm", "book now", "authorize", "subscribe", "create account", "sign up", "send"]
+};
+
+/** Priority order: highest-risk class wins when multiple match. */
+const RISK_CLASS_PRIORITY: RiskClass[] = ["financial", "credential", "destructive", "submission", "navigation", "general"];
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -101,6 +120,23 @@ function normalizeActionText(action: BrowserAction): string {
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+function detectRiskClasses(action: BrowserAction): RiskClass[] {
+  const text = normalizeActionText(action);
+  const matched: RiskClass[] = [];
+
+  if (action.type === "navigate") {
+    matched.push("navigation");
+  }
+
+  for (const [cls, keywords] of Object.entries(RISK_CLASS_KEYWORDS) as [RiskClass, string[]][]) {
+    if (keywords.some((kw) => text.includes(kw))) {
+      matched.push(cls);
+    }
+  }
+
+  return matched.length > 0 ? matched : ["general"];
 }
 
 function collectApprovalReasons(run: TaskRun, action: BrowserAction): string[] {
@@ -149,6 +185,20 @@ function resolveApprovalMode(run: TaskRun): ApprovalMode {
 // ---------------------------------------------------------------------------
 
 export class DefaultApprovalPolicy implements ApprovalPolicy {
+  private readonly classPolicies: RiskClassPolicies;
+
+  constructor(config?: ApprovalPolicyConfig) {
+    this.classPolicies = config?.riskClassPolicies ?? {};
+  }
+
+  classifyRiskClass(_run: TaskRun, action: BrowserAction): RiskClass {
+    const classes = detectRiskClasses(action);
+    for (const cls of RISK_CLASS_PRIORITY) {
+      if (classes.includes(cls)) return cls;
+    }
+    return "general";
+  }
+
   classifyRisk(run: TaskRun, action: BrowserAction): RiskLevel {
     const text = normalizeActionText(action);
 
@@ -174,7 +224,20 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
   requiresApproval(run: TaskRun, action: BrowserAction): boolean {
     const mode = resolveApprovalMode(run);
     const risk = this.classifyRisk(run, action);
+    const riskClass = this.classifyRiskClass(run, action);
+    const classPolicy = this.classPolicies[riskClass] ?? "default";
 
+    // Per-class "always_ask" overrides everything
+    if (classPolicy === "always_ask") {
+      return true;
+    }
+
+    // Per-class "auto_approve" takes effect unless per-run mode is "strict"
+    if (classPolicy === "auto_approve") {
+      return mode === "strict";
+    }
+
+    // "default" falls through to existing risk-level + run-mode logic
     switch (mode) {
       case "strict":
         // Approve everything except purely low-risk reads
@@ -194,7 +257,9 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
   buildApprovalRequest(run: TaskRun, action: BrowserAction): ApprovalRequest {
     const reasons = collectApprovalReasons(run, action);
     const risk = this.classifyRisk(run, action);
+    const riskClass = this.classifyRiskClass(run, action);
     const riskLabel = risk.toUpperCase();
+    const classLabel = riskClass.toUpperCase();
     const reasonSummary =
       reasons.length > 0
         ? reasons.map((reason) => reason[0].toUpperCase() + reason.slice(1)).join("; ")
@@ -204,8 +269,9 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     return {
       id: `approval_${run.id}_${Date.now()}`,
       runId: run.id,
-      question: `[${riskLabel}] OpenBrowse is ready to ${action.description}${targetSummary} for "${run.goal}". Approve this step?`,
+      question: `[${riskLabel}:${classLabel}] OpenBrowse is ready to ${action.description}${targetSummary} for "${run.goal}". Approve this step?`,
       irreversibleActionSummary: `${action.type}: ${action.description}. ${reasonSummary}`,
+      riskClass,
       createdAt: new Date().toISOString()
     };
   }
@@ -229,4 +295,3 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
     return "denied_continue";
   }
 }
-

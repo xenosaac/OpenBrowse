@@ -2,10 +2,12 @@ import { StubChatBridge, TelegramChatBridge, resolveTelegramConfig, type ChatBri
 import {
   createDefaultRuntimeSettings,
   DEFAULT_ANTHROPIC_MODEL,
+  type RiskClassPolicies,
   type RuntimeDescriptor,
   type RuntimeSettings
 } from "@openbrowse/contracts";
 import { StubPlannerGateway, ClaudePlannerGateway, type PlannerGateway } from "@openbrowse/planner";
+import { DefaultApprovalPolicy } from "@openbrowse/security";
 import type { RuntimeServices } from "./types.js";
 import { wireInboundChat, wireBotCommands } from "./OpenBrowseRuntime.js";
 
@@ -179,13 +181,19 @@ export function buildRuntimeDescriptor(status: {
 
 async function readStoredRuntimeSettings(services: RuntimeServices): Promise<RuntimeSettings> {
   const defaults = createDefaultRuntimeSettings();
-  const [anthropicApiKey, plannerModel, telegramBotToken, telegramChatId, telegramNotificationLevel] = await Promise.all([
+  const [anthropicApiKey, plannerModel, telegramBotToken, telegramChatId, telegramNotificationLevel, riskClassPoliciesRaw] = await Promise.all([
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "anthropic_api_key"),
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "planner_model"),
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_bot_token"),
     services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_chat_id"),
-    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_notification_level")
+    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "telegram_notification_level"),
+    services.preferenceStore.get(RUNTIME_SETTINGS_NAMESPACE, "risk_class_policies")
   ]);
+
+  let riskClassPolicies: RiskClassPolicies = {};
+  if (riskClassPoliciesRaw?.value) {
+    try { riskClassPolicies = JSON.parse(riskClassPoliciesRaw.value); } catch { /* use default */ }
+  }
 
   return {
     anthropicApiKey: anthropicApiKey?.value ?? defaults.anthropicApiKey,
@@ -194,7 +202,8 @@ async function readStoredRuntimeSettings(services: RuntimeServices): Promise<Run
     telegramChatId: telegramChatId?.value ?? defaults.telegramChatId,
     telegramNotificationLevel:
       (telegramNotificationLevel?.value as RuntimeSettings["telegramNotificationLevel"]) ??
-      defaults.telegramNotificationLevel
+      defaults.telegramNotificationLevel,
+    riskClassPolicies
   };
 }
 
@@ -220,6 +229,9 @@ async function applyRuntimeSettings(
   services.planner = plannerSetup.planner;
   services.chatBridge = chatBridgeSetup.chatBridge;
   services.chatBridgeInit = chatBridgeSetup.chatBridgeInit;
+  services.securityPolicy = new DefaultApprovalPolicy({
+    riskClassPolicies: runtimeSettings.riskClassPolicies
+  });
   services.descriptor = buildRuntimeDescriptor({
     planner: plannerSetup.descriptor,
     browser: services.descriptor.browser,
@@ -259,7 +271,8 @@ export async function saveRuntimeSettings(
     { key: "planner_model", value: nextSettings.plannerModel || DEFAULT_ANTHROPIC_MODEL },
     { key: "telegram_bot_token", value: nextSettings.telegramBotToken },
     { key: "telegram_chat_id", value: nextSettings.telegramChatId },
-    { key: "telegram_notification_level", value: nextSettings.telegramNotificationLevel ?? "quiet" }
+    { key: "telegram_notification_level", value: nextSettings.telegramNotificationLevel ?? "quiet" },
+    { key: "risk_class_policies", value: JSON.stringify(nextSettings.riskClassPolicies ?? {}) }
   ]);
 
   const stored = await readStoredRuntimeSettings(services);

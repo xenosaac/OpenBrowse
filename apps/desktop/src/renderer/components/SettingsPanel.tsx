@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RuntimeDescriptor, RuntimeSettings } from "../../shared/runtime";
+import type { RiskClass, RiskClassPolicy, RuntimeDescriptor, RuntimeSettings } from "../../shared/runtime";
 import {
   createDefaultRuntimeSettings,
   DEFAULT_ANTHROPIC_MODEL,
   OPUS_ANTHROPIC_MODEL
 } from "../../shared/runtime";
+
+const RISK_CLASSES: { key: RiskClass; label: string; description: string }[] = [
+  { key: "financial", label: "Financial", description: "Purchases, payments, transfers, credit card entry" },
+  { key: "credential", label: "Credentials", description: "Passwords, 2FA codes, CVVs, SSNs" },
+  { key: "destructive", label: "Destructive", description: "Deletes, cancellations, revocations" },
+  { key: "submission", label: "Submissions", description: "Form submits, confirmations, account creation" },
+  { key: "navigation", label: "Navigation", description: "Page navigations and URL changes" },
+  { key: "general", label: "General", description: "All other actions (catch-all)" }
+];
 
 interface Props {
   runtime: RuntimeDescriptor | null;
@@ -168,6 +177,36 @@ export function SettingsPanel({ runtime, settings, onSaved }: Props) {
             If left blank, the bot pairs with the first person who messages it (one-time auto-bind).
             Either way, only the bound user can send commands or receive clarification questions.
           </p>
+        </div>
+
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Approval Policies</h3>
+          <p style={styles.helpText}>
+            Configure how OpenBrowse handles approval for different risk categories.
+            &ldquo;Default&rdquo; uses the standard risk-level logic. &ldquo;Always Ask&rdquo; always requires
+            approval. &ldquo;Auto-Approve&rdquo; skips approval (unless the run is in strict mode).
+          </p>
+          {RISK_CLASSES.map(({ key, label, description }) => (
+            <label key={key} style={styles.label}>
+              {label}
+              <select
+                value={form.riskClassPolicies[key] ?? "default"}
+                onChange={(e) => updateForm((current) => ({
+                  ...current,
+                  riskClassPolicies: {
+                    ...current.riskClassPolicies,
+                    [key]: e.target.value as RiskClassPolicy
+                  }
+                }))}
+                style={styles.input}
+              >
+                <option value="default">Default</option>
+                <option value="always_ask">Always Ask</option>
+                <option value="auto_approve">Auto-Approve</option>
+              </select>
+              <span style={styles.helpText}>{description}</span>
+            </label>
+          ))}
         </div>
       </div>
 

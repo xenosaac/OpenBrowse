@@ -3,6 +3,15 @@ import type { BrowserAction, PageModel } from "./browser.js";
 export type TaskSource = "desktop" | "telegram" | "scheduler";
 export type RunSuspensionType = "clarification" | "approval";
 
+/** Named risk class — describes *why* an action is risky (shown in approval UI). */
+export type RiskClass = "financial" | "credential" | "destructive" | "submission" | "navigation" | "general";
+
+/** Per-class approval policy — controls whether to ask, auto-approve, or use default risk-level logic. */
+export type RiskClassPolicy = "always_ask" | "auto_approve" | "default";
+
+/** Map of risk class → approval policy. Missing keys default to "default". */
+export type RiskClassPolicies = Partial<Record<RiskClass, RiskClassPolicy>>;
+
 /** A compact record of a single browser action taken during a run. Stored in RunCheckpoint.actionHistory. */
 export interface RunActionRecord {
   step: number;
@@ -114,6 +123,7 @@ export interface RunSuspension {
   type: RunSuspensionType;
   requestId: string;
   question: string;
+  riskClass?: RiskClass;
   createdAt: string;
 }
 
@@ -166,6 +176,7 @@ export interface ApprovalRequest {
   runId: string;
   question: string;
   irreversibleActionSummary: string;
+  riskClass?: RiskClass;
   createdAt: string;
 }
 

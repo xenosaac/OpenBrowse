@@ -192,7 +192,7 @@ export function useRuntimeStore() {
         if (runtimeEvent.run.checkpoint.browserSessionId) {
           setShellTabs((current) => {
             const next = current.filter((tab) => tab.groupId !== runtimeEvent.run!.id);
-            next.unshift({
+            next.push({
               id: runtimeEvent.run!.checkpoint.browserSessionId!,
               runId: runtimeEvent.run!.id,
               groupId: runtimeEvent.run!.id,
@@ -227,7 +227,7 @@ export function useRuntimeStore() {
       }
 
       if (runtimeEvent.type === "standalone_tab_created" && runtimeEvent.tab) {
-        setShellTabs((current) => [runtimeEvent.tab!, ...current]);
+        setShellTabs((current) => [...current, runtimeEvent.tab!]);
         return;
       }
 

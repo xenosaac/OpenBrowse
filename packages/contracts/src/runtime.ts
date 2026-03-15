@@ -1,4 +1,4 @@
-import type { TaskSource, TaskStatus } from "./tasks.js";
+import type { RiskClassPolicies, TaskSource, TaskStatus } from "./tasks.js";
 
 export interface RuntimeConfig {
   platform: "macos";
@@ -72,6 +72,8 @@ export interface RuntimeSettings {
    *  "quiet" (default) — only suspension and terminal events.
    *  "verbose" — every browser action step. */
   telegramNotificationLevel: "quiet" | "verbose";
+  /** Per-risk-class approval policies. Missing keys use "default" (standard risk-level logic). */
+  riskClassPolicies: RiskClassPolicies;
 }
 
 export function createDefaultRuntimeSettings(): RuntimeSettings {
@@ -80,6 +82,7 @@ export function createDefaultRuntimeSettings(): RuntimeSettings {
     plannerModel: DEFAULT_ANTHROPIC_MODEL,
     telegramBotToken: "",
     telegramChatId: "",
-    telegramNotificationLevel: "quiet"
+    telegramNotificationLevel: "quiet",
+    riskClassPolicies: {}
   };
 }
