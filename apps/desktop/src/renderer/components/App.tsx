@@ -175,6 +175,7 @@ export function App() {
   const [addressEditing, setAddressEditing] = useState(false);
   const [navState, setNavState] = useState<{ canGoBack: boolean; canGoForward: boolean }>({ canGoBack: false, canGoForward: false });
   const [tabScroll, setTabScroll] = useState<{ canScrollLeft: boolean; canScrollRight: boolean }>({ canScrollLeft: false, canScrollRight: false });
+  const [menuOpen, setMenuOpen] = useState(false);
   const addressBarRef = useRef<HTMLInputElement | null>(null);
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -256,6 +257,14 @@ export function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, suspendedRuns]);
+
+  // Close hamburger menu when clicking outside.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = () => setMenuOpen(false);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [menuOpen]);
 
   // Extract close-tab logic so both the button and Cmd+W can call it.
   const handleCloseTab = useCallback(async (tab: BrowserShellTabDescriptor) => {
@@ -554,7 +563,9 @@ export function App() {
         source: "desktop",
         goal,
         constraints: [],
-        metadata: {}
+        metadata: {},
+        // Pass the active tab's session so the agent observes the current page first
+        ...(activeBrowserTab ? { activeSessionId: activeBrowserTab.id } : {})
       })) as TaskRun;
       await refresh();
       await openRunInBrowser(run);
@@ -1121,6 +1132,59 @@ export function App() {
             >
               ⚙
             </button>
+            {/* Hamburger menu — additional actions */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+                style={{ ...styles.iconButton, WebkitAppRegion: "no-drag", fontSize: 18 } as React.CSSProperties}
+                title="More actions"
+              >
+                ☰
+              </button>
+              {menuOpen && (
+                <div style={styles.dropdownMenu} onClick={() => setMenuOpen(false)}>
+                  <button
+                    style={styles.dropdownItem}
+                    onClick={() => {
+                      setMessages([{
+                        id: "welcome",
+                        role: "agent",
+                        content: "Hello. I can browse, summarize, and keep long-running tasks alive. Tell me what to do.",
+                        timestamp: new Date().toISOString()
+                      }]);
+                    }}
+                  >
+                    Clear Chat
+                  </button>
+                  <button style={styles.dropdownItem} onClick={() => openManagement("sessions")}>
+                    History
+                  </button>
+                  <div style={styles.dropdownSeparator} />
+                  <button
+                    style={styles.dropdownItem}
+                    onClick={() => {
+                      if (activeBrowserTab) {
+                        void window.openbrowse.showBrowserSession(activeBrowserTab.id);
+                      }
+                    }}
+                    title="Open Developer Tools (not yet available)"
+                    disabled
+                  >
+                    Developer Tools
+                  </button>
+                  <div style={styles.dropdownSeparator} />
+                  <button style={styles.dropdownItem} disabled>
+                    Print Page
+                  </button>
+                  <button style={styles.dropdownItem} disabled>
+                    Save as PDF
+                  </button>
+                  <button style={styles.dropdownItem} disabled>
+                    Bookmarks
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1160,34 +1224,34 @@ export function App() {
             />
           )}
         </div>
-      </section>
 
-      {/* Management panel — bottom-sheet modal */}
-      {managementOpen && (
-        <ManagementPanel
-          runtime={runtime}
-          settings={settings}
-          runs={runs}
-          logs={logs}
-          replaySteps={replaySteps}
-          profiles={profiles}
-          selectedRunId={selectedRunId}
-          initialTab={managementTab}
-          onSaved={async (saved) => {
-            await refresh();
-            // Keep the management panel open after saving — the user may want
-            // to review or continue configuring.
-          }}
-          onSelectRun={setSelectedRunId}
-          onCancelRun={(runId) => void handleCancelRun(runId)}
-          onStartDemo={async (run) => {
-            setManagementOpen(false);
-            await refresh();
-            if (run) await openRunInBrowser(run);
-          }}
-          onClose={() => setManagementOpen(false)}
-        />
-      )}
+        {/* Management panel — bottom-sheet modal, scoped to main area only */}
+        {managementOpen && (
+          <ManagementPanel
+            runtime={runtime}
+            settings={settings}
+            runs={runs}
+            logs={logs}
+            replaySteps={replaySteps}
+            profiles={profiles}
+            selectedRunId={selectedRunId}
+            initialTab={managementTab}
+            onSaved={async (saved) => {
+              await refresh();
+              // Keep the management panel open after saving — the user may want
+              // to review or continue configuring.
+            }}
+            onSelectRun={setSelectedRunId}
+            onCancelRun={(runId) => void handleCancelRun(runId)}
+            onStartDemo={async (run) => {
+              setManagementOpen(false);
+              await refresh();
+              if (run) await openRunInBrowser(run);
+            }}
+            onClose={() => setManagementOpen(false)}
+          />
+        )}
+      </section>
     </div>
   );
 }
@@ -1642,7 +1706,8 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    background: "#0a0a12"
+    background: "#0a0a12",
+    position: "relative"
   },
   tabBar: {
     display: "flex",
@@ -1836,5 +1901,35 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1,
     minHeight: 0,
     overflow: "hidden"
+  },
+  dropdownMenu: {
+    position: "absolute",
+    top: "100%",
+    right: 0,
+    marginTop: 4,
+    background: "#1a1a2a",
+    border: "1px solid #2a2a3e",
+    borderRadius: 10,
+    padding: "6px 0",
+    minWidth: 180,
+    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+    zIndex: 2000
+  },
+  dropdownItem: {
+    display: "block",
+    width: "100%",
+    background: "none",
+    border: "none",
+    color: "#e8e8f0",
+    fontSize: "0.82rem",
+    padding: "8px 16px",
+    textAlign: "left" as const,
+    cursor: "pointer",
+    borderRadius: 0
+  },
+  dropdownSeparator: {
+    height: 1,
+    background: "#2a2a3e",
+    margin: "4px 0"
   }
 };
