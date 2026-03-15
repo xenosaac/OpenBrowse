@@ -342,16 +342,34 @@ export class OpenBrowseRuntime {
       }).catch(() => {});
     }
 
-    const profile = await this.services.browserKernel.ensureProfile(intent.preferredProfileId);
-    const session = await this.services.browserKernel.attachSession(profile, {
-      runId: runningRun.id,
-      groupId: runningRun.id,
-      taskLabel: runningRun.goal,
-      source: runningRun.source,
-      status: runningRun.status,
-      isBackground: runningRun.source !== "desktop"
-    });
-    const attachedRun = this.services.orchestrator.attachSession(runningRun, profile.id, session.id);
+    // Try to reuse the user's currently active browser session instead of opening a new tab.
+    // This lets the agent observe what the user is already looking at for context.
+    let session: BrowserSession | null = null;
+    let profileId: string | undefined;
+    if (intent.activeSessionId) {
+      session = await this.services.browserKernel.getSession(intent.activeSessionId);
+      if (session) {
+        profileId = session.profileId;
+        await this.logWorkflowEvent(runningRun.id, "run_created", `Reusing active tab: ${session.pageUrl ?? "about:blank"}`, {
+          activeSessionId: intent.activeSessionId
+        });
+      }
+    }
+
+    if (!session) {
+      const profile = await this.services.browserKernel.ensureProfile(intent.preferredProfileId);
+      profileId = profile.id;
+      session = await this.services.browserKernel.attachSession(profile, {
+        runId: runningRun.id,
+        groupId: runningRun.id,
+        taskLabel: runningRun.goal,
+        source: runningRun.source,
+        status: runningRun.status,
+        isBackground: runningRun.source !== "desktop"
+      });
+    }
+
+    const attachedRun = this.services.orchestrator.attachSession(runningRun, profileId!, session.id);
     await this.services.runCheckpointStore.save(attachedRun);
 
     return { run: attachedRun, session };

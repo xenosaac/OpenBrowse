@@ -71,6 +71,9 @@ export interface TaskIntent {
   goal: string;
   constraints: string[];
   preferredProfileId?: string;
+  /** When set, the agent reuses this browser session (tab) instead of opening a new one.
+   *  The agent observes the current page first to check if it's relevant to the task. */
+  activeSessionId?: string;
   metadata: Record<string, string>;
   createdAt?: string;
 }

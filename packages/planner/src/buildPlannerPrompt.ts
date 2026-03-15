@@ -110,9 +110,15 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently 
     ? `\nUser answers so far:\n${run.checkpoint.notes.map((n, i) => `${i + 1}. ${n}`).join("\n")}`
     : "";
 
+  // When this is the first step and the page is not blank, the agent is observing the user's
+  // currently open page. Tell the planner so it can decide whether the page is relevant.
+  const activePageHint = stepCount === 0 && pageModel.url && pageModel.url !== "about:blank"
+    ? `\n** CONTEXT: This is the page the user currently has open. Evaluate whether it is relevant to the goal before deciding to navigate elsewhere. If the page is relevant, continue working on it directly.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${softFailureWarning}${recoverySection}${notesSection}
+Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${softFailureWarning}${recoverySection}${notesSection}${activePageHint}
 
 Current page:
 URL: ${pageModel.url}
