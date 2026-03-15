@@ -203,7 +203,7 @@ function RuntimeStatus({ runtime }: { runtime: RuntimeDescriptor | null }) {
 
 const styles: Record<string, React.CSSProperties> = {
   backdrop: {
-    position: "fixed",
+    position: "absolute",
     inset: 0,
     background: "rgba(0,0,0,0.58)",
     backdropFilter: "blur(5px)",
