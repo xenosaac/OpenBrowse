@@ -23,7 +23,7 @@ export interface DesktopBootstrap {
 export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise<DesktopBootstrap> {
   const dbPath = path.join(app.getPath("userData"), "openbrowse.db");
 
-  const browserShell = new AppBrowserShell();
+  const browserShell = new AppBrowserShell(path.join(app.getPath("userData"), "browser-shell"));
   browserShell.attach(mainWindow);
 
   const services = await composeRuntime({
@@ -52,6 +52,16 @@ export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise
     const message = error instanceof Error ? error.message : String(error);
     console.error("[bootstrap] Browser runtime init failed:", message);
     markBrowserRuntimeInitFailed(services, message);
+  }
+
+  // Restore persisted standalone tabs after the browser kernel is ready.
+  try {
+    const restoredTabs = await browserShell.restoreStandaloneTabs();
+    for (const tab of restoredTabs) {
+      mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+    }
+  } catch (error) {
+    console.error("[bootstrap] Failed to restore standalone tabs:", error);
   }
 
   try {

@@ -266,7 +266,8 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     pageType: detectPageType(),
     forms: extractForms(),
     alerts: extractAlerts(),
-    captchaDetected: detectCaptcha()
+    captchaDetected: detectCaptcha(),
+    scrollY: window.scrollY
   };
 })()
 `;

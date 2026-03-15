@@ -91,6 +91,23 @@ export interface RunCheckpoint {
   lastFailureClass?: string;
   /** Number of consecutive element_not_found soft failures. */
   consecutiveSoftFailures?: number;
+  /** Lightweight snapshot of the last captured page model for recovery context. */
+  lastPageModelSnapshot?: {
+    title: string;
+    summary: string;
+    visibleText?: string;
+    formValues?: Record<string, string>;
+    scrollY?: number;
+  };
+  /** Injected when a run resumes after crash/restart. Cleared after the first planner step post-recovery. */
+  recoveryContext?: {
+    recoveredAt: string;
+    preInterruptionPageTitle?: string;
+    preInterruptionPageSummary?: string;
+    preInterruptionVisibleText?: string;
+    preInterruptionScrollY?: number;
+    preInterruptionFormValues?: Record<string, string>;
+  };
 }
 
 export interface RunSuspension {

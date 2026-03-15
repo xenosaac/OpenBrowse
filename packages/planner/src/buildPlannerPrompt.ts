@@ -24,6 +24,25 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? `\n** WARNING: The last ${softFailures} action(s) failed with "element not found". The target may have moved, not loaded yet, or not exist on this page. Try a different approach: scroll to reveal it, navigate directly via its href, or reassess what page you are on.`
     : "";
 
+  const recoveryContext = run.checkpoint.recoveryContext;
+  const recoverySection = recoveryContext
+    ? `\n** RECOVERY MODE: This run was interrupted and has been automatically resumed.
+- The browser session was recreated. The page was reloaded from the last known URL.
+- Any form data you previously entered is LOST and must be re-entered.
+- JavaScript state, scroll position, and modal dialogs from before are gone.
+- Before interruption, page was: "${recoveryContext.preInterruptionPageTitle ?? "unknown"}"
+- Pre-interruption summary: ${recoveryContext.preInterruptionPageSummary ?? "unavailable"}${
+        recoveryContext.preInterruptionFormValues
+          ? `\n- Form fields that were filled (now lost, re-enter them): ${Object.entries(recoveryContext.preInterruptionFormValues).map(([id, v]) => `${id}="${v}"`).join(", ")}`
+          : ""
+      }${
+        recoveryContext.preInterruptionScrollY && recoveryContext.preInterruptionScrollY > 200
+          ? `\n- Page was scrolled to Y=${recoveryContext.preInterruptionScrollY}px — you may need to scroll down`
+          : ""
+      }
+- Compare the current page state below with the pre-interruption context above to decide what needs to be redone.\n`
+    : "";
+
   // --- Elements (up to 80, prioritize actionable + visible) ---
   const sortedElements = [...pageModel.elements].sort((a, b) => {
     // Prioritize: actionable + visible > actionable > visible > others
@@ -93,7 +112,7 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently 
 
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${softFailureWarning}${notesSection}
+Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${softFailureWarning}${recoverySection}${notesSection}
 
 Current page:
 URL: ${pageModel.url}

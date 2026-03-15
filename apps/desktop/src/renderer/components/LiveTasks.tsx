@@ -3,6 +3,7 @@ import type { TaskRun } from "@openbrowse/contracts";
 interface Props {
   runs: TaskRun[];
   onSelectRun: (runId: string) => void;
+  onCancelRun?: (runId: string) => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -15,7 +16,9 @@ const statusColors: Record<string, string> = {
   queued: "#94a3b8"
 };
 
-export function LiveTasks({ runs, onSelectRun }: Props) {
+const NON_TERMINAL = new Set(["running", "queued", "suspended_for_clarification", "suspended_for_approval"]);
+
+export function LiveTasks({ runs, onSelectRun, onCancelRun }: Props) {
   if (runs.length === 0) {
     return <p style={{ color: "#9090a8" }}>No active runs. Start a task to begin.</p>;
   }
@@ -29,13 +32,26 @@ export function LiveTasks({ runs, onSelectRun }: Props) {
           style={styles.card}
         >
           <div style={styles.row}>
-            <span
-              style={{
-                ...styles.status,
-                background: statusColors[run.status] ?? "#6b7280"
-              }}
-            />
-            <strong>{run.goal}</strong>
+            <div style={styles.goalGroup}>
+              <span
+                style={{
+                  ...styles.status,
+                  background: statusColors[run.status] ?? "#6b7280"
+                }}
+              />
+              <strong>{run.goal}</strong>
+            </div>
+            {onCancelRun && NON_TERMINAL.has(run.status) && (
+              <button
+                style={styles.cancelBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancelRun(run.id);
+                }}
+              >
+                Cancel
+              </button>
+            )}
           </div>
           <div style={styles.meta}>
             <span>{run.status.replace(/_/g, " ")}</span>
@@ -63,7 +79,25 @@ const styles: Record<string, React.CSSProperties> = {
   row: {
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 8
+  },
+  goalGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0
+  },
+  cancelBtn: {
+    background: "rgba(239,68,68,0.12)",
+    border: "1px solid rgba(239,68,68,0.3)",
+    color: "#f87171",
+    borderRadius: 6,
+    fontSize: "0.72rem",
+    fontWeight: 600,
+    padding: "3px 10px",
+    cursor: "pointer",
+    flexShrink: 0
   },
   status: {
     width: 8,

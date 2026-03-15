@@ -6,10 +6,11 @@ import { DemoPanel } from "./DemoPanel";
 import { LiveTasks } from "./LiveTasks";
 import { ManagedProfiles } from "./ManagedProfiles";
 import { SettingsPanel } from "./SettingsPanel";
+import { HandoffViewer } from "./HandoffViewer";
 import { WorkflowLog } from "./WorkflowLog";
 
 export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime";
-type SessionsSubTab = "tasks" | "log";
+type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
   runtime: RuntimeDescriptor | null;
@@ -22,6 +23,7 @@ interface Props {
   initialTab: ManagementTab;
   onSaved: (settings: RuntimeSettings) => Promise<void>;
   onSelectRun: (runId: string) => void;
+  onCancelRun?: (runId: string) => void;
   onStartDemo: (run?: TaskRun | null) => Promise<void>;
   onClose: () => void;
 }
@@ -45,6 +47,7 @@ export function ManagementPanel({
   initialTab,
   onSaved,
   onSelectRun,
+  onCancelRun,
   onStartDemo,
   onClose
 }: Props) {
@@ -109,10 +112,19 @@ export function ManagementPanel({
                 >
                   Workflow Log
                 </button>
+                <button
+                  onClick={() => setSessionsSubTab("handoff")}
+                  style={{
+                    ...styles.subTabBtn,
+                    ...(sessionsSubTab === "handoff" ? styles.subTabBtnActive : {})
+                  }}
+                >
+                  Handoff
+                </button>
               </div>
               <div style={styles.sessionsContent}>
                 {sessionsSubTab === "tasks" && (
-                  <LiveTasks runs={runs} onSelectRun={onSelectRun} />
+                  <LiveTasks runs={runs} onSelectRun={onSelectRun} onCancelRun={onCancelRun} />
                 )}
                 {sessionsSubTab === "log" && (
                   <WorkflowLog
@@ -122,6 +134,9 @@ export function ManagementPanel({
                     runs={runs}
                     onSelectRun={onSelectRun}
                   />
+                )}
+                {sessionsSubTab === "handoff" && (
+                  <HandoffViewer selectedRunId={selectedRunId} runs={runs} onSelectRun={onSelectRun} />
                 )}
               </div>
             </div>

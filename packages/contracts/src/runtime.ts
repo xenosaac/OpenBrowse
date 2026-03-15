@@ -46,6 +46,7 @@ export interface BrowserShellTabDescriptor {
   status: TaskStatus;
   isBackground: boolean;
   closable: boolean;
+  faviconUrl?: string;
 }
 
 export interface BrowserViewportBounds {
