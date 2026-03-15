@@ -70,6 +70,16 @@ export class TaskOrchestrator {
   }
 
   observePage(run: TaskRun, pageModel: PageModel, browserSessionId?: string): TaskRun {
+    // Extract form field values from input elements for recovery snapshots
+    const formValues: Record<string, string> = {};
+    let formCount = 0;
+    for (const el of pageModel.elements) {
+      if (el.value && formCount < 20 && (el.inputType || el.role === "textbox" || el.role === "combobox")) {
+        formValues[el.id] = el.value;
+        formCount++;
+      }
+    }
+
     return {
       ...run,
       updatedAt: new Date().toISOString(),
@@ -80,7 +90,14 @@ export class TaskOrchestrator {
         lastKnownUrl: pageModel.url,
         lastPageTitle: pageModel.title || undefined,
         lastPageSummary: pageModel.summary || undefined,
-        stepCount: (run.checkpoint.stepCount ?? 0) + 1
+        stepCount: (run.checkpoint.stepCount ?? 0) + 1,
+        lastPageModelSnapshot: {
+          title: pageModel.title,
+          summary: pageModel.summary,
+          visibleText: pageModel.visibleText?.slice(0, 500),
+          formValues: Object.keys(formValues).length > 0 ? formValues : undefined,
+          scrollY: pageModel.scrollY,
+        },
       }
     };
   }

@@ -40,6 +40,14 @@ export function registerIpcHandlers(
     mainWindow.webContents.send("runtime:event", { type: "tab_navigated", sessionId, url, title });
   });
 
+  browserShell.setLoadingCallback((sessionId, isLoading) => {
+    mainWindow.webContents.send("runtime:event", { type: "tab_loading", sessionId, isLoading });
+  });
+
+  browserShell.setFaviconCallback((sessionId, faviconUrl) => {
+    mainWindow.webContents.send("runtime:event", { type: "tab_favicon", sessionId, faviconUrl });
+  });
+
   register("task:start", async (_event, intent: TaskIntent) => {
     const run = await bootstrapRunDetached(services, intent, async (updatedRun) => {
       mainWindow.webContents.send("runtime:event", { type: "run_updated", run: updatedRun });

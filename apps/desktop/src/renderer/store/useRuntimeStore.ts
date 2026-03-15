@@ -15,7 +15,9 @@ type RuntimeEvent =
   | { type: "workflow_event"; event?: WorkflowEvent }
   | { type: "tab_navigated"; sessionId?: string; url?: string; title?: string }
   | { type: "standalone_tab_created"; tab?: BrowserShellTabDescriptor }
-  | { type: "standalone_tab_closed"; tabId?: string };
+  | { type: "standalone_tab_closed"; tabId?: string }
+  | { type: "tab_loading"; sessionId?: string; isLoading?: boolean }
+  | { type: "tab_favicon"; sessionId?: string; faviconUrl?: string };
 
 export function useRuntimeStore() {
   const [runs, setRuns] = useState<TaskRun[]>([]);
@@ -32,6 +34,8 @@ export function useRuntimeStore() {
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   const [foregroundRunEvents, setForegroundRunEvents] = useState<WorkflowEvent[]>([]);
+  const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
+  const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
 
   const selectedRunIdRef = useRef<string | null>(null);
   const foregroundRunIdRef = useRef<string | null>(null);
@@ -232,6 +236,16 @@ export function useRuntimeStore() {
         return;
       }
 
+      if (runtimeEvent.type === "tab_loading" && runtimeEvent.sessionId != null) {
+        setLoadingTabs((current) => ({ ...current, [runtimeEvent.sessionId!]: !!runtimeEvent.isLoading }));
+        return;
+      }
+
+      if (runtimeEvent.type === "tab_favicon" && runtimeEvent.sessionId && runtimeEvent.faviconUrl) {
+        setTabFavicons((current) => ({ ...current, [runtimeEvent.sessionId!]: runtimeEvent.faviconUrl! }));
+        return;
+      }
+
       if (runtimeEvent.type === "workflow_event" && runtimeEvent.event) {
         const eventRunId = runtimeEvent.event.runId;
         const nextBuffered = mergeEvents(liveEventsRef.current[eventRunId] ?? [], [runtimeEvent.event]).slice(-80);
@@ -317,6 +331,7 @@ export function useRuntimeStore() {
     focusRun,
     foregroundRunEvents,
     foregroundRunId,
+    loadingTabs,
     logs,
     notice,
     profiles,
@@ -332,6 +347,7 @@ export function useRuntimeStore() {
     settings,
     shellTabs,
     suspendedRuns,
+    tabFavicons,
     clearGroupSelection
   };
 }

@@ -392,6 +392,23 @@ export class OpenBrowseRuntime {
   private async continueResume(run: TaskRun, session: BrowserSession, pendingAction?: BrowserAction): Promise<TaskRun> {
     let current = run;
 
+    // Inject recovery context so the planner knows this is a resumed run
+    const snapshot = current.checkpoint.lastPageModelSnapshot;
+    current = {
+      ...current,
+      checkpoint: {
+        ...current.checkpoint,
+        recoveryContext: {
+          recoveredAt: new Date().toISOString(),
+          preInterruptionPageTitle: snapshot?.title ?? current.checkpoint.lastPageTitle,
+          preInterruptionPageSummary: snapshot?.summary ?? current.checkpoint.lastPageSummary,
+          preInterruptionVisibleText: snapshot?.visibleText,
+          preInterruptionScrollY: snapshot?.scrollY,
+          preInterruptionFormValues: snapshot?.formValues,
+        }
+      }
+    };
+
     if (current.checkpoint.lastKnownUrl) {
       const restoreResult = await this.services.browserKernel.executeAction(session, {
         type: "navigate",
@@ -614,6 +631,12 @@ export class OpenBrowseRuntime {
       await this.logWorkflowEvent(current.id, "planner_decision", decision.reasoning, {
         plannerDecision: decision.type
       });
+
+      // Clear recovery context after it has been consumed by the first planner call
+      if (current.checkpoint.recoveryContext) {
+        current = { ...current, checkpoint: { ...current.checkpoint, recoveryContext: undefined } };
+        await this.services.runCheckpointStore.save(current);
+      }
 
       if (decision.type === "browser_action" && decision.action) {
         const action = decision.action as BrowserAction;

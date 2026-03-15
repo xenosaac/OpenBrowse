@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BrowserProfile, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
   BrowserShellTabDescriptor,
@@ -67,6 +67,10 @@ declare global {
         url: string;
         title: string;
       } | null>;
+      getRunHandoff: (runId: string) => Promise<{
+        artifact: RunHandoffArtifact;
+        markdown: string;
+      } | null>;
     };
   }
 }
@@ -103,6 +107,10 @@ export function App() {
   const isDraggingRef = useRef(false);
   const [addressInput, setAddressInput] = useState("");
   const [addressEditing, setAddressEditing] = useState(false);
+  const [navState, setNavState] = useState<{ canGoBack: boolean; canGoForward: boolean }>({ canGoBack: false, canGoForward: false });
+  const [tabScroll, setTabScroll] = useState<{ canScrollLeft: boolean; canScrollRight: boolean }>({ canScrollLeft: false, canScrollRight: false });
+  const addressBarRef = useRef<HTMLInputElement | null>(null);
+  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -118,6 +126,7 @@ export function App() {
     focusRun,
     foregroundRunEvents,
     foregroundRunId,
+    loadingTabs,
     logs,
     notice,
     profiles,
@@ -133,6 +142,7 @@ export function App() {
     settings,
     shellTabs,
     suspendedRuns,
+    tabFavicons,
     clearGroupSelection
   } = useRuntimeStore();
 
@@ -165,10 +175,99 @@ export function App() {
     }
   }, [activeBrowserTab?.url, mainPanel, addressEditing]);
 
+  // Update nav state (canGoBack/canGoForward) whenever the active tab or its URL changes.
+  useEffect(() => {
+    if (!activeBrowserTab || mainPanel !== "browser") {
+      setNavState({ canGoBack: false, canGoForward: false });
+      return;
+    }
+    window.openbrowse.browserNavState(activeBrowserTab.id).then((state) => {
+      if (state) setNavState({ canGoBack: state.canGoBack, canGoForward: state.canGoForward });
+    }).catch(() => {});
+  }, [activeBrowserTab?.id, activeBrowserTab?.url, mainPanel]);
+
   // Scroll chat to bottom when messages change.
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, suspendedRuns]);
+
+  // Extract close-tab logic so both the button and Cmd+W can call it.
+  const handleCloseTab = useCallback(async (tab: BrowserShellTabDescriptor) => {
+    const closingActive = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+    const tabIndex = shellTabs.findIndex((t) => t.groupId === tab.groupId);
+    const remaining = shellTabs.filter((t) => t.groupId !== tab.groupId);
+    const nextTab = remaining.length > 0 ? remaining[Math.min(tabIndex, remaining.length - 1)] : null;
+
+    await window.openbrowse.closeBrowserGroup(tab.groupId);
+    await refresh();
+    clearGroupSelection(tab.groupId, selectedRunId);
+
+    if (closingActive) {
+      if (nextTab) {
+        setSelectedGroupId(nextTab.groupId);
+        setSelectedRunId(nextTab.runId);
+        setForegroundRunId(nextTab.runId);
+      } else {
+        setMainPanel("home");
+      }
+    }
+  }, [activeBrowserTab?.groupId, clearGroupSelection, mainPanel, refresh, selectedRunId, setForegroundRunId, setSelectedGroupId, setSelectedRunId, shellTabs]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.metaKey) return;
+      switch (e.key) {
+        case "t":
+          e.preventDefault();
+          void handleNewTab();
+          break;
+        case "w":
+          e.preventDefault();
+          if (activeBrowserTab) void handleCloseTab(activeBrowserTab);
+          break;
+        case "l":
+          e.preventDefault();
+          addressBarRef.current?.focus();
+          addressBarRef.current?.select();
+          break;
+        case "r":
+          e.preventDefault();
+          if (activeBrowserTab && mainPanel === "browser") {
+            void window.openbrowse.browserReload(activeBrowserTab.id);
+          }
+          break;
+        case "[":
+          e.preventDefault();
+          if (activeBrowserTab && mainPanel === "browser") {
+            void window.openbrowse.browserBack(activeBrowserTab.id);
+          }
+          break;
+        case "]":
+          e.preventDefault();
+          if (activeBrowserTab && mainPanel === "browser") {
+            void window.openbrowse.browserForward(activeBrowserTab.id);
+          }
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeBrowserTab, handleCloseTab, mainPanel]);
+
+  // Tab scroll overflow detection
+  const updateTabScroll = useCallback(() => {
+    const el = tabsContainerRef.current;
+    if (!el) return;
+    setTabScroll({
+      canScrollLeft: el.scrollLeft > 0,
+      canScrollRight: el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    });
+  }, []);
+
+  useEffect(() => {
+    updateTabScroll();
+  }, [shellTabs.length, updateTabScroll]);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
@@ -176,7 +275,10 @@ export function App() {
     document.body.style.background = "#0a0a12";
     // Inject pulse animation for agent tab indicators and activity bar.
     const style = document.createElement("style");
-    style.textContent = "@keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }";
+    style.textContent = `
+      @keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+      @keyframes ob-loading-slide { 0%{transform:translateX(-100%)} 50%{transform:translateX(0%)} 100%{transform:translateX(100%)} }
+    `;
     document.head.appendChild(style);
     return () => { style.remove(); };
   }, []);
@@ -623,10 +725,23 @@ export function App() {
           >
             ☰
           </button>
-          <div style={styles.headerTabs}>
+          <div
+            ref={tabsContainerRef}
+            onScroll={updateTabScroll}
+            style={{
+              ...styles.headerTabs,
+              ...(tabScroll.canScrollLeft || tabScroll.canScrollRight
+                ? {
+                    maskImage: `linear-gradient(to right, ${tabScroll.canScrollLeft ? "transparent" : "black"}, black 30px, black calc(100% - 30px), ${tabScroll.canScrollRight ? "transparent" : "black"})`,
+                    WebkitMaskImage: `linear-gradient(to right, ${tabScroll.canScrollLeft ? "transparent" : "black"}, black 30px, black calc(100% - 30px), ${tabScroll.canScrollRight ? "transparent" : "black"})`
+                  }
+                : {})
+            } as React.CSSProperties}
+          >
             {shellTabs.map((tab) => {
               const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
               const dot = getTabStatusDot(tab);
+              const favicon = tabFavicons[tab.id];
               return (
                 <div
                   key={tab.groupId}
@@ -644,49 +759,30 @@ export function App() {
                     }}
                     style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
-                    <span
-                      style={{
-                        ...styles.headerTabDot,
-                        background: dot.color,
-                        ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
-                      }}
-                      title={dot.title}
-                    />
+                    {favicon ? (
+                      <img
+                        src={favicon}
+                        alt=""
+                        width={16}
+                        height={16}
+                        style={{ flexShrink: 0, borderRadius: 2 }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      />
+                    ) : (
+                      <span
+                        style={{
+                          ...styles.headerTabDot,
+                          background: dot.color,
+                          ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
+                        }}
+                        title={dot.title}
+                      />
+                    )}
                     <span style={styles.headerTabTitle}>{tab.title}</span>
                   </button>
                   <button
                     style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-                    onClick={async () => {
-                      // Capture these from the closure BEFORE any awaits so they
-                      // reflect the state at click-time (not a potentially stale later render).
-                      const closingActive =
-                        mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
-                      const tabIndex = shellTabs.findIndex((t) => t.groupId === tab.groupId);
-                      const remaining = shellTabs.filter((t) => t.groupId !== tab.groupId);
-                      // Pick the adjacent tab (prev if available, else new first).
-                      const nextTab =
-                        remaining.length > 0
-                          ? remaining[Math.min(tabIndex, remaining.length - 1)]
-                          : null;
-
-                      await window.openbrowse.closeBrowserGroup(tab.groupId);
-                      await refresh();
-                      clearGroupSelection(tab.groupId, selectedRunId);
-
-                      if (closingActive) {
-                        if (nextTab) {
-                          // Auto-switch to the adjacent tab. Staying in "browser" mode
-                          // avoids calling hideBrowserSession/clearBrowserViewport, which
-                          // eliminates the race with any in-flight showBrowserSession IPC
-                          // that the intermediate re-render may have already queued.
-                          setSelectedGroupId(nextTab.groupId);
-                          setSelectedRunId(nextTab.runId);
-                          setForegroundRunId(nextTab.runId);
-                        } else {
-                          setMainPanel("home");
-                        }
-                      }
-                    }}
+                    onClick={() => void handleCloseTab(tab)}
                   >
                     ✕
                   </button>
@@ -706,7 +802,11 @@ export function App() {
         <div style={styles.navBar}>
           <div style={styles.navButtons}>
             <button
-              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              style={{
+                ...styles.iconButton,
+                WebkitAppRegion: "no-drag",
+                ...(navState.canGoBack ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
+              } as React.CSSProperties}
               onClick={() => {
                 if (activeBrowserTab && mainPanel === "browser") {
                   void window.openbrowse.browserBack(activeBrowserTab.id);
@@ -716,7 +816,11 @@ export function App() {
               ←
             </button>
             <button
-              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              style={{
+                ...styles.iconButton,
+                WebkitAppRegion: "no-drag",
+                ...(navState.canGoForward ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
+              } as React.CSSProperties}
               onClick={() => {
                 if (activeBrowserTab && mainPanel === "browser") {
                   void window.openbrowse.browserForward(activeBrowserTab.id);
@@ -750,6 +854,7 @@ export function App() {
               {isSecure ? "🔒" : "●"}
             </span>
             <input
+              ref={addressBarRef}
               type="text"
               value={addressEditing ? addressInput : displayUrl}
               placeholder="Search or enter address"
@@ -800,6 +905,18 @@ export function App() {
           </div>
         </div>
 
+        {/* Loading indicator */}
+        {activeBrowserTab && loadingTabs[activeBrowserTab.id] && (
+          <div style={{ height: 2, background: "#1a1a26", overflow: "hidden", flexShrink: 0 }}>
+            <div style={{
+              height: "100%",
+              width: "40%",
+              background: "#8b5cf6",
+              animation: "ob-loading-slide 1.5s ease-in-out infinite"
+            }} />
+          </div>
+        )}
+
         {/* Main content */}
         <div style={styles.mainBody}>
           {mainPanel === "browser" ? (
@@ -814,6 +931,7 @@ export function App() {
           ) : (
             <HomePage
               shellTabs={shellTabs}
+              tabFavicons={tabFavicons}
               onOpenTab={(tab) => {
                 setSelectedGroupId(tab.groupId);
                 setSelectedRunId(tab.runId);
@@ -842,6 +960,7 @@ export function App() {
             // to review or continue configuring.
           }}
           onSelectRun={setSelectedRunId}
+          onCancelRun={(runId) => void handleCancelRun(runId)}
           onStartDemo={async (run) => {
             setManagementOpen(false);
             await refresh();
@@ -858,9 +977,11 @@ export function App() {
 
 function HomePage({
   shellTabs,
+  tabFavicons,
   onOpenTab
 }: {
   shellTabs: BrowserShellTabDescriptor[];
+  tabFavicons: Record<string, string>;
   onOpenTab: (tab: BrowserShellTabDescriptor) => void;
 }) {
   return (
@@ -875,7 +996,18 @@ function HomePage({
           <div style={homeStyles.recentGrid}>
             {shellTabs.map((tab) => (
               <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={homeStyles.recentCard}>
-                <div style={homeStyles.recentFavicon}>⊙</div>
+                <div style={homeStyles.recentFavicon}>
+                  {tabFavicons[tab.id] ? (
+                    <img
+                      src={tabFavicons[tab.id]}
+                      alt=""
+                      width={18}
+                      height={18}
+                      style={{ borderRadius: 3 }}
+                      onError={(e) => { (e.target as HTMLImageElement).replaceWith(document.createTextNode("\u2299")); }}
+                    />
+                  ) : "\u2299"}
+                </div>
                 <div style={homeStyles.recentInfo}>
                   <div style={homeStyles.recentTitle}>{tab.title || "Untitled"}</div>
                   <div style={homeStyles.recentUrl}>{tab.url}</div>

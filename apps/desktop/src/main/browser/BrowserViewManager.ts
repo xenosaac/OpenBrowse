@@ -20,6 +20,8 @@ export class BrowserViewManager {
   private hostWindow: BrowserWindow;
   private viewportBounds: ViewportBounds | null = null;
   onNavigate: ((sessionId: string, url: string, title: string) => void) | null = null;
+  onLoadingStateChanged: ((sessionId: string, isLoading: boolean) => void) | null = null;
+  onFaviconUpdated: ((sessionId: string, faviconUrl: string) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -59,6 +61,20 @@ export class BrowserViewManager {
     view.webContents.on("page-title-updated", (_, title) => {
       const url = view.webContents.getURL();
       this.onNavigate?.(sessionId, url, title);
+    });
+
+    view.webContents.on("did-start-loading", () => {
+      this.onLoadingStateChanged?.(sessionId, true);
+    });
+
+    view.webContents.on("did-stop-loading", () => {
+      this.onLoadingStateChanged?.(sessionId, false);
+    });
+
+    view.webContents.on("page-favicon-updated", (_, favicons) => {
+      if (favicons.length > 0) {
+        this.onFaviconUpdated?.(sessionId, favicons[0]);
+      }
     });
 
     view.webContents.on("destroyed", () => {

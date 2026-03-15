@@ -85,6 +85,7 @@ export interface PageModel {
   forms?: PageFormSummary[];
   alerts?: string[];
   captchaDetected?: boolean;
+  scrollY?: number;
 }
 
 export interface BrowserAction {
