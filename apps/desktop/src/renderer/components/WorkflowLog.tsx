@@ -27,7 +27,7 @@ const eventColors: Record<string, string> = {
 
 export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRun }: Props) {
   return (
-    <div>
+    <div style={styles.root}>
       <div style={styles.selector}>
         <label style={{ color: "#9090a8", fontSize: "0.85rem" }}>Run: </label>
         <select
@@ -83,7 +83,7 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
                     background: eventColors[event.type] ?? "#6b7280"
                   }}
                 />
-                <div>
+                <div style={styles.eventContent}>
                   <div style={styles.eventType}>{event.type.replace(/_/g, " ")}</div>
                   <div style={styles.eventSummary}>{event.summary}</div>
                   <div style={styles.eventTime}>
@@ -109,6 +109,11 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  // minWidth: 0 lets this element properly participate in a parent grid/flex context
+  // so it can shrink below its content size and never forces container overflow.
+  root: {
+    minWidth: 0
+  },
   selector: {
     marginBottom: 12,
     display: "flex",
@@ -169,6 +174,13 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 12,
     position: "relative" as const
   },
+  // flex: 1 + minWidth: 0 prevents the text content from expanding the flex row
+  // past its container.  Without minWidth: 0, flex children default to
+  // min-width: auto (their content width) and unbreakable strings overflow.
+  eventContent: {
+    flex: 1,
+    minWidth: 0
+  },
   dot: {
     width: 10,
     height: 10,
@@ -183,7 +195,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   eventSummary: {
     fontSize: "0.9rem",
-    color: "#e5e7eb"
+    color: "#e5e7eb",
+    overflowWrap: "break-word"
   },
   eventTime: {
     fontSize: "0.75rem",
@@ -201,6 +214,8 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid rgba(139,92,246,0.2)",
     borderRadius: 999,
     padding: "2px 8px",
-    fontSize: "0.72rem"
+    fontSize: "0.72rem",
+    overflowWrap: "break-word",
+    maxWidth: "100%"
   }
 };

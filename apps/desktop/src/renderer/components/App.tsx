@@ -7,6 +7,7 @@ import type {
   RuntimeDescriptor,
   RuntimeSettings
 } from "../../shared/runtime";
+import { AgentActivityBar } from "./AgentActivityBar";
 import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel, type ManagementTab } from "./ManagementPanel";
 import { RemoteQuestions } from "./RemoteQuestions";
@@ -75,7 +76,7 @@ type ChatMessage = {
   id: string;
   role: "user" | "agent";
   content: string;
-  tone?: "normal" | "success" | "warning" | "error";
+  tone?: "normal" | "success" | "warning" | "error" | "action";
   timestamp: string;
 };
 
@@ -115,6 +116,7 @@ export function App() {
   const {
     errorNotice,
     focusRun,
+    foregroundRunEvents,
     foregroundRunId,
     logs,
     notice,
@@ -143,6 +145,19 @@ export function App() {
     );
   }, [foregroundRunId, selectedGroupId, shellTabs]);
 
+  const activeTabRun = useMemo(
+    () => (activeBrowserTab ? runs.find((r) => r.id === activeBrowserTab.runId) ?? null : null),
+    [activeBrowserTab, runs]
+  );
+
+  const handleCancelRun = useCallback(
+    async (runId: string) => {
+      await window.openbrowse.cancelTask(runId);
+      await refresh();
+    },
+    [refresh]
+  );
+
   // Keep address bar in sync with active tab URL when not editing.
   useEffect(() => {
     if (!addressEditing) {
@@ -159,6 +174,11 @@ export function App() {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
     document.body.style.background = "#0a0a12";
+    // Inject pulse animation for agent tab indicators and activity bar.
+    const style = document.createElement("style");
+    style.textContent = "@keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }";
+    document.head.appendChild(style);
+    return () => { style.remove(); };
   }, []);
 
   useEffect(() => {
@@ -203,6 +223,32 @@ export function App() {
           ]
     );
   }, [errorNotice]);
+
+  // Step 5: Stream agent actions on the active tab to the chat.
+  useEffect(() => {
+    if (foregroundRunEvents.length === 0) return;
+    setMessages((current) => {
+      let changed = false;
+      let next = current;
+      for (const evt of foregroundRunEvents) {
+        const msgId = `action:${evt.id}`;
+        if (!next.some((m) => m.id === msgId)) {
+          if (!changed) {
+            next = [...next];
+            changed = true;
+          }
+          next.push({
+            id: msgId,
+            role: "agent",
+            content: evt.summary,
+            tone: "action",
+            timestamp: evt.createdAt
+          });
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [foregroundRunEvents]);
 
   const handleSidebarDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -334,6 +380,28 @@ export function App() {
     }
   };
 
+  const getTabStatusDot = useCallback(
+    (tab: BrowserShellTabDescriptor): { color: string; animate: boolean; title: string } => {
+      const run = runs.find((r) => r.id === tab.runId);
+      if (!run) return { color: "#8b5cf6", animate: false, title: "Standalone tab" };
+      switch (run.status) {
+        case "running":
+          return { color: "#22c55e", animate: true, title: "Agent running" };
+        case "suspended_for_clarification":
+        case "suspended_for_approval":
+          return { color: "#f59e0b", animate: false, title: "Awaiting input" };
+        case "completed":
+          return { color: "#22c55e", animate: false, title: "Completed" };
+        case "failed":
+        case "cancelled":
+          return { color: "#ef4444", animate: false, title: "Failed" };
+        default:
+          return { color: "#8b5cf6", animate: false, title: run.status };
+      }
+    },
+    [runs]
+  );
+
   const openManagement = (tab: ManagementTab) => {
     setManagementTab(tab);
     setManagementOpen(true);
@@ -357,6 +425,13 @@ export function App() {
           transition: isDragging ? "none" : "width 0.18s ease, min-width 0.18s ease"
         }}
       >
+        {/* Traffic-light / title-bar drag zone.
+            With titleBarStyle:"hiddenInset" + trafficLightPosition:{x:16,y:14} the
+            macOS controls sit at ~(16,14) and span ~70px wide.  This 38px strip
+            gives them a clean, unobstructed target and provides a reliable drag
+            region for the window without needing content in the collision zone. */}
+        <div style={styles.titleBarSpacer as React.CSSProperties} />
+
         {/* Sidebar header */}
         <div style={styles.sidebarHeader}>
           <div style={styles.brandMark}>✦</div>
@@ -381,23 +456,76 @@ export function App() {
 
         {/* Conversation area — messages + inline pending questions */}
         <div style={styles.conversationArea}>
+          {/* RunContextCard — shows active tab's agent run context */}
+          {activeTabRun && (
+            <div style={styles.runContextCard}>
+              <div style={styles.runContextHeader}>
+                <span
+                  style={{
+                    ...styles.runContextBadge,
+                    background:
+                      activeTabRun.status === "running"
+                        ? "rgba(34,197,94,0.15)"
+                        : activeTabRun.status === "completed"
+                        ? "rgba(34,197,94,0.15)"
+                        : activeTabRun.status === "suspended_for_clarification" ||
+                          activeTabRun.status === "suspended_for_approval"
+                        ? "rgba(245,158,11,0.15)"
+                        : "rgba(239,68,68,0.15)",
+                    color:
+                      activeTabRun.status === "running" || activeTabRun.status === "completed"
+                        ? "#22c55e"
+                        : activeTabRun.status === "suspended_for_clarification" ||
+                          activeTabRun.status === "suspended_for_approval"
+                        ? "#f59e0b"
+                        : "#ef4444"
+                  }}
+                >
+                  {activeTabRun.status.replace(/_/g, " ")}
+                </span>
+                {activeTabRun.checkpoint.stepCount != null && activeTabRun.checkpoint.stepCount > 0 && (
+                  <span style={styles.runContextStep}>Step {activeTabRun.checkpoint.stepCount}</span>
+                )}
+              </div>
+              <div style={styles.runContextGoal}>
+                {activeTabRun.goal.length > 120
+                  ? activeTabRun.goal.slice(0, 120) + "..."
+                  : activeTabRun.goal}
+              </div>
+              {foregroundRunEvents.length > 0 && (
+                <div style={styles.runContextActions}>
+                  {foregroundRunEvents.slice(-5).map((evt) => (
+                    <div key={evt.id} style={styles.runContextActionItem}>
+                      {evt.summary}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Chat messages */}
           {messages.map((message) => (
             <div
               key={message.id}
               style={{
                 ...styles.chatRow,
-                ...(message.role === "user" ? styles.chatRowUser : {})
+                ...(message.role === "user" ? styles.chatRowUser : {}),
+                ...(message.tone === "action" ? styles.chatRowAction : {})
               }}
             >
-              {message.role === "agent" && <div style={styles.chatAvatar}>✦</div>}
+              {message.role === "agent" && message.tone !== "action" && (
+                <div style={styles.chatAvatar}>✦</div>
+              )}
+              {message.tone === "action" && <div style={styles.chatActionIcon}>⚡</div>}
               <div
                 style={{
                   ...styles.chatBubble,
                   ...(message.role === "user" ? styles.chatBubbleUser : {}),
                   ...(message.tone === "success" ? styles.chatBubbleSuccess : {}),
                   ...(message.tone === "warning" ? styles.chatBubbleWarning : {}),
-                  ...(message.tone === "error" ? styles.chatBubbleError : {})
+                  ...(message.tone === "error" ? styles.chatBubbleError : {}),
+                  ...(message.tone === "action" ? styles.chatBubbleAction : {})
                 }}
               >
                 <div>{message.content}</div>
@@ -412,27 +540,33 @@ export function App() {
             </div>
           ))}
 
-          {/* Inline pending questions — integrated into the conversation workspace */}
-          {suspendedRuns.length > 0 && (
-            <div style={styles.questionsSection}>
-              <div style={styles.questionsDivider}>
-                <span style={styles.questionsDividerLabel}>Awaiting your input</span>
+          {/* Inline pending questions — integrated into the conversation workspace.
+              Exclude the active tab's run since its context is shown in RunContextCard above. */}
+          {(() => {
+            const otherSuspended = activeTabRun
+              ? suspendedRuns.filter((r) => r.id !== activeTabRun.id)
+              : suspendedRuns;
+            return otherSuspended.length > 0 ? (
+              <div style={styles.questionsSection}>
+                <div style={styles.questionsDivider}>
+                  <span style={styles.questionsDividerLabel}>Awaiting your input</span>
+                </div>
+                <RemoteQuestions
+                  runs={otherSuspended}
+                  onResume={async (run) => {
+                    await refresh();
+                    if (!run?.id) return;
+                    setSelectedRunId(run.id);
+                    if (run.checkpoint.browserSessionId) {
+                      setSelectedGroupId(run.id);
+                      setForegroundRunId(run.id);
+                      setMainPanel("browser");
+                    }
+                  }}
+                />
               </div>
-              <RemoteQuestions
-                runs={suspendedRuns}
-                onResume={async (run) => {
-                  await refresh();
-                  if (!run?.id) return;
-                  setSelectedRunId(run.id);
-                  if (run.checkpoint.browserSessionId) {
-                    setSelectedGroupId(run.id);
-                    setForegroundRunId(run.id);
-                    setMainPanel("browser");
-                  }
-                }}
-              />
-            </div>
-          )}
+            ) : null;
+          })()}
 
           <div ref={chatEndRef} />
         </div>
@@ -477,8 +611,11 @@ export function App() {
 
       {/* Main browser area */}
       <section style={styles.main}>
-        {/* Tab bar — window drag region */}
-        <div style={styles.tabBar}>
+        {/* Tab bar — window drag region.
+            When the sidebar is hidden the section starts at x=0, which puts the
+            first interactive element under the macOS traffic lights (~x=16–80).
+            Add 82px of left padding in that state to keep all controls clear. */}
+        <div style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
           <button
             onClick={() => setSidebarVisible((v) => !v)}
             style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -487,19 +624,9 @@ export function App() {
             ☰
           </button>
           <div style={styles.headerTabs}>
-            <button
-              onClick={() => setMainPanel("home")}
-              style={{
-                ...(styles.headerTab as React.CSSProperties),
-                ...(mainPanel === "home" ? styles.headerTabActive : {}),
-                WebkitAppRegion: "no-drag"
-              } as React.CSSProperties}
-            >
-              <span style={styles.headerTabDot} />
-              <span style={styles.headerTabTitle}>New Tab</span>
-            </button>
             {shellTabs.map((tab) => {
               const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+              const dot = getTabStatusDot(tab);
               return (
                 <div
                   key={tab.groupId}
@@ -517,17 +644,47 @@ export function App() {
                     }}
                     style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
-                    <span style={styles.headerTabDot} />
+                    <span
+                      style={{
+                        ...styles.headerTabDot,
+                        background: dot.color,
+                        ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
+                      }}
+                      title={dot.title}
+                    />
                     <span style={styles.headerTabTitle}>{tab.title}</span>
                   </button>
                   <button
                     style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
                     onClick={async () => {
+                      // Capture these from the closure BEFORE any awaits so they
+                      // reflect the state at click-time (not a potentially stale later render).
+                      const closingActive =
+                        mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+                      const tabIndex = shellTabs.findIndex((t) => t.groupId === tab.groupId);
+                      const remaining = shellTabs.filter((t) => t.groupId !== tab.groupId);
+                      // Pick the adjacent tab (prev if available, else new first).
+                      const nextTab =
+                        remaining.length > 0
+                          ? remaining[Math.min(tabIndex, remaining.length - 1)]
+                          : null;
+
                       await window.openbrowse.closeBrowserGroup(tab.groupId);
                       await refresh();
                       clearGroupSelection(tab.groupId, selectedRunId);
-                      if (activeBrowserTab?.groupId === tab.groupId) {
-                        setMainPanel("home");
+
+                      if (closingActive) {
+                        if (nextTab) {
+                          // Auto-switch to the adjacent tab. Staying in "browser" mode
+                          // avoids calling hideBrowserSession/clearBrowserViewport, which
+                          // eliminates the race with any in-flight showBrowserSession IPC
+                          // that the intermediate re-render may have already queued.
+                          setSelectedGroupId(nextTab.groupId);
+                          setSelectedRunId(nextTab.runId);
+                          setForegroundRunId(nextTab.runId);
+                        } else {
+                          setMainPanel("home");
+                        }
                       }
                     }}
                   >
@@ -646,7 +803,14 @@ export function App() {
         {/* Main content */}
         <div style={styles.mainBody}>
           {mainPanel === "browser" ? (
-            <BrowserPanel activeTab={activeBrowserTab} />
+            <>
+              <AgentActivityBar
+                run={activeTabRun}
+                recentAction={foregroundRunEvents.at(-1) ?? null}
+                onCancel={(runId) => void handleCancelRun(runId)}
+              />
+              <BrowserPanel activeTab={activeBrowserTab} covered={managementOpen} />
+            </>
           ) : (
             <HomePage
               shellTabs={shellTabs}
@@ -813,6 +977,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e8e8f0",
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
+  // Dedicated drag / traffic-light clearance strip at the top of the sidebar.
+  // Height (38px) matches the tabBar so both sides form one visual chrome row.
+  // Left portion is occupied by macOS window controls; the rest is a drag target.
+  titleBarSpacer: {
+    height: 38,
+    flexShrink: 0,
+    WebkitAppRegion: "drag"
+  } as React.CSSProperties,
   // Sidebar
   sidebar: {
     display: "flex",
@@ -922,6 +1094,69 @@ const styles: Record<string, React.CSSProperties> = {
   chatBubbleSuccess: { borderColor: "rgba(34,197,94,0.3)" },
   chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
   chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
+  chatBubbleAction: {
+    background: "transparent",
+    border: "none",
+    borderLeft: "2px solid #8b5cf6",
+    borderRadius: 0,
+    padding: "4px 10px",
+    fontSize: "0.78rem",
+    color: "#9090a8"
+  },
+  chatRowAction: {
+    gap: 6
+  },
+  chatActionIcon: {
+    width: 18,
+    height: 18,
+    display: "grid",
+    placeItems: "center",
+    color: "#8b5cf6",
+    flexShrink: 0,
+    fontSize: "0.65rem"
+  },
+  // RunContextCard — agent context for the active browser tab
+  runContextCard: {
+    background: "#171726",
+    border: "1px solid #2a2a3e",
+    borderRadius: 12,
+    padding: "10px 12px",
+    marginBottom: 4
+  },
+  runContextHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6
+  },
+  runContextBadge: {
+    fontSize: "0.68rem",
+    fontWeight: 600,
+    borderRadius: 999,
+    padding: "2px 8px",
+    textTransform: "capitalize"
+  },
+  runContextStep: {
+    fontSize: "0.68rem",
+    color: "#6b6b82"
+  },
+  runContextGoal: {
+    fontSize: "0.82rem",
+    color: "#e5e7eb",
+    lineHeight: 1.4,
+    marginBottom: 6
+  },
+  runContextActions: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3
+  },
+  runContextActionItem: {
+    fontSize: "0.72rem",
+    color: "#9090a8",
+    paddingLeft: 8,
+    borderLeft: "2px solid rgba(139,92,246,0.3)"
+  },
   chatTime: {
     marginTop: 6,
     color: "rgba(255,255,255,0.42)",
@@ -1030,11 +1265,14 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: "9px 9px 0 0",
     background: "#0a0a12",
     border: "1px solid #1f2030",
-    borderBottom: "none"
+    borderBottom: "none",
+    color: "#9090a8"
   },
   headerTabWrapActive: {
-    background: "#12121a",
-    borderColor: "#2a2a3e"
+    background: "#16162a",
+    borderColor: "#4a4a7a",
+    borderTopColor: "#8b5cf6",
+    color: "#ffffff"
   },
   headerTabInner: {
     flex: 1,

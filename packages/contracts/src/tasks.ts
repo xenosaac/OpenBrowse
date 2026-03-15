@@ -1,4 +1,4 @@
-import type { BrowserAction } from "./browser.js";
+import type { BrowserAction, PageModel } from "./browser.js";
 
 export type TaskSource = "desktop" | "telegram" | "scheduler";
 export type RunSuspensionType = "clarification" | "approval";
@@ -36,6 +36,8 @@ export interface RunHandoffArtifact {
   suspensionQuestion?: string;
   notes: string[];
   outcome?: string;
+  pageModelSnapshot?: PageModel;
+  screenshotBase64?: string;
 }
 
 export type TaskStatus =

@@ -253,8 +253,13 @@ export class ElectronBrowserKernel implements BrowserKernel {
       elements: Array<{
         id: string; role: string; label: string; value?: string; isActionable: boolean;
         href?: string; inputType?: string; disabled?: boolean; readonly?: boolean; boundingVisible?: boolean;
+        boundingBox?: { x: number; y: number; width: number; height: number };
       }>;
       visibleText: string;
+      pageType?: string;
+      forms?: Array<{ action: string; method: string; fieldCount: number }>;
+      alerts?: string[];
+      captchaDetected?: boolean;
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
 
     return {
@@ -265,6 +270,10 @@ export class ElectronBrowserKernel implements BrowserKernel {
       focusedElementId: raw.focusedElementId,
       elements: raw.elements,
       visibleText: raw.visibleText,
+      pageType: (raw.pageType as PageModel["pageType"]) ?? undefined,
+      forms: raw.forms,
+      alerts: raw.alerts,
+      captchaDetected: raw.captchaDetected,
       createdAt: new Date().toISOString()
     };
   }
@@ -312,6 +321,8 @@ export class ElectronBrowserKernel implements BrowserKernel {
           await managed.cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: coords.x, y: coords.y, button: "left", clickCount: 1 });
           // Wait for navigation that may have been triggered
           await this.waitForLoadIfNavigating(wc);
+          // Post-action settle for SPAs
+          await this.postActionSettle(wc);
           managed.cdp.invalidateContext();
           break;
         }
@@ -333,17 +344,33 @@ export class ElectronBrowserKernel implements BrowserKernel {
             targetId
           );
           if (!found) throw new Error(`Target not found: ${targetId}`);
-          // Insert text natively — triggers beforeinput/input events in the browser
-          await managed.cdp.send("Input.insertText", { text: value });
-          // Dispatch change for framework compatibility
+
+          // Use character-by-character key dispatch for React/Vue/Angular compat.
+          // Fast-path: insertText if hinted (plain HTML inputs without framework bindings).
+          if (action.interactionHint === "insertText") {
+            await managed.cdp.send("Input.insertText", { text: value });
+          } else {
+            for (const char of value) {
+              await managed.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: char, text: char });
+              await managed.cdp.send("Input.dispatchKeyEvent", { type: "char", key: char, text: char });
+              await managed.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: char, text: char });
+            }
+          }
+
+          // Dispatch input + change for framework compatibility
           await managed.cdp.callFunction(
             `function(targetAttr, targetId) {
               const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (el) el.dispatchEvent(new Event('change', { bubbles: true }));
+              if (el) {
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+              }
             }`,
             TARGET_ATTR,
             targetId
           );
+          // Post-action settle
+          await this.postActionSettle(wc);
           break;
         }
 
@@ -356,14 +383,27 @@ export class ElectronBrowserKernel implements BrowserKernel {
               if (!el) throw new Error('Target not found: ' + targetId);
               el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
               el.focus();
-              el.value = value;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+
+              // Use native setter to trigger internal state update
+              var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLSelectElement.prototype, 'value'
+              )?.set;
+              if (nativeInputValueSetter) {
+                nativeInputValueSetter.call(el, value);
+              } else {
+                el.value = value;
+              }
+
+              // Dispatch both native and synthetic events for framework compat
+              el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
             }`,
             TARGET_ATTR,
             targetId,
             value
           );
+          // Post-action settle
+          await this.postActionSettle(wc);
           break;
         }
 
@@ -424,6 +464,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
           break;
         }
 
+        case "pressKey":
         case "keyboard_shortcut": {
           const shortcut = this.requireActionValue(action);
           await this.dispatchKeyboardShortcut(managed.cdp, shortcut);
@@ -439,6 +480,18 @@ export class ElectronBrowserKernel implements BrowserKernel {
         case "extract":
           await managed.cdp.evaluate(EXTRACT_PAGE_MODEL_SCRIPT);
           break;
+
+        case "screenshot": {
+          const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
+          const pageModelAfterScreenshot = await this.capturePageModel(browserSession);
+          return {
+            ok: true,
+            action,
+            pageModelId: pageModelAfterScreenshot.id,
+            summary: "Screenshot captured",
+            screenshotBase64: screenshotResult.data
+          };
+        }
       }
 
       const pageModel = await this.capturePageModel(browserSession);
@@ -452,11 +505,22 @@ export class ElectronBrowserKernel implements BrowserKernel {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const failureClass = classifyFailure(message);
+
+      // Capture screenshot on failure for diagnostics
+      let screenshotBase64: string | undefined;
+      try {
+        const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
+        screenshotBase64 = screenshotResult.data;
+      } catch {
+        // Screenshot capture itself may fail if session is destroyed
+      }
+
       return {
         ok: false,
         action,
         summary: `Failed to execute ${action.type}: ${message}`,
-        failureClass
+        failureClass,
+        screenshotBase64
       };
     }
   }
@@ -534,11 +598,12 @@ export class ElectronBrowserKernel implements BrowserKernel {
 
   private waitForLoadIfNavigating(wc: WebContents): Promise<void> {
     return new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 3000);
+      const timeout = setTimeout(resolve, 5000);
       const onLoad = () => { clearTimeout(timeout); resolve(); };
       if (wc.isLoadingMainFrame()) {
         wc.once("did-finish-load", onLoad);
       } else {
+        // Check after a short delay — navigation may start asynchronously
         setTimeout(() => {
           if (wc.isLoadingMainFrame()) {
             wc.once("did-finish-load", onLoad);
@@ -546,9 +611,23 @@ export class ElectronBrowserKernel implements BrowserKernel {
             clearTimeout(timeout);
             resolve();
           }
-        }, 150);
+        }, 300);
       }
     });
+  }
+
+  /**
+   * Post-action settle: waits briefly for SPA re-renders after interactions.
+   * If navigation starts during the settle period, waits for it to complete.
+   */
+  private async postActionSettle(wc: WebContents): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (wc.isLoadingMainFrame()) {
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(resolve, 5000);
+        wc.once("did-finish-load", () => { clearTimeout(timeout); resolve(); });
+      });
+    }
   }
 
   private async dispatchKeyboardShortcut(cdp: CdpClient, shortcut: string): Promise<void> {

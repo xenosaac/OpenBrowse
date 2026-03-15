@@ -21,6 +21,9 @@ export interface PreferenceStore {
   get(namespace: string, key: string): Promise<UserPreference | null>;
   list(namespace: string): Promise<UserPreference[]>;
   delete(id: string): Promise<boolean>;
+  deleteByKey(namespace: string, key: string): Promise<boolean>;
+  /** Atomically write all entries for a namespace. Empty values delete the key; non-empty values upsert with id = `pref_${key}`. */
+  saveNamespaceSettings(namespace: string, entries: Array<{ key: string; value: string }>): Promise<void>;
 }
 
 export class InMemoryWorkflowLogStore implements WorkflowLogStore {
@@ -110,5 +113,27 @@ export class InMemoryPreferenceStore implements PreferenceStore {
       }
     }
     return false;
+  }
+
+  async deleteByKey(namespace: string, key: string): Promise<boolean> {
+    return this.values.delete(`${namespace}:${key}`);
+  }
+
+  async saveNamespaceSettings(namespace: string, entries: Array<{ key: string; value: string }>): Promise<void> {
+    const now = new Date().toISOString();
+    for (const { key, value } of entries) {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        this.values.delete(`${namespace}:${key}`);
+      } else {
+        this.values.set(`${namespace}:${key}`, {
+          id: `pref_${key}`,
+          namespace,
+          key,
+          value: trimmed,
+          capturedAt: now
+        });
+      }
+    }
   }
 }
