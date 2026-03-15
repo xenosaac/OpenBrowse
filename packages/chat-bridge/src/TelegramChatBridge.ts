@@ -6,10 +6,20 @@ import { TelegramStateStore } from "./TelegramStateStore.js";
 
 export type InboundMessageHandler = (message: TaskMessage) => Promise<void>;
 
+export interface TelegramCommandContext {
+  command: string;
+  args: string;
+  chatId: string;
+  respond: (text: string) => Promise<void>;
+}
+
+export type TelegramCommandHandler = (ctx: TelegramCommandContext) => Promise<void>;
+
 export class TelegramChatBridge implements ChatBridge {
   private readonly bot: Bot;
   private readonly stateStore: TelegramStateStore;
   private onInbound: InboundMessageHandler | null = null;
+  private commandHandler: TelegramCommandHandler | null = null;
   private started = false;
 
   constructor(private readonly config: TelegramConfig) {
@@ -22,6 +32,10 @@ export class TelegramChatBridge implements ChatBridge {
     this.onInbound = handler;
   }
 
+  setCommandHandler(handler: TelegramCommandHandler): void {
+    this.commandHandler = handler;
+  }
+
   async start(): Promise<void> {
     if (this.started) {
       return;
@@ -30,6 +44,18 @@ export class TelegramChatBridge implements ChatBridge {
     await this.stateStore.load();
     if (this.config.chatId) {
       await this.stateStore.approveChat(this.config.chatId);
+    }
+
+    // Register commands with Telegram so clients show autocomplete.
+    try {
+      await this.bot.api.setMyCommands([
+        { command: "status", description: "List active and suspended runs" },
+        { command: "list", description: "Show recent runs (optionally: /list 10)" },
+        { command: "cancel", description: "Cancel a run (optionally: /cancel <runId>)" },
+        { command: "handoff", description: "Get handoff report (optionally: /handoff <runId>)" }
+      ]);
+    } catch {
+      // Non-fatal — bot still works without command metadata.
     }
 
     this.bot.start();
@@ -46,7 +72,7 @@ export class TelegramChatBridge implements ChatBridge {
   }
 
   async send(message: OutboundMessage): Promise<void> {
-    const chatId = await this.resolveOutboundChatId();
+    const chatId = await this.resolveOutboundChatId(message.runId);
     if (!chatId) {
       return;
     }
@@ -59,7 +85,7 @@ export class TelegramChatBridge implements ChatBridge {
   }
 
   async sendClarification(request: ClarificationRequest): Promise<void> {
-    const chatId = await this.resolveOutboundChatId();
+    const chatId = await this.resolveOutboundChatId(request.runId);
     if (!chatId) {
       return;
     }
@@ -116,6 +142,32 @@ export class TelegramChatBridge implements ChatBridge {
     return message;
   }
 
+  shouldSendStepProgress(): boolean {
+    return this.config.notificationLevel === "verbose";
+  }
+
+  /** Bind a run to the chat that originated it, so outbound messages route back correctly. */
+  async bindRunToChat(runId: string, chatId: string): Promise<void> {
+    await this.stateStore.bindRunToChat(runId, chatId);
+  }
+
+  /**
+   * Called when a run terminates. Removes stale clarification records and
+   * attempts to edit any open Telegram inline keyboards to prevent ghost taps.
+   */
+  async clearRunState(runId: string): Promise<void> {
+    const staleRecords = await this.stateStore.clearClarificationsForRun(runId);
+    for (const record of staleRecords) {
+      try {
+        await this.bot.api.editMessageReplyMarkup(record.chatId, record.messageId, {
+          reply_markup: undefined
+        });
+      } catch {
+        // Message may already be deleted or too old — not fatal.
+      }
+    }
+  }
+
   private async sendSplitMessages(chatId: string, text: string): Promise<void> {
     const MAX_LENGTH = 4000;
     if (text.length <= MAX_LENGTH) {
@@ -137,15 +189,23 @@ export class TelegramChatBridge implements ChatBridge {
     }
   }
 
-  private async resolveOutboundChatId(): Promise<string | null> {
-    if (this.config.chatId) {
-      return this.config.chatId;
+  /**
+   * Three-tier chatId resolution:
+   * 1. Per-run binding (set when a Telegram-originated run was created).
+   * 2. Static config chatId (hard-coded pairing).
+   * 3. First approved primary chatId (claim-first-private-chat mode).
+   */
+  private resolveOutboundChatId(runId?: string): string | null {
+    if (runId) {
+      const runChatId = this.stateStore.resolveRunChatId(runId);
+      if (runChatId) return runChatId;
     }
-
+    if (this.config.chatId) return this.config.chatId;
     return this.stateStore.getPrimaryChatId();
   }
 
   private setupListeners(): void {
+    // ── Inline keyboard callbacks (clarification/approval responses) ──────────
     this.bot.on("callback_query:data", async (ctx) => {
       const authorization = await this.ensureAuthorizedPrivateChat(ctx);
       if (authorization.kind !== "accepted") {
@@ -173,13 +233,47 @@ export class TelegramChatBridge implements ChatBridge {
           id: `tg_${ctx.callbackQuery.id}`,
           channel: "telegram",
           runId,
+          chatId: authorization.chatId,
           text: optionId,
           createdAt: new Date().toISOString()
         });
       }
     });
 
+    // ── Bot commands (/status, /list, /cancel, /handoff) ─────────────────────
+    this.bot.command(["status", "list", "cancel", "handoff"], async (ctx) => {
+      const authorization = await this.ensureAuthorizedPrivateChat(ctx);
+      if (authorization.kind !== "accepted") return;
+
+      const rawText = ctx.message?.text ?? "";
+      const spaceIdx = rawText.indexOf(" ");
+      const args = spaceIdx !== -1 ? rawText.slice(spaceIdx + 1).trim() : "";
+      // Extract bare command name (strips leading slash and @BotName suffix).
+      const command = rawText.split("@")[0].replace("/", "").split(" ")[0].toLowerCase();
+
+      if (!this.commandHandler) {
+        await ctx.reply("Commands are not available yet.");
+        return;
+      }
+
+      try {
+        await this.commandHandler({
+          command,
+          args,
+          chatId: authorization.chatId,
+          respond: async (text) => { await ctx.reply(text); }
+        });
+      } catch (err) {
+        console.error("[telegram] Command handler error:", err instanceof Error ? err.message : err);
+        await ctx.reply("An error occurred processing that command.").catch(() => {});
+      }
+    });
+
+    // ── Plain text messages (new tasks + free-text clarification replies) ────
     this.bot.on("message:text", async (ctx) => {
+      // Skip messages that look like bot commands not covered above.
+      if (ctx.message.text.trimStart().startsWith("/")) return;
+
       const authorization = await this.ensureAuthorizedPrivateChat(ctx);
       if (authorization.kind !== "accepted") {
         return;
@@ -200,6 +294,7 @@ export class TelegramChatBridge implements ChatBridge {
           id: `tg_${ctx.message.message_id}`,
           channel: "telegram",
           runId,
+          chatId: authorization.chatId,
           text: ctx.message.text,
           createdAt: new Date().toISOString()
         });

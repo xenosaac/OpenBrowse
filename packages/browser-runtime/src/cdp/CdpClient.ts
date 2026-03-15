@@ -2,6 +2,7 @@ import type { WebContents } from "electron";
 
 export class CdpClient {
   private attached = false;
+  private contextObjectId: string | null = null;
 
   constructor(private readonly webContents: WebContents) {}
 
@@ -19,6 +20,12 @@ export class CdpClient {
       // Already detached
     }
     this.attached = false;
+    this.contextObjectId = null;
+  }
+
+  /** Discard the cached execution context. Call after page navigation. */
+  invalidateContext(): void {
+    this.contextObjectId = null;
   }
 
   async send<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
@@ -43,25 +50,48 @@ export class CdpClient {
    * expression string — which eliminates injection risk.
    */
   async callFunction<T = unknown>(functionDeclaration: string, ...args: unknown[]): Promise<T> {
-    // Get the global execution context
-    const ctx = await this.send<{ result: { objectId: string } }>("Runtime.evaluate", {
-      expression: "globalThis",
-      returnByValue: false
-    });
+    // Fetch and cache the global execution context objectId — reuse across calls
+    // until the context is invalidated (e.g. after page navigation).
+    if (!this.contextObjectId) {
+      const ctx = await this.send<{ result: { objectId: string } }>("Runtime.evaluate", {
+        expression: "globalThis",
+        returnByValue: false
+      });
+      this.contextObjectId = ctx.result.objectId;
+    }
 
     const callArguments = args.map((arg) => {
       if (arg === undefined) return { unserializableValue: "undefined" };
       return { value: arg };
     });
 
-    const result = await this.send<{ result: { value: T } }>("Runtime.callFunctionOn", {
-      functionDeclaration,
-      objectId: ctx.result.objectId,
-      arguments: callArguments,
-      returnByValue: true,
-      awaitPromise: true
-    });
+    try {
+      const result = await this.send<{ result: { value: T } }>("Runtime.callFunctionOn", {
+        functionDeclaration,
+        objectId: this.contextObjectId,
+        arguments: callArguments,
+        returnByValue: true,
+        awaitPromise: true
+      });
+      return result.result.value;
+    } catch (err) {
+      // If the cached objectId has gone stale (navigation happened without invalidation),
+      // re-fetch once and retry.
+      this.contextObjectId = null;
+      const ctx = await this.send<{ result: { objectId: string } }>("Runtime.evaluate", {
+        expression: "globalThis",
+        returnByValue: false
+      });
+      this.contextObjectId = ctx.result.objectId;
 
-    return result.result.value;
+      const result = await this.send<{ result: { value: T } }>("Runtime.callFunctionOn", {
+        functionDeclaration,
+        objectId: this.contextObjectId,
+        arguments: callArguments,
+        returnByValue: true,
+        awaitPromise: true
+      });
+      return result.result.value;
+    }
   }
 }

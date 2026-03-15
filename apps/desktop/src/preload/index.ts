@@ -6,7 +6,7 @@ import type {
   RuntimeDescriptor,
   RuntimeSettings
 } from "../shared/runtime";
-import type { TaskRun } from "@openbrowse/contracts";
+import type { RunHandoffArtifact, TaskRun } from "@openbrowse/contracts";
 
 const api = {
   version: "0.1.0",
@@ -45,6 +45,23 @@ const api = {
   setBrowserViewport: (bounds: BrowserViewportBounds) => ipcRenderer.invoke("browser:viewport:set", bounds),
   clearBrowserViewport: () => ipcRenderer.invoke("browser:viewport:clear"),
   closeBrowserGroup: (groupId: string): Promise<TaskRun | null> => ipcRenderer.invoke("browser:close-group", groupId),
+
+  // Browser navigation
+  browserNewTab: (url?: string): Promise<BrowserShellTabDescriptor> =>
+    ipcRenderer.invoke("browser:new-tab", url),
+  browserNavigate: (sessionId: string, url: string): Promise<void> =>
+    ipcRenderer.invoke("browser:navigate", { sessionId, url }),
+  browserBack: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:back", sessionId),
+  browserForward: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:forward", sessionId),
+  browserReload: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:reload", sessionId),
+  browserNavState: (
+    sessionId: string
+  ): Promise<{ canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null> =>
+    ipcRenderer.invoke("browser:nav-state", sessionId),
+
+  // Run handoff
+  getRunHandoff: (runId: string): Promise<{ artifact: RunHandoffArtifact; markdown: string } | null> =>
+    ipcRenderer.invoke("run:handoff", runId),
 
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {

@@ -28,4 +28,7 @@ working-log-*.md
 worklogs/
 
 # Local project docs kept out of git for now
-docs/*.md
+docs/
+
+# Figma Design Files ignored for now.
+UI_Design_Figma/

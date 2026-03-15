@@ -12,7 +12,10 @@ type RuntimeEvent =
   | { type: "runtime_ready"; descriptor?: RuntimeDescriptor }
   | { type: "run_updated"; run?: TaskRun }
   | { type: "recovery_complete"; report?: RecoverySummary }
-  | { type: "workflow_event"; event?: WorkflowEvent };
+  | { type: "workflow_event"; event?: WorkflowEvent }
+  | { type: "tab_navigated"; sessionId?: string; url?: string; title?: string }
+  | { type: "standalone_tab_created"; tab?: BrowserShellTabDescriptor }
+  | { type: "standalone_tab_closed"; tabId?: string };
 
 export function useRuntimeStore() {
   const [runs, setRuns] = useState<TaskRun[]>([]);
@@ -193,6 +196,27 @@ export function useRuntimeStore() {
         if (runtimeEvent.run.id === selectedRunIdRef.current) {
           void refreshRunAudit(runtimeEvent.run.id);
         }
+        return;
+      }
+
+      if (runtimeEvent.type === "tab_navigated" && runtimeEvent.sessionId) {
+        setShellTabs((current) =>
+          current.map((tab) =>
+            tab.id === runtimeEvent.sessionId
+              ? { ...tab, url: runtimeEvent.url ?? tab.url, title: runtimeEvent.title ?? tab.title }
+              : tab
+          )
+        );
+        return;
+      }
+
+      if (runtimeEvent.type === "standalone_tab_created" && runtimeEvent.tab) {
+        setShellTabs((current) => [runtimeEvent.tab!, ...current]);
+        return;
+      }
+
+      if (runtimeEvent.type === "standalone_tab_closed" && runtimeEvent.tabId) {
+        setShellTabs((current) => current.filter((tab) => tab.id !== runtimeEvent.tabId));
         return;
       }
 

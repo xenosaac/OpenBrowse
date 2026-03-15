@@ -3,12 +3,14 @@ import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
 import {
   bootstrapRunDetached,
+  buildHandoffArtifact,
   cancelTrackedRun,
   describeRuntime,
   getRuntimeSettings,
   handleInboundMessageDetached,
   listAllRuns,
   queryShellTabs,
+  renderHandoffMarkdown,
   saveRuntimeSettings,
   type RuntimeServices
 } from "@openbrowse/runtime-core";
@@ -32,6 +34,11 @@ export function registerIpcHandlers(
     ipcMain.removeHandler(channel);
     ipcMain.handle(channel, handler);
   };
+
+  // Wire up navigation events — forward to renderer so the address bar stays in sync.
+  browserShell.setNavigationCallback((sessionId, url, title) => {
+    mainWindow.webContents.send("runtime:event", { type: "tab_navigated", sessionId, url, title });
+  });
 
   register("task:start", async (_event, intent: TaskIntent) => {
     const run = await bootstrapRunDetached(services, intent, async (updatedRun) => {
@@ -97,8 +104,11 @@ export function registerIpcHandlers(
     return replayer.replay(runId);
   });
 
+  // Merge agent-run tabs with standalone tabs for the unified tab bar.
   register("shell:tabs:list", async () => {
-    return queryShellTabs(services);
+    const agentTabs = await queryShellTabs(services);
+    const standaloneTabs = browserShell.listStandaloneTabs();
+    return [...standaloneTabs, ...agentTabs];
   });
 
   // Demo registry handlers
@@ -174,11 +184,57 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  // Handles both standalone tabs and agent-run groups.
   register("browser:close-group", async (_event, groupId: string) => {
+    if (browserShell.isStandaloneTab(groupId)) {
+      browserShell.closeStandaloneTab(groupId);
+      mainWindow.webContents.send("runtime:event", { type: "standalone_tab_closed", tabId: groupId });
+      return null;
+    }
     const run = await cancelTrackedRun(services, groupId, "Run cancelled from browser group close.");
     if (run) {
       mainWindow.webContents.send("runtime:event", { type: "run_updated", run });
     }
     return run;
+  });
+
+  // --- Browser navigation ---
+
+  register("browser:new-tab", async (_event, url?: string) => {
+    const tab = browserShell.createStandaloneTab(url ?? "about:blank");
+    mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+    return tab;
+  });
+
+  register("browser:navigate", async (_event, { sessionId, url }: { sessionId: string; url: string }) => {
+    browserShell.navigateTo(sessionId, url);
+    return { ok: true };
+  });
+
+  register("browser:back", async (_event, sessionId: string) => {
+    browserShell.goBack(sessionId);
+    return { ok: true };
+  });
+
+  register("browser:forward", async (_event, sessionId: string) => {
+    browserShell.goForward(sessionId);
+    return { ok: true };
+  });
+
+  register("browser:reload", async (_event, sessionId: string) => {
+    browserShell.reload(sessionId);
+    return { ok: true };
+  });
+
+  register("browser:nav-state", async (_event, sessionId: string) => {
+    return browserShell.getNavState(sessionId);
+  });
+
+  register("run:handoff", async (_event, runId: string) => {
+    const run = await services.runCheckpointStore.load(runId);
+    if (!run) return null;
+    const artifact = buildHandoffArtifact(run);
+    const markdown = renderHandoffMarkdown(artifact);
+    return { artifact, markdown };
   });
 }

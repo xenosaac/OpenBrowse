@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-interface PendingClarificationRecord {
+export interface PendingClarificationRecord {
   requestId: string;
   runId: string;
   chatId: string;
@@ -14,6 +14,8 @@ interface TelegramBridgeState {
   approvedChatIds: string[];
   pendingClarifications: Record<string, PendingClarificationRecord>;
   replyTargets: Record<string, string>;
+  /** runId → chatId mapping so outbound messages route to the originating chat. */
+  runChatMappings: Record<string, string>;
 }
 
 function createDefaultState(): TelegramBridgeState {
@@ -21,7 +23,8 @@ function createDefaultState(): TelegramBridgeState {
     primaryChatId: null,
     approvedChatIds: [],
     pendingClarifications: {},
-    replyTargets: {}
+    replyTargets: {},
+    runChatMappings: {}
   };
 }
 
@@ -42,7 +45,8 @@ export class TelegramStateStore {
         primaryChatId: parsed.primaryChatId ?? null,
         approvedChatIds: parsed.approvedChatIds ?? [],
         pendingClarifications: parsed.pendingClarifications ?? {},
-        replyTargets: parsed.replyTargets ?? {}
+        replyTargets: parsed.replyTargets ?? {},
+        runChatMappings: parsed.runChatMappings ?? {}
       };
     } catch {
       this.state = createDefaultState();
@@ -114,6 +118,35 @@ export class TelegramStateStore {
     }
 
     return this.resolveByRequestId(requestId, chatId);
+  }
+
+  async bindRunToChat(runId: string, chatId: string): Promise<void> {
+    this.state.runChatMappings[runId] = chatId;
+    await this.persist();
+  }
+
+  resolveRunChatId(runId: string): string | null {
+    return this.state.runChatMappings[runId] ?? null;
+  }
+
+  /**
+   * Removes all pending clarification records for a run and returns them so
+   * the caller can edit the Telegram messages (e.g. remove inline keyboards).
+   */
+  async clearClarificationsForRun(runId: string): Promise<PendingClarificationRecord[]> {
+    const removed: PendingClarificationRecord[] = [];
+    for (const [requestId, record] of Object.entries(this.state.pendingClarifications)) {
+      if (record.runId === runId) {
+        removed.push(record);
+        delete this.state.pendingClarifications[requestId];
+        delete this.state.replyTargets[replyTargetKey(record.chatId, record.messageId)];
+      }
+    }
+    delete this.state.runChatMappings[runId];
+    if (removed.length > 0) {
+      await this.persist();
+    }
+    return removed;
   }
 
   private async persist(): Promise<void> {

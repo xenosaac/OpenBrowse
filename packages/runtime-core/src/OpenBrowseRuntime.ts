@@ -1,10 +1,197 @@
 import { StubBrowserKernel } from "@openbrowse/browser-runtime";
 import type { BrowserAction, BrowserSession, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { TelegramChatBridge, StubChatBridge } from "@openbrowse/chat-bridge";
+import { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
 import type { RuntimeServices } from "./types.js";
 
 const MAX_LOOP_STEPS = 20;
+const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
+
+/** Module-level handoff emitter — usable outside the OpenBrowseRuntime class. */
+export async function emitHandoffEvent(services: RuntimeServices, run: TaskRun): Promise<void> {
+  const artifact = buildHandoffArtifact(run);
+  const markdown = renderHandoffMarkdown(artifact);
+  const event = createWorkflowEvent(run.id, "handoff_written", `Handoff written: ${run.status}`, {
+    status: run.status,
+    stepCount: String(artifact.stepCount),
+    lastFailureClass: artifact.lastFailureClass ?? "",
+    consecutiveSoftFailures: String(artifact.consecutiveSoftFailures),
+    handoffMarkdown: markdown.slice(0, 1000)
+  });
+  await appendWorkflowEvent(services.workflowLogStore, services.eventBus, event);
+}
+
+// ── Outbound notification helpers ─────────────────────────────────────────
+
+/**
+ * Sends a terminal-state notification (completed / failed / cancelled) to the
+ * configured chat channel. Fire-and-forget safe: errors are swallowed so they
+ * never affect run state.
+ */
+async function notifyTerminalEvent(services: RuntimeServices, run: TaskRun): Promise<void> {
+  const artifact = buildHandoffArtifact(run);
+  const markdown = renderHandoffMarkdown(artifact);
+  const prefix: Record<string, string> = {
+    completed: `✓ Task completed: "${run.goal.slice(0, 60)}"`,
+    failed:    `✗ Task failed: "${run.goal.slice(0, 60)}"`,
+    cancelled: `⊘ Task cancelled: "${run.goal.slice(0, 60)}"`
+  };
+  const statusLine = prefix[run.status] ?? `Run ended (${run.status}): "${run.goal.slice(0, 60)}"`;
+  const text = `${statusLine}\n\n${markdown}`;
+  await services.chatBridge.send({ channel: "telegram", runId: run.id, text })
+    .catch((err) => console.error("[runtime] Failed to send terminal notification:", err instanceof Error ? err.message : err));
+}
+
+/**
+ * Wires the command handler closure (which has access to RuntimeServices) into
+ * the Telegram bridge. Must be called after the chat bridge is (re-)created,
+ * e.g. in applyRuntimeSettings and on initial bootstrap.
+ */
+export function wireBotCommands(services: RuntimeServices): void {
+  if (!(services.chatBridge instanceof TelegramChatBridge)) return;
+
+  services.chatBridge.setCommandHandler(async (ctx) => {
+    const { command, args, respond } = ctx;
+
+    switch (command) {
+      case "status": {
+        const runs = await services.runCheckpointStore.listAll();
+        const active = runs.filter(
+          (r) => r.status === "running" || r.status.startsWith("suspended")
+        );
+        if (active.length === 0) {
+          await respond("No active runs.");
+          return;
+        }
+        const lines = active.map((r) => {
+          const emoji = r.status === "running" ? "⚙" : "⏸";
+          const steps = r.checkpoint.stepCount ?? 0;
+          const url = r.checkpoint.lastKnownUrl
+            ? ` — ${r.checkpoint.lastKnownUrl.slice(0, 50)}`
+            : "";
+          return `${emoji} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 40)} (step ${steps}${url})`;
+        });
+        await respond(`Active runs:\n${lines.join("\n")}`);
+        break;
+      }
+
+      case "list": {
+        const n = Math.min(parseInt(args) || 5, 20);
+        const all = await services.runCheckpointStore.listAll();
+        const recent = all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, n);
+        if (recent.length === 0) {
+          await respond("No runs yet.");
+          return;
+        }
+        const statusEmoji: Record<string, string> = {
+          running: "⚙", completed: "✓", failed: "✗",
+          cancelled: "⊘", suspended_for_clarification: "⏸",
+          suspended_for_approval: "⏸", queued: "⏳"
+        };
+        const lines = recent.map((r) => {
+          const e = statusEmoji[r.status] ?? "?";
+          return `${e} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 50)}`;
+        });
+        await respond(`Recent runs:\n${lines.join("\n")}`);
+        break;
+      }
+
+      case "cancel": {
+        const targetId = args.trim() || null;
+        if (!targetId) {
+          // Cancel the most recently started running task.
+          const all = await services.runCheckpointStore.listAll();
+          const running = all
+            .filter((r) => r.status === "running")
+            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+          if (running.length === 0) {
+            await respond("No running tasks to cancel.");
+            return;
+          }
+          const target = running[0];
+          const cancelled = await cancelTrackedRun(services, target.id, "Cancelled by remote operator.");
+          await respond(
+            cancelled
+              ? `Cancelled: "${target.goal.slice(0, 60)}"`
+              : "Failed to cancel the run."
+          );
+          return;
+        }
+        const cancelled = await cancelTrackedRun(services, targetId, "Cancelled by remote operator.");
+        if (!cancelled) {
+          await respond(`Run not found: ${targetId}`);
+          return;
+        }
+        await respond(`Cancelled: "${cancelled.goal.slice(0, 60)}"`);
+        break;
+      }
+
+      case "handoff": {
+        const targetId = args.trim() || null;
+        let run: TaskRun | null = null;
+        if (targetId) {
+          run = await services.runCheckpointStore.load(targetId);
+        } else {
+          const all = await services.runCheckpointStore.listAll();
+          const terminal = all
+            .filter((r) => ["completed", "failed", "cancelled"].includes(r.status))
+            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+          run = terminal[0] ?? null;
+        }
+        if (!run) {
+          await respond("Run not found.");
+          return;
+        }
+        const artifact = buildHandoffArtifact(run);
+        const md = renderHandoffMarkdown(artifact);
+        // Send in 4000-char chunks.
+        for (let i = 0; i < md.length; i += 4000) {
+          await respond(md.slice(i, i + 4000));
+        }
+        break;
+      }
+
+      default:
+        await respond(`Unknown command: /${command}`);
+    }
+  });
+}
+
+/**
+ * Handles a Telegram (or other remote channel) message that has no runId —
+ * i.e. the user is starting a new task. Constructs an intent from the message
+ * text, starts the run, binds the chatId for outbound routing, and sends a
+ * start confirmation back to the channel.
+ */
+export async function handleNewTaskMessage(
+  services: RuntimeServices,
+  message: TaskMessage
+): Promise<TaskRun> {
+  const intent: TaskIntent = {
+    id: `intent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    source: message.channel === "telegram" ? "telegram" : "desktop",
+    goal: message.text.trim(),
+    constraints: [],
+    metadata: {},
+    createdAt: message.createdAt
+  };
+
+  // Terminal notification + clearRunState are handled inside plannerLoop via
+  // writeHandoff, which fires at every terminal state transition. No onSettled
+  // callback needed here to avoid double-notification.
+  const run = await bootstrapRunDetached(services, intent);
+
+  // Bind the chatId so all outbound messages for this run route back to the
+  // originating Telegram chat (survives process restart via TelegramStateStore).
+  // This must happen after bootstrapRunDetached returns the run with its real id.
+  if (services.chatBridge instanceof TelegramChatBridge && message.chatId) {
+    await services.chatBridge.bindRunToChat(run.id, message.chatId);
+  }
+
+  // Start confirmation is sent by initializeTask for source === "telegram".
+  return run;
+}
 
 function parseApprovalAnswer(answer: string): boolean | null {
   const normalized = answer.trim().toLowerCase();
@@ -87,6 +274,7 @@ export class OpenBrowseRuntime {
           approved: "false"
         });
         await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
+        await this.writeHandoff(cancelledRun);
         return cancelledRun;
       }
 
@@ -124,6 +312,15 @@ export class OpenBrowseRuntime {
     await this.logWorkflowEvent(runningRun.id, "run_created", `Task started: ${intent.goal}`, {
       source: intent.source
     });
+    // Send start confirmation when a run is initiated from a remote channel.
+    // Desktop runs are surfaced via the run_updated IPC event instead.
+    if (intent.source === "telegram" || intent.source === "scheduler") {
+      void this.services.chatBridge.send({
+        channel: "telegram",
+        runId: runningRun.id,
+        text: `⚙ Task started: "${intent.goal.slice(0, 80)}"\nRun: \`${runningRun.id}\``
+      }).catch(() => {});
+    }
 
     const profile = await this.services.browserKernel.ensureProfile(intent.preferredProfileId);
     const session = await this.services.browserKernel.attachSession(profile, {
@@ -148,6 +345,7 @@ export class OpenBrowseRuntime {
     await this.logWorkflowEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {
       reason: message
     });
+    await this.writeHandoff(failedRun);
     return failedRun;
   }
 
@@ -198,6 +396,7 @@ export class OpenBrowseRuntime {
         const failedRun = this.services.orchestrator.failRun(current, result.summary);
         await this.services.runCheckpointStore.save(failedRun);
         await this.logWorkflowEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
+        await this.writeHandoff(failedRun);
         return failedRun;
       }
     }
@@ -244,6 +443,7 @@ export class OpenBrowseRuntime {
           approved: "false"
         });
         await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
+        await this.writeHandoff(cancelledRun);
         await onSettled?.(cancelledRun);
         return cancelledRun;
       }
@@ -347,6 +547,7 @@ export class OpenBrowseRuntime {
         current = this.services.orchestrator.failRun(current, `Planner request failed: ${message}`);
         await this.services.runCheckpointStore.save(current);
         await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+        await this.writeHandoff(current);
         return current;
       }
 
@@ -375,6 +576,7 @@ export class OpenBrowseRuntime {
           await this.logWorkflowEvent(current.id, "approval_requested", approvalRequest.question, {
             requestId: approvalRequest.id
           });
+          await this.writeHandoff(current);
           return current;
         }
 
@@ -384,12 +586,41 @@ export class OpenBrowseRuntime {
           actionType: action.type,
           ok: String(result.ok)
         });
+        // Step progress — only sent when operator has opted into verbose mode.
+        if (this.services.chatBridge.shouldSendStepProgress()) {
+          const stepNum = current.checkpoint.stepCount ?? 0;
+          const stepText = `Step ${stepNum}: ${result.ok ? "✓" : "✗"} ${action.type} — "${action.description}"`;
+          void this.services.chatBridge.send({ channel: "telegram", runId: current.id, text: stepText })
+            .catch(() => {});
+        }
 
         if (!result.ok) {
-          current = this.services.orchestrator.failRun(current, result.summary);
+          // Soft failures (element not found) let the planner retry with fresh page context.
+          // Hard failures (navigation timeout, validation errors) terminate the run.
+          if (result.failureClass !== "element_not_found") {
+            current = this.services.orchestrator.failRun(current, result.summary);
+            await this.services.runCheckpointStore.save(current);
+            await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
+              failureClass: result.failureClass ?? "unknown"
+            });
+            await this.writeHandoff(current);
+            return current;
+          }
+          // Guard against infinite soft-failure loops.
+          const softCount = current.checkpoint.consecutiveSoftFailures ?? 0;
+          if (softCount >= MAX_CONSECUTIVE_SOFT_FAILURES) {
+            const msg = `Stuck: ${softCount} consecutive element-not-found failures. Last action: "${action.description}". The planner should try a different approach.`;
+            current = this.services.orchestrator.failRun(current, msg);
+            await this.services.runCheckpointStore.save(current);
+            await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
+              failureClass: "element_not_found",
+              consecutiveSoftFailures: String(softCount)
+            });
+            await this.writeHandoff(current);
+            return current;
+          }
           await this.services.runCheckpointStore.save(current);
-          await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-          return current;
+          continue;
         }
 
         await this.services.runCheckpointStore.save(current);
@@ -418,6 +649,7 @@ export class OpenBrowseRuntime {
         } else if (current.status === "failed") {
           await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
         }
+        await this.writeHandoff(current);
         return current;
       }
     }
@@ -425,6 +657,7 @@ export class OpenBrowseRuntime {
     current = this.services.orchestrator.failRun(current, `Planner loop exceeded ${MAX_LOOP_STEPS} steps`);
     await this.services.runCheckpointStore.save(current);
     await this.logWorkflowEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+    await this.writeHandoff(current);
     return current;
   }
 
@@ -436,6 +669,12 @@ export class OpenBrowseRuntime {
   ): Promise<void> {
     const event = createWorkflowEvent(runId, type, summary, payload);
     await appendWorkflowEvent(this.services.workflowLogStore, this.services.eventBus, event);
+  }
+
+  private async writeHandoff(run: TaskRun): Promise<void> {
+    await emitHandoffEvent(this.services, run);
+    await notifyTerminalEvent(this.services, run);
+    await this.services.chatBridge.clearRunState?.(run.id);
   }
 }
 
@@ -462,7 +701,11 @@ export async function bootstrapRunDetached(
 }
 
 export async function handleInboundMessage(services: RuntimeServices, message: TaskMessage): Promise<TaskRun | null> {
-  if (!message.runId) return null;
+  if (!message.runId) {
+    // No runId = new task initiation. Filter out bare bot commands (handled separately).
+    if (message.text.trimStart().startsWith("/")) return null;
+    return handleNewTaskMessage(services, message);
+  }
   const run = await services.runCheckpointStore.load(message.runId);
   if (!run) return null;
   const effectiveServices = await resolveRuntimeServicesForRun(services, run);
@@ -476,7 +719,12 @@ export async function handleInboundMessageDetached(
   message: TaskMessage,
   onSettled?: (run: TaskRun) => Promise<void> | void
 ): Promise<TaskRun | null> {
-  if (!message.runId) return null;
+  if (!message.runId) {
+    if (message.text.trimStart().startsWith("/")) return null;
+    const run = await handleNewTaskMessage(services, message);
+    await onSettled?.(run);
+    return run;
+  }
   const run = await services.runCheckpointStore.load(message.runId);
   if (!run) return null;
   const effectiveServices = await resolveRuntimeServicesForRun(services, run);
@@ -512,6 +760,9 @@ export async function cancelTrackedRun(
   await services.runCheckpointStore.save(cancelledRun);
   const event = createWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
   await appendWorkflowEvent(services.workflowLogStore, services.eventBus, event);
+  await emitHandoffEvent(services, cancelledRun);
+  await notifyTerminalEvent(services, cancelledRun);
+  await services.chatBridge.clearRunState?.(cancelledRun.id);
   return cancelledRun;
 }
 
@@ -538,6 +789,7 @@ export function markChatBridgeInitFailed(services: RuntimeServices, message: str
     }
   };
   wireInboundChat(services);
+  wireBotCommands(services);
 }
 
 export function describeRuntime(services: RuntimeServices) {

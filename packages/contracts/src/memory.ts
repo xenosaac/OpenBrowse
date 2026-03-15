@@ -14,7 +14,8 @@ export type WorkflowEventType =
   | "run_cancelled"
   | "run_recovered"
   | "recovery_failed"
-  | "recovery_skipped";
+  | "recovery_skipped"
+  | "handoff_written";
 
 export interface WorkflowEvent {
   id: string;

@@ -1,6 +1,6 @@
 import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
-import { recoverRun } from "./OpenBrowseRuntime.js";
+import { emitHandoffEvent, recoverRun } from "./OpenBrowseRuntime.js";
 import type { RuntimeServices } from "./types.js";
 
 export interface RecoveryReport {
@@ -78,6 +78,7 @@ export class RecoveryManager {
           "recovery_failed",
           `Failed to recover run ${run.id}: ${err instanceof Error ? err.message : String(err)}`
         );
+        await emitHandoffEvent(this.services, failedRun);
       }
     }
 
@@ -90,7 +91,7 @@ export class RecoveryManager {
     if (run.checkpoint.browserSessionId) meta.browserSessionId = run.checkpoint.browserSessionId;
     if (run.checkpoint.summary) meta.checkpointSummary = run.checkpoint.summary;
     meta.lastUpdated = run.updatedAt;
-    meta.stepCount = String(run.checkpoint.notes.length);
+    meta.stepCount = String(run.checkpoint.stepCount ?? 0);
     return meta;
   }
 
