@@ -164,6 +164,8 @@ export function App() {
   const [managementOpen, setManagementOpen] = useState(false);
   const [managementTab, setManagementTab] = useState<ManagementTab>("config");
   const [chatInput, setChatInput] = useState("");
+  const [activeRunAnswer, setActiveRunAnswer] = useState("");
+  const [activeRunBusy, setActiveRunBusy] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -704,6 +706,118 @@ export function App() {
                   ))}
                 </div>
               )}
+              {activeTabRun.suspension && (
+                <div style={styles.inlineSuspension}>
+                  <p style={styles.inlineSuspensionQuestion}>{activeTabRun.suspension.question}</p>
+                  {activeTabRun.suspension.type === "approval" && (
+                    <div style={styles.inlineSuspensionQuickActions}>
+                      <button
+                        onClick={async () => {
+                          setActiveRunBusy(true);
+                          try {
+                            const resumed = await window.openbrowse.resumeTask({
+                              id: `desktop_${Date.now()}`,
+                              channel: "desktop",
+                              runId: activeTabRun.id,
+                              text: "approve",
+                              createdAt: new Date().toISOString()
+                            });
+                            await refresh();
+                          } catch (err) {
+                            console.error("[RunContextCard] Approve failed:", err);
+                          } finally {
+                            setActiveRunBusy(false);
+                          }
+                        }}
+                        disabled={activeRunBusy}
+                        style={styles.inlineApproveButton}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setActiveRunBusy(true);
+                          try {
+                            const resumed = await window.openbrowse.resumeTask({
+                              id: `desktop_${Date.now()}`,
+                              channel: "desktop",
+                              runId: activeTabRun.id,
+                              text: "deny",
+                              createdAt: new Date().toISOString()
+                            });
+                            await refresh();
+                          } catch (err) {
+                            console.error("[RunContextCard] Deny failed:", err);
+                          } finally {
+                            setActiveRunBusy(false);
+                          }
+                        }}
+                        disabled={activeRunBusy}
+                        style={styles.inlineDenyButton}
+                      >
+                        Deny
+                      </button>
+                    </div>
+                  )}
+                  <div style={styles.inlineSuspensionForm}>
+                    <input
+                      type="text"
+                      value={activeRunAnswer}
+                      onChange={(e) => setActiveRunAnswer(e.target.value)}
+                      placeholder={activeTabRun.suspension.type === "approval" ? "Type approve / deny..." : "Type your answer..."}
+                      style={styles.inlineSuspensionInput}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Enter" && activeRunAnswer.trim()) {
+                          setActiveRunBusy(true);
+                          try {
+                            await window.openbrowse.resumeTask({
+                              id: `desktop_${Date.now()}`,
+                              channel: "desktop",
+                              runId: activeTabRun.id,
+                              text: activeRunAnswer.trim(),
+                              createdAt: new Date().toISOString()
+                            });
+                            setActiveRunAnswer("");
+                            await refresh();
+                          } catch (err) {
+                            console.error("[RunContextCard] Resume failed:", err);
+                          } finally {
+                            setActiveRunBusy(false);
+                          }
+                        }
+                      }}
+                      disabled={activeRunBusy}
+                    />
+                    <div style={styles.inlineSuspensionButtons}>
+                      <button
+                        onClick={async () => {
+                          if (!activeRunAnswer.trim()) return;
+                          setActiveRunBusy(true);
+                          try {
+                            await window.openbrowse.resumeTask({
+                              id: `desktop_${Date.now()}`,
+                              channel: "desktop",
+                              runId: activeTabRun.id,
+                              text: activeRunAnswer.trim(),
+                              createdAt: new Date().toISOString()
+                            });
+                            setActiveRunAnswer("");
+                            await refresh();
+                          } catch (err) {
+                            console.error("[RunContextCard] Resume failed:", err);
+                          } finally {
+                            setActiveRunBusy(false);
+                          }
+                        }}
+                        disabled={activeRunBusy}
+                        style={styles.inlineResumeButton}
+                      >
+                        {activeRunBusy ? "Resuming..." : "Resume"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1089,17 +1203,21 @@ function HomePage({
   tabFavicons: Record<string, string>;
   onOpenTab: (tab: BrowserShellTabDescriptor) => void;
 }) {
+  const recentTabs = shellTabs
+    .filter((tab) => tab.url && tab.url !== "about:blank")
+    .filter((tab, i, arr) => arr.findIndex((t) => t.url === tab.url) === i);
+
   return (
     <div style={homeStyles.page}>
       <div style={homeStyles.recentSection}>
         <div style={homeStyles.eyebrow}>Recent</div>
-        {shellTabs.length === 0 ? (
+        {recentTabs.length === 0 ? (
           <div style={homeStyles.emptyHint}>
             No browser tabs yet. Press <kbd style={homeStyles.kbd}>+</kbd> or type an address above.
           </div>
         ) : (
           <div style={homeStyles.recentGrid}>
-            {shellTabs.map((tab) => (
+            {recentTabs.map((tab) => (
               <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={homeStyles.recentCard}>
                 <div style={homeStyles.recentFavicon}>
                   {tabFavicons[tab.id] ? (
@@ -1393,6 +1511,70 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#9090a8",
     paddingLeft: 8,
     borderLeft: "2px solid rgba(139,92,246,0.3)"
+  },
+  inlineSuspension: {
+    marginTop: 10,
+    borderTop: "1px solid rgba(245,158,11,0.2)",
+    paddingTop: 10
+  },
+  inlineSuspensionQuestion: {
+    color: "#fbbf24",
+    fontSize: "0.88rem",
+    margin: "0 0 8px"
+  },
+  inlineSuspensionQuickActions: {
+    display: "flex",
+    gap: 8,
+    marginBottom: 8
+  },
+  inlineSuspensionForm: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6
+  },
+  inlineSuspensionInput: {
+    width: "100%",
+    background: "#1e1e2e",
+    border: "1px solid #2a2a3e",
+    borderRadius: 8,
+    padding: "8px 10px",
+    color: "#f5f5ff",
+    fontSize: "0.85rem",
+    boxSizing: "border-box" as const
+  },
+  inlineSuspensionButtons: {
+    display: "flex",
+    gap: 6
+  },
+  inlineResumeButton: {
+    background: "#7c3aed",
+    color: "#fffdf9",
+    border: "1px solid #8b5cf6",
+    borderRadius: 8,
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontSize: "0.82rem",
+    whiteSpace: "nowrap" as const
+  },
+  inlineApproveButton: {
+    background: "#15803d",
+    color: "#fffdf9",
+    border: "1px solid #22c55e",
+    borderRadius: 8,
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontSize: "0.82rem",
+    whiteSpace: "nowrap" as const
+  },
+  inlineDenyButton: {
+    background: "#b91c1c",
+    color: "#fffdf9",
+    border: "1px solid #ef4444",
+    borderRadius: 8,
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontSize: "0.82rem",
+    whiteSpace: "nowrap" as const
   },
   chatTime: {
     marginTop: 6,

@@ -149,20 +149,22 @@ export function RemoteQuestions({ runs, onResume }: Props) {
                 onKeyDown={(e) => e.key === "Enter" && handleResume(run)}
                 disabled={busy === run.id}
               />
-              <button
-                onClick={() => handleResume(run, "desktop")}
-                disabled={busy === run.id}
-                style={styles.button}
-              >
-                {busy === run.id ? "Resuming..." : "Resume"}
-              </button>
-              <button
-                onClick={() => handleResume(run, "telegram")}
-                disabled={busy === run.id}
-                style={{ ...styles.button, ...styles.telegramButton }}
-              >
-                Fake Telegram
-              </button>
+              <div style={styles.formButtons}>
+                <button
+                  onClick={() => handleResume(run, "desktop")}
+                  disabled={busy === run.id}
+                  style={styles.button}
+                >
+                  {busy === run.id ? "Resuming..." : "Resume"}
+                </button>
+                <button
+                  onClick={() => handleResume(run, "telegram")}
+                  disabled={busy === run.id}
+                  style={{ ...styles.button, ...styles.telegramButton }}
+                >
+                  Fake Telegram
+                </button>
+              </div>
             </div>
             {busy === run.id && (
               <p style={styles.pendingNote}>
@@ -191,8 +193,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   form: {
     display: "flex",
+    flexDirection: "column",
     gap: 8,
     marginTop: 8
+  },
+  formButtons: {
+    display: "flex",
+    gap: 8
   },
   quickActions: {
     display: "flex",
@@ -213,9 +220,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#fffdf9",
     border: "1px solid #8b5cf6",
     borderRadius: 10,
-    padding: "8px 14px",
+    padding: "8px 10px",
     cursor: "pointer",
-    fontSize: "0.9rem"
+    fontSize: "0.9rem",
+    whiteSpace: "nowrap" as const,
+    flexShrink: 0
   },
   telegramButton: {
     background: "#0e7490",
