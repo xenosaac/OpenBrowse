@@ -18,6 +18,8 @@ This is the single source of truth for project context, product vision, architec
 10. [Engineering Notes and Constraints](#10-engineering-notes-and-constraints)
 11. [Architectural Rules](#11-architectural-rules)
 12. [Agent Collaboration Model](#12-agent-collaboration-model)
+13. [Detailed Session Logs](#13-detailed-session-logs)
+14. [Feature Backlog](#14-feature-backlog)
 
 ---
 
@@ -1217,3 +1219,59 @@ Close the medium-priority "Approval Semantics Refinement" open problem: add name
 | `docs/working_log.md` | Marked Repo Hygiene resolved, added session log |
 
 *Session log entry written: 2026-03-15*
+
+---
+
+## 14. Feature Backlog
+
+*Added: 2026-03-15 — based on user feedback after hands-on usage.*
+
+This section tracks planned features, prioritized for iterative implementation.
+
+### P0 — Critical UX
+
+**1. Chat interface consistency across tabs**
+
+The chat sidebar must remain visible and functional regardless of which browser tab is active or whether the ManagementPanel is open. Currently the ManagementPanel overlays the full view, hiding the chat. The sidebar should always be rendered; the ManagementPanel should only overlay the browser area (center panel).
+
+**2. Agent context-awareness on new task**
+
+When the user submits a new task, the agent should first observe the page currently open in the active tab — extract its page model, check if it's relevant to the task — before deciding whether to navigate elsewhere or open a new tab. Currently `initializeTask()` always creates a new browser session/tab. The fix: if a standalone tab is active, extract its page model first, pass it as `currentPageContext` to the planner, and let the planner decide whether to reuse that tab or open a new one. Requires extending `TaskIntent` with `activeSessionId`.
+
+### P1 — Core Browser Features
+
+**3. Hamburger menu (☰)**
+
+Add a three-line menu button to the top-right of the nav bar, next to the existing gear (⚙) icon. The gear stays for quick Settings access. The hamburger menu provides access to: Clear Chat, History, Bookmarks, Developer Tools, Print & Save.
+
+**4. Clear chat history**
+
+Add ability to clear all chat messages from the hamburger menu. Simple state reset of the `messages` array in App.tsx. Consider adding a confirmation dialog.
+
+**5. Browsing history viewer**
+
+Full history of all visited URLs with timestamps, searchable and filterable. Accessible from the hamburger menu. Requires: (a) persist navigation events to memory-store with timestamps, (b) a new History UI panel/overlay.
+
+**6. Cookie management UI**
+
+View and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel.
+
+### P2 — Enhancement Features
+
+**7. Bookmark tab & system**
+
+Bookmark the current page, bookmark manager panel, optional bookmark bar. Requires new persistence layer in memory-store (bookmarks table with URL, title, favicon, folder, timestamp).
+
+**8. Developer mode (F12)**
+
+Toggle Chrome DevTools for the active WebContentsView. Electron supports `webContents.openDevTools()`. Accessible from the hamburger menu. Should open in a detached window or docked panel.
+
+**9. Print & Save**
+
+Print current page via `webContents.print()`. Save page as PDF via `webContents.printToPDF()`. Both accessible from the hamburger menu.
+
+### P3 — Future
+
+**10. Profile system / Google login**
+
+User accounts, OAuth (Google Sign-In), profile sync across devices. Large scope — defer until core browser features are stable and the product surface is validated.
