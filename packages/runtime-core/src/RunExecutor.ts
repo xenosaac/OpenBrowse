@@ -12,17 +12,27 @@ const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
 const MAX_URL_VISITS_BEFORE_FAIL = 12;
 const CYCLE_DETECTION_WINDOW = 20;
 
-/** Detect repeating cycles of length 2–3 in an array of action keys. Requires 3 full repetitions. Returns cycle length or 0. */
+/**
+ * Detect repeating cycles of length 2–5 in an array of action keys.
+ * Short cycles (len 2) require 4 full repetitions to avoid false positives
+ * on legitimate sequences like "click Play → click Close modal".
+ * Longer cycles (len 3–5) require 3 full repetitions.
+ * Returns cycle length or 0.
+ */
 function detectCycle(keys: string[]): number {
-  for (let len = 2; len <= 3; len++) {
-    const needed = len * 3;
+  for (let len = 2; len <= 5; len++) {
+    const reps = len === 2 ? 4 : 3;
+    const needed = len * reps;
     if (keys.length < needed) continue;
     const tail = keys.slice(-needed);
     let isCycle = true;
     for (let i = 0; i < len; i++) {
-      if (tail[i] !== tail[i + len] || tail[i] !== tail[i + len * 2]) {
-        isCycle = false; break;
+      for (let r = 1; r < reps; r++) {
+        if (tail[i] !== tail[i + len * r]) {
+          isCycle = false; break;
+        }
       }
+      if (!isCycle) break;
     }
     if (isCycle) return len;
   }
@@ -228,7 +238,7 @@ export class RunExecutor {
         // --- Stuck detection (only on successful actions — prevents false positives) ---
 
         // 1. Consecutive identical actions
-        const actionKey = `${action.type}:${action.targetId ?? ""}:${pageModel.url}`;
+        const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
         if (actionKey === lastActionKey) {
           consecutiveIdenticalActions++;
           if (consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
@@ -259,7 +269,7 @@ export class RunExecutor {
         // 3. Cycle detection: 2/3/4/5-step cycles over extended window
         const recentKeys = (current.checkpoint.actionHistory ?? [])
           .slice(-CYCLE_DETECTION_WINDOW)
-          .map(r => `${r.type}:${r.targetId ?? ""}:${r.targetUrl ?? r.url ?? ""}`);
+          .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
 
         const cycleLength = detectCycle(recentKeys);
         if (cycleLength > 0) {
