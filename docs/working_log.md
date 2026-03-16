@@ -1701,6 +1701,50 @@ Added two test files:
 
 ---
 
+### Session 29 — 2026-03-16: Gap Analysis — CancellationController + queries Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two modules with zero test coverage:
+
+1. `CancellationController` (runtime-core) — `cancel()`, `isCancelled()`, `acknowledge()`. Controls cooperative cancellation with sync check + async cleanup. Needs mock RuntimeServices, SessionManager, HandoffManager.
+2. `queries` (runtime-core) — `listAllRuns()` and `queryShellTabs()`. Pure data queries over mock stores.
+
+#### Plan
+
+1. Add `tests/cancellationController.test.mjs` — test isCancelled/acknowledge sync state, cancel for non-existent run, cancel for already-terminal run, cancel for active run (full flow), cancel cleans up browser session
+2. Add `tests/queries.test.mjs` — test listAllRuns sorting, queryShellTabs mapping/filtering/sorting, empty results
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/cancellationController.test.mjs`** — 13 tests:
+- `isCancelled` / `acknowledge` sync state (4 tests): false for unknown, true after cancel of non-terminal run, acknowledge clears flag, acknowledge no-op for unknown
+- `cancel` flow (9 tests): null for non-existent run, returns unchanged for already-terminal (completed/failed/cancelled), full cancellation flow (destroys session, saves checkpoint, emits workflow event, handoff, notification, clears chat state), suspended run cancellation, default summary, missing browserSessionId handled, destroySession failure swallowed
+
+**`tests/queries.test.mjs`** — 12 tests:
+- `listAllRuns` (3 tests): empty array, single run, sort by updatedAt descending
+- `queryShellTabs` (9 tests): empty results (no runs, no session id, no matching session), correct tab descriptor mapping, isBackground for scheduler, URL fallback chain (pageUrl → lastKnownUrl → about:blank), sort by updatedAt, filtering unmatched sessions
+
+#### Verification
+
+- `node --test tests/cancellationController.test.mjs tests/queries.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 330/330 pass (was 305, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `HandoffManager` (writeHandoff/emitHandoffEvent/notifyTerminalEvent)
+- Consider tests for `RecoveryManager` or `SessionManager` (require more complex mocking)
+- Consider tests for `settings.ts` factories (createPlanner, createChatBridge, buildRuntimeDescriptor)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
