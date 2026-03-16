@@ -1167,3 +1167,33 @@ test("sort=other rendered for non-standard sort", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.match(user, /\(sort=other\)/);
 });
+
+// --- aria-roledescription ---
+
+test("roleDescription rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Temperature", roleDescription: "temperature control", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /roleDesc="temperature control"/);
+});
+
+test("roleDescription absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Volume", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("roleDesc"), "should not show roleDesc annotation");
+});
+
+test("roleDescription rendered after sort and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Name", sort: "ascending", roleDescription: "sortable column", text: "Name ▲", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const sortIdx = user.indexOf("(sort=ascending)");
+  const roleDescIdx = user.indexOf('roleDesc="sortable column"');
+  const textIdx = user.indexOf('text="Name ▲"');
+  assert.ok(sortIdx < roleDescIdx, "sort should come before roleDesc");
+  assert.ok(roleDescIdx < textIdx, "roleDesc should come before text");
+});

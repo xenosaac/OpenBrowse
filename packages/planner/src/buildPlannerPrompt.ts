@@ -90,6 +90,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.level) line += ` level=${el.level}`;
       if (el.current) line += ` (current${el.current !== "true" ? `=${el.current}` : ""})`;
       if (el.sort) line += ` (sort=${el.sort})`;
+      if (el.roleDescription) line += ` roleDesc="${el.roleDescription}"`;
       if (el.text) line += ` text="${el.text}"`;
       if (el.description) line += ` desc="${el.description}"`;
       if (el.href) line += ` href="${el.href}"`;
