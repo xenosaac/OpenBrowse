@@ -94,6 +94,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.selected) line += " (selected)";
       if (el.expanded === true) line += " (expanded)";
       if (el.expanded === false) line += " (collapsed)";
+      if (el.invalid) line += " (invalid)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";
       if (el.options && el.options.length > 0) {
@@ -129,6 +130,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
             let fl = `    [${field.ref}] "${field.label}" type=${field.type}`;
             if (field.required) fl += " REQUIRED";
             if (field.currentValue) fl += ` value="${field.currentValue}"`;
+            if (field.validationMessage) fl += ` INVALID: "${field.validationMessage}"`;
             return fl;
           }).join("\n");
           if (f.submitRef) formLine += `\n    Submit button: [${f.submitRef}]`;
