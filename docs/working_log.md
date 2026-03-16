@@ -3489,3 +3489,51 @@ Gap analysis: `<select>` elements appear in the page model as role "combobox" wi
 - Consider similar option extraction for `<datalist>` elements (HTML5 autocomplete suggestions)
 
 *Session log entry written: 2026-03-16 (Session 61)*
+
+---
+
+### Session 62 — 2026-03-16: Surface datalist Autocomplete Suggestions in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 61): suggested extracting `<datalist>` autocomplete suggestions. `<input>` elements with a `list` attribute link to a `<datalist>` element that provides autocomplete suggestions. Currently these suggestions are invisible to the planner — it can't see what options are available for autocomplete inputs (e.g., city selectors, search suggestion boxes). Same pattern as `<select>` options from Session 61.
+
+#### Plan
+
+1. Extend CDP extraction in `extractPageModel.ts` to capture `<datalist>` options for `<input list="...">` elements (cap at 20, reuse `options` field)
+2. No contract changes needed — `options` field already exists on `PageElementModel`
+3. No planner prompt changes needed — `options` rendering already handles the field
+4. Add tests for datalist options in `planner-prompt.test.mjs` (rendering already works, just verify)
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extended `options` extraction to handle `<input>` elements with `list` attribute linking to a `<datalist>`
+- Uses `document.getElementById(el.getAttribute('list'))` to resolve the datalist, verifies it's a `DATALIST` element
+- Reuses the same option extraction logic as `<select>`: cap at 20, skip disabled, capture `value` and `label`
+- Merged extraction into a single IIFE that handles both `SELECT` and `INPUT[list]` cases
+
+**Impact:** The planner can now see autocomplete suggestions for `<input>` fields with `<datalist>` (e.g., city selectors, search suggestion boxes). These appear in the prompt as `options=["val" (Label), ...]` — the same rendering as `<select>` options.
+
+**Added 2 tests to `tests/planner-prompt.test.mjs`:**
+- datalist options rendered same as select options (value+label format)
+- datalist options omit label when same as value (deduplication)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 67/67 pass (was 65, +2 new)
+- `node --test tests/*.test.mjs` — 900/900 pass (was 898, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (900 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` or `aria-errormessage` for form validation feedback
+
+*Session log entry written: 2026-03-16 (Session 62)*
