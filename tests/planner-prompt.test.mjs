@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPlannerPrompt } from "../packages/planner/dist/index.js";
+import { buildPlannerPrompt, MAX_PLANNER_STEPS } from "../packages/planner/dist/index.js";
 
 function makeRun(overrides = {}) {
   return {
@@ -687,4 +687,50 @@ test("constraints shows none when empty", () => {
   const run = makeRun({ constraints: [] });
   const { user } = buildPlannerPrompt(run, makePageModel());
   assert.match(user, /Constraints: none/);
+});
+
+// --- MAX_PLANNER_STEPS export ---
+
+test("MAX_PLANNER_STEPS is exported and equals 35", () => {
+  assert.strictEqual(MAX_PLANNER_STEPS, 35);
+  assert.strictEqual(typeof MAX_PLANNER_STEPS, "number");
+});
+
+test("system prompt uses MAX_PLANNER_STEPS for step budget", () => {
+  const run = makeRun({ checkpoint: { ...makeRun().checkpoint, stepCount: 5 } });
+  const { system } = buildPlannerPrompt(run, makePageModel());
+  assert.match(system, new RegExp(`step 6 of ${MAX_PLANNER_STEPS}`));
+});
+
+// --- totalSoftFailures warning ---
+
+test("totalSoftWarning appears when totalSoftFailures >= 5", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 5 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /CRITICAL.*5 total soft failures/);
+  assert.match(user, /limit: 8/);
+});
+
+test("totalSoftWarning appears at 7 total soft failures", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 7 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /CRITICAL.*7 total soft failures/);
+});
+
+test("totalSoftWarning absent when totalSoftFailures < 5", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 4 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /total soft failures/);
+});
+
+test("totalSoftWarning absent when totalSoftFailures undefined", () => {
+  const run = makeRun();
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /total soft failures/);
 });

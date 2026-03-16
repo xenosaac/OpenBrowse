@@ -1,11 +1,10 @@
 import type { BrowserAction, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import { MAX_PLANNER_STEPS } from "@openbrowse/planner";
 import type { RuntimeServices } from "./types.js";
 import type { SessionManager } from "./SessionManager.js";
 import type { CancellationController } from "./CancellationController.js";
 import type { HandoffManager } from "./HandoffManager.js";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
-
-const MAX_LOOP_STEPS = 35;
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
 const MAX_TOTAL_SOFT_FAILURES = 8;
 const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
@@ -56,7 +55,7 @@ export class RunExecutor {
     let current = run;
     let consecutiveIdenticalActions = 0;
     let lastActionKey = "";
-    for (let step = 0; step < MAX_LOOP_STEPS; step++) {
+    for (let step = 0; step < MAX_PLANNER_STEPS; step++) {
       // Cooperative cancellation check at top of loop
       if (this.cancellation.isCancelled(current.id)) {
         this.cancellation.acknowledge(current.id);
@@ -312,7 +311,7 @@ export class RunExecutor {
       }
     }
 
-    current = this.services.orchestrator.failRun(current, `Planner loop exceeded ${MAX_LOOP_STEPS} steps`);
+    current = this.services.orchestrator.failRun(current, `Planner loop exceeded ${MAX_PLANNER_STEPS} steps`);
     await this.services.runCheckpointStore.save(current);
     await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
     await this.handoff.writeHandoff(current);

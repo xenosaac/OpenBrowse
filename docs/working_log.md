@@ -3256,3 +3256,63 @@ Code review / gap analysis found two issues in `ElectronBrowserKernel.capturePag
 - P3-10 (profile system) remains deferred
 
 *Session log entry written: 2026-03-16 (Session 57)*
+
+---
+
+### Session 58 — 2026-03-16: Consolidate MAX_STEPS Constant + Surface totalSoftFailures in Planner Prompt
+
+#### Context
+
+Code review found two issues in the planner loop safety surface:
+
+1. **Duplicated constant**: `MAX_LOOP_STEPS = 35` in `RunExecutor.ts` and `MAX_STEPS = 35` in `buildPlannerPrompt.ts`. If one changes without the other, the step budget shown to Claude will diverge from the actual loop limit.
+
+2. **Invisible hard limit**: `RunExecutor.ts` terminates runs at `MAX_TOTAL_SOFT_FAILURES = 8` total soft failures across the entire run. But `buildPlannerPrompt` only shows `consecutiveSoftFailures` — the planner has NO visibility into the running total approaching the kill limit. This can cause unexpected hard termination without the planner having a chance to adjust strategy.
+
+#### Plan
+
+1. Export `MAX_PLANNER_STEPS = 35` from `buildPlannerPrompt.ts`, import in `RunExecutor.ts` (single source of truth)
+2. Add `totalSoftFailures` warning section to the planner prompt when count >= 5 (of 8 max)
+3. Add tests for both changes
+4. Run typecheck + tests
+5. Update this log and commit
+
+#### Implementation
+
+**Fix 1 — Consolidated `MAX_STEPS` constant:**
+- Exported `MAX_PLANNER_STEPS = 35` from `packages/planner/src/buildPlannerPrompt.ts` (was private `MAX_STEPS`)
+- Updated `packages/runtime-core/src/RunExecutor.ts`: removed local `MAX_LOOP_STEPS = 35`, imported `MAX_PLANNER_STEPS` from `@openbrowse/planner`
+- Single source of truth: if the step budget changes, both the planner prompt and the execution loop update together
+
+**Fix 2 — `totalSoftFailures` prompt visibility:**
+- Added `totalSoftWarning` section to `buildPlannerPrompt`: when `totalSoftFailures >= 5`, shows `CRITICAL: N total soft failures across this run (limit: 8)` with advice to switch strategy
+- Placed after the existing `softFailureWarning` (consecutive) — gives the planner 3 remaining "strikes" before hard termination
+- Previously, the planner had no visibility into the running total — runs could be killed without the planner having a chance to adjust
+
+**Tests added to `tests/planner-prompt.test.mjs` — 6 new tests:**
+- `MAX_PLANNER_STEPS is exported and equals 35` — verifies export value and type
+- `system prompt uses MAX_PLANNER_STEPS for step budget` — verifies step budget string
+- `totalSoftWarning appears when totalSoftFailures >= 5` — verifies CRITICAL + limit: 8
+- `totalSoftWarning appears at 7 total soft failures` — verifies at higher count
+- `totalSoftWarning absent when totalSoftFailures < 5` — verifies no warning at 4
+- `totalSoftWarning absent when totalSoftFailures undefined` — verifies no warning at default
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 50/50 pass (was 44, +6 new)
+- `node --test tests/runExecutor.test.mjs` — 28/28 pass (unchanged)
+- `node --test tests/*.test.mjs` — 883/883 pass (was 877, +6 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (883 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `focusedElementId` from PageModel in the planner prompt (captured but unused)
+
+*Session log entry written: 2026-03-16 (Session 58)*
