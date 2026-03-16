@@ -5943,3 +5943,72 @@ Fixed all 14 remaining `borderGlass` violations. The border hierarchy is now ful
 - Next iteration: if the user has not done T9, consider capability work from Program E (structured data output, Telegram bridge, etc.) or a gap analysis for the next product feature.
 
 *Session log entry written: 2026-03-16 (Session 100)*
+
+---
+
+### Session 101 — 2026-03-16: Add `browser_go_back` Planner Tool
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) are complete. Border weight audit done. T9 requires user action. Session 100 suggested "capability work from Program E." The PM capability mapping for search+extract (user job #1) and multi-step workflows (job #3) identified the 35-step ceiling as a real limit. Currently the planner has no way to navigate backward — for search+extract workflows (search → click result → read → go back → click next result), it must re-navigate and re-search, wasting 2+ steps per iteration from the 35-step budget. Adding `browser_go_back` directly improves step efficiency for the two most common user jobs.
+
+#### Plan
+
+1. Add `"go_back"` to `BrowserActionType` in `contracts/src/browser.ts`
+2. Add `browser_go_back` tool definition and mapping in `planner/src/toolMapping.ts`
+3. Add `case "go_back"` to `ElectronBrowserKernel.executeAction` in `browser-runtime/src/ElectronBrowserKernel.ts`
+4. Update planner system prompt in `buildPlannerPrompt.ts` with guidance on when to use go_back
+5. Add tests for the new tool mapping
+6. Run typecheck and tests
+
+#### Implementation
+
+**1. contracts/src/browser.ts** — Added `"go_back"` to `BrowserActionType` union.
+
+**2. planner/src/toolMapping.ts** — Added `browser_go_back` tool definition:
+- Description guides planner: "Navigate back to the previous page (like pressing the browser back button). Use after visiting a page to return to search results or a previous page."
+- Takes required `description` parameter
+- Maps to `{ type: "go_back", description }` BrowserAction
+
+**3. browser-runtime/src/ElectronBrowserKernel.ts** — Added `case "go_back"`:
+- Checks `wc.canGoBack()` before calling `wc.goBack()`
+- Waits for navigation load via `waitForLoadIfNavigating`
+- Invalidates CDP context for fresh page model capture
+- Falls through to standard page model capture after action
+
+**4. planner/src/buildPlannerPrompt.ts** — Added Browser Guideline:
+- "After visiting a page to read its content, use browser_go_back to return to search results or the previous page instead of re-navigating and re-searching"
+
+**5. tests/toolMapping.test.mjs** — Updated:
+- Tool count: 12 → 13
+- Expected tool names: added `browser_go_back`
+- Added `browser_go_back` describe block (2 tests: with description, default description)
+- Updated cross-cutting reasoning test to include `browser_go_back`
+- Net: +2 new tests (tool count assertion updated, cross-cutting test updated in place)
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `"go_back"` to BrowserActionType
+- `packages/planner/src/toolMapping.ts` — Added tool definition + mapping case
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Added execution case
+- `packages/planner/src/buildPlannerPrompt.ts` — Added go_back guidance to system prompt
+- `tests/toolMapping.test.mjs` — Updated count, added go_back tests
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 48/48 pass (was 45, +3 new/updated)
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (unchanged)
+- `node --test tests/*.test.mjs` — 1006/1006 pass (was 1004, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 13 tools (was 12): navigate, click, type, select, scroll, hover, press_key, wait, screenshot, **go_back**, task_complete, task_failed, ask_user.
+- This directly improves step efficiency for search+extract workflows (user job #1) — the planner can now: search → click result → read → go back → click next result, saving 2+ steps per iteration vs re-navigating.
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate.
+- Next potential features: `browser_go_forward` (lower value — agents rarely need it), structured data output in task_complete, or Telegram bridge validation.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 101)*

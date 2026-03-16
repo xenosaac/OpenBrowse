@@ -12,7 +12,8 @@ export type BrowserActionType =
   | "hover"
   | "keyboard_shortcut"
   | "pressKey"
-  | "screenshot";
+  | "screenshot"
+  | "go_back";
 
 export type BrowserActionFailureClass =
   | "element_not_found"
