@@ -272,6 +272,18 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       checked: (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : (el.getAttribute('aria-checked') === 'true' ? true : undefined),
       selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
       expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
+      options: el.tagName === 'SELECT' ? (function() {
+        var opts = el.querySelectorAll('option');
+        var result = [];
+        for (var oi = 0; oi < Math.min(opts.length, 20); oi++) {
+          var opt = opts[oi];
+          if (opt.disabled) continue;
+          var val = opt.value || '';
+          var lbl = (opt.textContent || '').trim().slice(0, 60);
+          if (val || lbl) result.push({ value: val, label: lbl });
+        }
+        return result.length > 0 ? result : undefined;
+      })() : undefined,
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });
