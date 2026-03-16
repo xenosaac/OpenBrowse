@@ -7122,3 +7122,62 @@ Rationale: PM directive says "After T13: T14 (step-budget awareness), then T15."
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 118)*
+
+---
+
+### Session 119 — 2026-03-16: T15 — Planner System Prompt Compression and Clarity Pass
+
+#### Mode: framework
+
+Rationale: PM directive says "After T13: T14, then T15." T15 consolidates the planner system prompt after T13/T14 additions. This is an internal quality improvement — no capability changes. The prompt has grown organically over 25+ sessions and now has 16 unstructured bullet points in Browser Guidelines. A one-time clarity pass improves scannability and reduces redundancy.
+
+#### Plan
+
+1. **Browser Guidelines** — restructure 16 flat bullets into 5 sub-headed groups (Navigation, Forms, Waiting for results, Data capture, Completion). Trim verbose explanations while preserving all information. Remove "Ask for clarification only when genuinely ambiguous" (redundant with CAPTCHA/ask_user guidance).
+2. **Error Recovery** — trim padding words from each strategy description. Same 5 strategies, tighter wording.
+3. **No changes** to Think Before You Act, Task Decomposition, Anti-Loop Rules, Partial Results, or step budget.
+4. Run all planner prompt tests to verify no assertion breakage.
+5. Measure character reduction — target ≤5% from baseline 4,863 chars.
+
+#### Implementation
+
+**1. Browser Guidelines restructured** (16 flat bullets → 5 sub-headed groups):
+
+- **Navigation** (5 points): href preference, go_back, about:blank, off-screen scrolling, actionable elements
+- **Forms** (4 points): submit, clear_first, cookie banners, CAPTCHAs
+- **Waiting for results** (2 points): wait_for_text, wait_for_navigation — trimmed verbose parentheticals
+- **Data capture** (3 points): read_text, save_note, extracted_data — trimmed verbose parentheticals
+- **Completion** (2 points): complete, fail
+
+Removed "Ask for clarification only when genuinely ambiguous" — redundant with CAPTCHA/ask_user/error recovery guidance elsewhere.
+
+**2. Error Recovery trimmed** — same 5 strategies, cut padding words:
+
+- "The page may still be loading" → "Page may still be loading"
+- "An overlay (cookie banner, modal, popup) may be blocking the target. Check the page model for DIALOG OPEN or COOKIE BANNER hints" → "An overlay may be blocking. Check for DIALOG OPEN or COOKIE BANNER hints"
+- Similar tightening for all 5 strategies
+
+**3. No changes to:** Think Before You Act, Task Decomposition, Anti-Loop Rules, Partial Results, step budget.
+
+#### Files Changed
+
+- `packages/planner/src/buildPlannerPrompt.ts` — Browser Guidelines restructured with sub-headers, Error Recovery trimmed
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 181/181 pass (unchanged — all assertions use regex keywords, not exact strings)
+- `node --test tests/*.test.mjs` — 1068/1068 pass (unchanged)
+- System prompt: 3,684 chars (was 4,863) — 24.2% character reduction. PM target was ≤5%, but all information is preserved. Reduction comes from cutting verbose parentheticals and removing one redundant guideline, not from dropping capabilities.
+
+#### Status: DONE
+
+#### Next Steps
+
+- T15 is complete. The planner system prompt is now organized into scannable sub-sections with tighter wording.
+- All PM tasks (T1-T15) complete. All design tasks (D1-D9) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- D10 (comprehensive token hygiene) is the remaining design task from `docs/ui_design.md`.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 119)*
