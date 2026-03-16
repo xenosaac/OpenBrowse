@@ -327,6 +327,35 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return result.length > 0 ? result : undefined;
   }
 
+  // --- Cookie consent banner detection ---
+  function detectCookieBanner() {
+    // 1. Common CMP (Consent Management Platform) frameworks
+    if (document.querySelector('#CybotCookiebotDialog, .cmp-container, #onetrust-banner-sdk, #onetrust-consent-sdk, .cc-banner, .cc-window, #cookie-law-info-bar, .cookie-consent, #gdpr-consent, .gdpr-banner, #cookieNotice, .js-cookie-consent')) return true;
+
+    // 2. Aria-labelled cookie dialogs
+    var ariaDialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="banner"]');
+    for (var ci = 0; ci < ariaDialogs.length; ci++) {
+      var cd = ariaDialogs[ci];
+      if (!isVisible(cd)) continue;
+      var cdLabel = (cd.getAttribute('aria-label') || '').toLowerCase();
+      if (cdLabel.includes('cookie') || cdLabel.includes('consent') || cdLabel.includes('privacy')) return true;
+    }
+
+    // 3. Text pattern matching on fixed/sticky positioned overlays
+    var candidates = document.querySelectorAll('[class*="cookie" i], [class*="consent" i], [class*="gdpr" i], [id*="cookie" i], [id*="consent" i], [id*="gdpr" i]');
+    for (var ki = 0; ki < candidates.length; ki++) {
+      var ce = candidates[ki];
+      if (!isVisible(ce)) continue;
+      var style = window.getComputedStyle(ce);
+      if (style.position === 'fixed' || style.position === 'sticky') {
+        var txt = (ce.textContent || '').toLowerCase().slice(0, 500);
+        if ((txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy')) && (txt.includes('accept') || txt.includes('agree') || txt.includes('allow') || txt.includes('reject') || txt.includes('manage'))) return true;
+      }
+    }
+
+    return false;
+  }
+
   // --- Landmark region extraction ---
   function extractLandmarks() {
     var landmarkRoles = new Set([
@@ -574,6 +603,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     forms: extractForms(),
     alerts: extractAlerts(),
     captchaDetected: detectCaptcha(),
+    cookieBannerDetected: detectCookieBanner(),
     scrollY: window.scrollY,
     activeDialog: detectActiveDialog(),
     tables: extractTables(),

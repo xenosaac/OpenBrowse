@@ -1733,3 +1733,24 @@ test("landmark annotation renders before other attributes like level", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.match(user, /\[el_0\] heading "Section Title" in=main level=2/);
 });
+
+// --- Cookie banner detection hint ---
+
+test("cookie banner hint appears when cookieBannerDetected is true", () => {
+  const pm = makePageModel({ cookieBannerDetected: true });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /COOKIE BANNER DETECTED/);
+  assert.match(user, /Dismiss it first/);
+});
+
+test("cookie banner hint absent when cookieBannerDetected is false", () => {
+  const pm = makePageModel({ cookieBannerDetected: false });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /COOKIE BANNER/);
+});
+
+test("cookie banner hint absent when cookieBannerDetected is undefined", () => {
+  const pm = makePageModel();
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /COOKIE BANNER/);
+});

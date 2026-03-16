@@ -4881,4 +4881,54 @@ Gap analysis (Session 84 suggestion): The planner sees a flat list of elements a
 
 *Session log entry written: 2026-03-16 (Session 85)*
 
-*Session log entry written: 2026-03-16 (Session 84)*
+---
+
+### Session 86 — 2026-03-16: Detect Cookie Consent Banners in Page Model
+
+#### Context
+
+Gap analysis: The planner system prompt instructs "For cookie consent banners: dismiss them first" but the page model has no signal for whether a cookie banner exists on the current page. The planner has `captchaDetected` for CAPTCHAs but no equivalent for cookie banners. Adding `cookieBannerDetected` gives the planner a clear trigger to prioritize banner dismissal before other interactions, preventing blocked clicks on obscured elements.
+
+#### Plan
+
+1. Add `cookieBannerDetected?: boolean` to `PageModel` in `contracts/browser.ts`
+2. Add `detectCookieBanner()` function in `extractPageModel.ts` — detect common cookie consent patterns (CMP frameworks, class names, ARIA roles, text patterns)
+3. Include `cookieBannerDetected` in the page model return
+4. In `buildPlannerPrompt.ts`, render a cookie banner hint (similar to captchaHint) when detected
+5. Add planner-prompt tests for cookie banner hint rendering
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `cookieBannerDetected?: boolean` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `detectCookieBanner()` function with three detection strategies:
+- Common CMP framework selectors (OneTrust, CookieBot, cookie-consent, GDPR banner, etc.)
+- ARIA-labelled dialogs/banners containing "cookie", "consent", or "privacy" in the label
+- Fixed/sticky positioned elements with cookie/consent/privacy class/id names that also contain action text ("accept", "agree", "allow", "reject", "manage")
+- Returns `false` when no cookie banner is detected
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added cookie banner hint: when `cookieBannerDetected` is true, renders `** COOKIE BANNER DETECTED` in the user prompt, placed after the CAPTCHA hint. Instructs the planner to dismiss the banner first before other interactions.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (149 → 152):
+- Cookie banner hint shown when cookieBannerDetected is true
+- Cookie banner hint absent when cookieBannerDetected is false
+- Cookie banner hint absent when cookieBannerDetected is undefined
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 152/152 pass (was 149, +3 new)
+- `node --test tests/*.test.mjs` — 987/987 pass (was 984, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (987 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: shadow DOM penetration, iframe content extraction, or aria-keyshortcuts surfacing
+
+*Session log entry written: 2026-03-16 (Session 86)*
