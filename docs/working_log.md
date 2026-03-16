@@ -3785,3 +3785,65 @@ This helps the planner understand element purpose and make better interaction de
 - Consider surfacing `aria-level` for headings to convey document structure
 
 *Session log entry written: 2026-03-16 (Session 66)*
+
+---
+
+### Session 67 — 2026-03-16: Surface Heading Level in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 66 suggestion): headings (h1–h6) and elements with `role="heading"` have an implicit or explicit level that conveys document structure hierarchy. The planner currently sees headings as generic elements — it can't distinguish an h1 page title from an h3 subsection. Surfacing heading level helps the planner understand page structure and make better navigation/extraction decisions.
+
+#### Plan
+
+1. Add `level?: number` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture heading level from tag name (h1→1, h2→2, etc.) or explicit `aria-level` attribute for `role="heading"` elements
+3. Surface `level=N` in `buildPlannerPrompt.ts` element rendering for heading elements
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `level?: number` optional field to `PageElementModel`
+- Captures the heading level (1–6) for h1–h6 elements and role="heading" with aria-level
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `description`, detects heading level from tag name (`H1`→1, `H2`→2, etc.)
+- Falls back to explicit `aria-level` attribute for elements with `role="heading"`
+- Only set for heading elements (field is `undefined` for non-headings)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `level=N` after role/label, before text
+- Example: `[el_3] heading "Getting Started" level=2 *`
+
+**Impact:** The planner can now see document structure hierarchy:
+- `[el_1] heading "Welcome to OpenBrowse" level=1` — page title
+- `[el_5] heading "Features" level=2` — main section
+- `[el_9] heading "Browser Automation" level=3` — subsection
+This helps the planner understand page structure, prioritize content extraction, and navigate to the right sections.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- heading level rendered when present
+- heading level absent when undefined
+- heading level rendered after role/label and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 84/84 pass (was 81, +3 new)
+- `node --test tests/*.test.mjs` — 917/917 pass (was 914, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (917 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-current` for navigation elements (active page, step indicators)
+
+*Session log entry written: 2026-03-16 (Session 67)*

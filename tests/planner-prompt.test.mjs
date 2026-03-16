@@ -1068,3 +1068,33 @@ test("element description rendered after text and before href", () => {
   assert.ok(textIdx < descIdx, "text should come before desc");
   assert.ok(descIdx < hrefIdx, "desc should come before href");
 });
+
+// --- Heading level tests ---
+
+test("heading level rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "heading", label: "Welcome", level: 1, isActionable: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(user.includes('level=1'), "should show level=1 for h1 heading");
+});
+
+test("heading level absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Click me", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('level='), "should not show level for non-heading elements");
+});
+
+test("heading level rendered after role/label and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "heading", label: "Section Title", level: 2, text: "Subtitle", isActionable: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const levelIdx = user.indexOf('level=2');
+  const textIdx = user.indexOf('text="Subtitle"');
+  assert.ok(levelIdx > 0, "level should be present");
+  assert.ok(textIdx > 0, "text should be present");
+  assert.ok(levelIdx < textIdx, "level should come before text");
+});
