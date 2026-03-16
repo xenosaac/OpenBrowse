@@ -325,6 +325,10 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     var elCurrent = el.getAttribute('aria-current');
     elCurrent = (elCurrent && elCurrent !== 'false') ? elCurrent : undefined;
 
+    // aria-sort: indicates sort direction on table column headers
+    var elSort = el.getAttribute('aria-sort');
+    elSort = (elSort && elSort !== 'none') ? elSort : undefined;
+
     elements.push({
       id: targetId,
       role: role,
@@ -333,6 +337,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       description: elDesc,
       level: elLevel,
       current: elCurrent,
+      sort: elSort,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,

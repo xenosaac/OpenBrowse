@@ -69,6 +69,7 @@ export interface PageElementModel {
   description?: string;
   level?: number;
   current?: string;
+  sort?: string;
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };

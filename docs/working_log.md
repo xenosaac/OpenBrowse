@@ -3911,3 +3911,64 @@ This prevents the planner from clicking already-active navigation items and help
 - Consider surfacing `aria-sort` for sortable table columns
 
 *Session log entry written: 2026-03-16 (Session 68)*
+
+---
+
+### Session 69 — 2026-03-16: Surface aria-sort in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 68 suggestion): `aria-sort` is used on table column headers (`<th>` or `[role=columnheader]`) to indicate the current sort direction. Values: "ascending", "descending", "other", "none". Without this, the planner cannot see which column a table is sorted by or in which direction, leading to unnecessary re-sorting or missed sort state.
+
+#### Plan
+
+1. Add `sort?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-sort` attribute (skip "none")
+3. Surface `(sort=ascending)` etc. annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `sort?: string` optional field to `PageElementModel`
+- Captures the `aria-sort` attribute value for sortable table column headers
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `aria-current`, captures `aria-sort` attribute
+- Filters out `"none"` values (spec says `aria-sort="none"` means no sort applied)
+- Only set when truthy (field is `undefined` for unsorted columns)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(sort=ascending)`, `(sort=descending)`, `(sort=other)`
+- Placed after `current` annotation for natural reading order
+
+**Impact:** The planner can now see:
+- Which column a table is sorted by and in which direction
+- Whether sorting is ascending, descending, or other
+This prevents the planner from clicking a column that's already sorted in the desired direction and helps it understand data table state.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- sort=ascending rendered for sorted column header
+- sort=descending rendered for sorted column header
+- sort annotation absent when undefined
+- sort=other rendered for non-standard sort
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 92/92 pass (was 88, +4 new)
+- `node --test tests/*.test.mjs` — 925/925 pass (was 921, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (925 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-roledescription` for custom widget descriptions
+
+*Session log entry written: 2026-03-16 (Session 69)*
