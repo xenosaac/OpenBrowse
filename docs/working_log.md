@@ -2063,3 +2063,61 @@ Gap analysis discovered 3 pairs of duplicate test files inflating the test count
 - P3-10 (profile system) remains deferred
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 36 — 2026-03-16: Extract buildRuntimeDescriptor + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. Session 35 noted `settings.ts` tests blocked by Electron import chain. `buildRuntimeDescriptor` is a pure function with important phase-determination logic but is co-located in `settings.ts` which imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.js` → chains to Electron.
+
+#### Plan
+
+1. Extract `buildRuntimeDescriptor` from `settings.ts` into `runtimeDescriptor.ts` (no Electron deps)
+2. Update imports in `settings.ts` and `compose.ts`
+3. Re-export from `index.ts`
+4. Run typecheck
+5. Write comprehensive test suite for `buildRuntimeDescriptor` covering all 4 phase paths + edge cases
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Extracted `packages/runtime-core/src/runtimeDescriptor.ts`:**
+- Moved `buildRuntimeDescriptor` pure function out of `settings.ts`
+- Only imports `RuntimeDescriptor` type from `@openbrowse/contracts` — no Electron dependency chain
+- This unblocks Node-based testing for the phase-determination logic
+
+**Updated `settings.ts`:**
+- Added `import { buildRuntimeDescriptor } from "./runtimeDescriptor.js"` (for internal use in `applyRuntimeSettings`)
+- Added `export { buildRuntimeDescriptor } from "./runtimeDescriptor.js"` (preserves existing public API)
+- Removed the 86-line inline function definition
+
+**Updated `compose.ts`:**
+- Changed import source from `./settings.js` to `./runtimeDescriptor.js` (direct dependency)
+
+**Created `tests/runtimeDescriptor.test.mjs` — 17 tests:**
+- Phase 1 (3 tests): browser stub forces phase1 regardless of other subsystems, preserves input fields
+- Phase 2 (3 tests): browser live + chat stub, stub vs live planner affects deferred capabilities
+- Phase 3 (5 tests): all live, no demos, hasDemos=false/undefined, planner variants
+- Phase 4 (4 tests): all live + demos, live vs stub planner, code signing always deferred
+- Cross-cutting (2 tests): descriptor shape validation, spread semantics
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `node --test tests/runtimeDescriptor.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 467/467 pass (was 450, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` tests still blocked by Electron — could apply same extraction pattern
+- `createPlanner`/`createChatBridge` factory tests — these import non-Electron packages but need mocking
+- `TelegramChatBridge` message routing tests (needs HTTP mock)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
