@@ -1,0 +1,210 @@
+<h2>Sidebar & Chat Panel Design</h2>
+<p class="subtitle">How should the sidebar, chat messages, and composer look in the new design?</p>
+
+<div class="section">
+  <h3>Full Sidebar Mockup</h3>
+  <div style="display:flex;gap:16px;flex-wrap:wrap;">
+
+    <!-- Sidebar mockup -->
+    <div style="width:280px;background:#0a0a10;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);flex-shrink:0;">
+      <!-- Title bar spacer -->
+      <div style="height:38px;"></div>
+
+      <!-- Sidebar Header -->
+      <div style="
+        padding:10px 14px;
+        border-bottom:1px solid rgba(255,255,255,0.05);
+        display:flex;align-items:center;justify-content:space-between;
+      ">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:#10b981;font-size:16px;">✦</span>
+          <span style="color:#e5e5e5;font-size:14px;font-weight:600;">OpenBrowse</span>
+          <div style="display:flex;gap:4px;">
+            <span style="
+              width:6px;height:6px;border-radius:50%;background:#10b981;
+              box-shadow:0 0 6px rgba(16,185,129,0.4);
+            "></span>
+          </div>
+        </div>
+        <style>
+          .sb-icon-btn {
+            width:26px;height:26px;border-radius:7px;
+            background:rgba(255,255,255,0.03);
+            border:1px solid rgba(255,255,255,0.06);
+            display:grid;place-items:center;
+            color:#6b7280;font-size:12px;
+            cursor:pointer;
+            transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+          }
+          .sb-icon-btn:hover {
+            background:rgba(16,185,129,0.08);
+            border-color:rgba(16,185,129,0.2);
+            box-shadow: 0 0 12px rgba(16,185,129,0.08);
+            color:#10b981;
+          }
+        </style>
+        <div style="display:flex;gap:3px;">
+          <button class="sb-icon-btn">▾</button>
+          <button class="sb-icon-btn">+</button>
+        </div>
+      </div>
+
+      <!-- Run Context Card -->
+      <div style="
+        margin:10px;padding:10px 12px;
+        border-radius:8px;
+        background:rgba(16,185,129,0.05);
+        border:1px solid rgba(16,185,129,0.1);
+      ">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <span style="
+            width:6px;height:6px;border-radius:50%;background:#10b981;
+            box-shadow:0 0 6px rgba(16,185,129,0.5);
+            animation: pulse-dot 1.5s ease-in-out infinite;
+          "></span>
+          <span style="color:#10b981;font-size:11px;font-weight:600;">Agent Running</span>
+        </div>
+        <div style="color:#9ca3af;font-size:11px;">Navigating to example.com...</div>
+        <style>
+          @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+          }
+        </style>
+      </div>
+
+      <!-- Chat Messages -->
+      <div style="padding:8px 10px;display:flex;flex-direction:column;gap:8px;">
+        <!-- User message -->
+        <div style="
+          align-self:flex-end;max-width:85%;
+          padding:8px 12px;border-radius:12px 12px 4px 12px;
+          background:rgba(16,185,129,0.1);
+          border:1px solid rgba(16,185,129,0.15);
+          color:#d1fae5;font-size:12px;line-height:1.4;
+        ">
+          Go to GitHub and find the trending repos
+        </div>
+
+        <!-- Agent message -->
+        <div style="
+          align-self:flex-start;max-width:85%;
+          padding:8px 12px;border-radius:12px 12px 12px 4px;
+          background:rgba(255,255,255,0.03);
+          border:1px solid rgba(255,255,255,0.05);
+          color:#d1d5db;font-size:12px;line-height:1.4;
+        ">
+          <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+            <span style="width:4px;height:4px;border-radius:50%;background:#10b981;"></span>
+            <span style="color:#6b7280;font-size:10px;">Agent</span>
+          </div>
+          I'll navigate to GitHub Trending now and collect the top repositories for you.
+        </div>
+
+        <!-- Action message -->
+        <div style="
+          padding:6px 10px;border-radius:8px;
+          background:rgba(255,255,255,0.02);
+          border-left:2px solid rgba(16,185,129,0.3);
+          color:#6b7280;font-size:11px;font-style:italic;
+        ">
+          Navigated to github.com/trending
+        </div>
+      </div>
+
+      <!-- Spacer -->
+      <div style="flex:1;"></div>
+
+      <!-- Chat Composer -->
+      <div style="padding:10px;border-top:1px solid rgba(255,255,255,0.05);">
+        <div style="
+          display:flex;align-items:center;gap:8px;
+          background:rgba(255,255,255,0.03);
+          border:1px solid rgba(255,255,255,0.06);
+          border-radius:10px;
+          padding:4px 4px 4px 12px;
+          transition: all 200ms;
+        ">
+          <style>
+            .composer-wrap:focus-within {
+              border-color: rgba(16,185,129,0.3) !important;
+              box-shadow: 0 0 16px rgba(16,185,129,0.06);
+            }
+          </style>
+          <input type="text" placeholder="Ask the agent..." style="
+            flex:1;background:transparent;border:none;outline:none;
+            color:#e5e5e5;font-size:12px;
+          " />
+          <style>
+            .send-btn {
+              width:28px;height:28px;border-radius:7px;
+              background:#10b981;border:none;
+              color:#022c22;font-size:13px;font-weight:bold;
+              cursor:pointer;display:grid;place-items:center;
+              transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .send-btn:hover {
+              background:#34d399;
+              box-shadow: 0 0 16px rgba(16,185,129,0.3);
+              transform:translateY(-1px);
+            }
+            .send-btn:active {
+              transform:translateY(1px) scale(0.95);
+              background:#059669;
+            }
+          </style>
+          <button class="send-btn">↑</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Description panel -->
+    <div style="flex:1;min-width:260px;">
+      <div style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:16px;">
+        <h3 style="color:#e5e5e5;margin:0 0 12px;">Design Details</h3>
+
+        <div style="margin-bottom:12px;">
+          <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Header</div>
+          <div style="color:#9ca3af;font-size:12px;line-height:1.5;">Emerald ✦ mark replaces purple. Status pips glow with emerald box-shadow. Icon buttons get emerald glow on hover.</div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Messages</div>
+          <div style="color:#9ca3af;font-size:12px;line-height:1.5;">User bubbles: emerald-tinted glass (not purple gradient). Agent bubbles: subtle white glass. Action messages: left emerald border accent. No avatars — tiny colored dots instead.</div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Composer</div>
+          <div style="color:#9ca3af;font-size:12px;line-height:1.5;">Glass input field that gains emerald border on focus. Solid emerald send button with glow on hover and press depth. Arrow ↑ icon instead of text.</div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Run Context</div>
+          <div style="color:#9ca3af;font-size:12px;line-height:1.5;">Emerald-tinted glass card with pulsing status dot. Subtle, non-intrusive. Shows current agent action.</div>
+        </div>
+
+        <div>
+          <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Divider Line</div>
+          <div style="color:#9ca3af;font-size:12px;line-height:1.5;">Sidebar/main content divider: 1px rgba(255,255,255,0.05). Draggable with col-resize cursor. No visible handle — pure line.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:20px;">
+  <div class="option" data-choice="approve-sidebar" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Looks good, proceed</h3>
+      <p>This sidebar design direction is right. Move on to the full layout and remaining components.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="adjust-sidebar" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Needs adjustments</h3>
+      <p>I'll describe what I'd like changed in the terminal.</p>
+    </div>
+  </div>
+</div>
