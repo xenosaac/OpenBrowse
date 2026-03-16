@@ -2226,3 +2226,53 @@ Session 37 noted: "createPlanner/createChatBridge factory tests — these import
 - Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability (still blocked by `wireInboundChat`/`wireBotCommands`)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 39 — 2026-03-16: Expand Store Contract Tests — 8 Untested InMemory Stores
+
+#### Context
+
+Gap analysis: store-contract.test.mjs covers only 3 of 11 InMemory store implementations (RunCheckpointStore, WorkflowLogStore, PreferenceStore — 30 tests). The remaining 8 stores have zero test coverage:
+1. SessionTrackingStore (7 methods)
+2. ChatSessionStore (10 methods)
+3. BookmarkStore (8 methods)
+4. BrowsingHistoryStore (6 methods)
+5. BrowserProfileStore (4 methods)
+6. CookieContainerStore (6 methods)
+7. StandaloneTabStore (4 methods)
+8. ChatBridgeStateStore (4 methods)
+
+#### Plan
+
+1. Create `tests/storeContractExtended.test.mjs` with comprehensive tests for all 8 stores
+2. Run the new test file
+3. Run full test suite to confirm no regressions
+4. Update this log and commit
+
+#### Implementation
+
+**Created `tests/storeContractExtended.test.mjs` — 60 tests across 8 store types:**
+- SessionTrackingStore (7 tests): create/get, get null, terminate, listByRun, listActive, listActiveByRun, deleteByRun
+- ChatSessionStore (12 tests): create/get, get null, updateTitle, listSessions sorted, deleteSession cascades, deleteSession false, appendMessage+listMessages order, appendMessage updates session, clearMessages, linkRun+listRunIds, linkRun idempotent, listMessages empty
+- BookmarkStore (10 tests): create/get, get null, getByUrl, getByUrl null, update fields, listByFolder, listAll sorted, search title+URL, search empty, delete true/false
+- BrowsingHistoryStore (8 tests): record+listRecent, listRecent limit, listByDateRange, search case-insensitive, deleteByDateRange, deleteByDateRange 0, deleteAll, deleteAll empty
+- BrowserProfileStore (5 tests): save/get, get null, upsert, listAll, delete true/false
+- CookieContainerStore (7 tests): create/get, get null, update fields, listAll, listByProfile, delete true/false, update no-op
+- StandaloneTabStore (5 tests): save/get, get null, upsert, listAll, delete true/false
+- ChatBridgeStateStore (6 tests): set/get, get null, overwrite, delete true/false, listAll, various value types
+
+#### Verification
+
+- `node --test tests/storeContractExtended.test.mjs` — 60/60 pass
+- `node --test tests/*.test.mjs` — 567/567 pass (was 507, +60 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+
+*Session log entry written: 2026-03-16*
