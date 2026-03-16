@@ -31,7 +31,7 @@ import type { PlannerGateway } from "@openbrowse/planner";
 import { IntervalWatchScheduler } from "@openbrowse/scheduler";
 import { DefaultApprovalPolicy } from "@openbrowse/security";
 import { bootstrapRun as bootstrapRuntimeRun } from "./OpenBrowseRuntime.js";
-import { buildRuntimeDescriptor } from "./settings.js";
+import { buildRuntimeDescriptor } from "./runtimeDescriptor.js";
 import type { RuntimeServices } from "./types.js";
 
 // ---------------------------------------------------------------------------
