@@ -8,6 +8,15 @@ interface LoadError {
   url: string;
 }
 
+interface DownloadEntry {
+  id: string;
+  filename: string;
+  savePath: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+}
+
 interface Props {
   activeTab: BrowserShellTabDescriptor | null;
   /** When true the native browser view is retracted so DOM overlays (e.g. management
@@ -15,6 +24,8 @@ interface Props {
   covered: boolean;
   loadError?: LoadError | null;
   onReload?: () => void;
+  downloads?: DownloadEntry[];
+  onDismissDownload?: (id: string) => void;
 }
 
 function errorCodeToMessage(code: number): string {
@@ -32,9 +43,24 @@ function errorCodeToMessage(code: number): string {
   }
 }
 
-export function BrowserPanel({ activeTab, covered, loadError, onReload }: Props) {
+export function BrowserPanel({ activeTab, covered, loadError, onReload, downloads = [], onDismissDownload }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [reloadHover, setReloadHover] = useState(false);
+
+  // Auto-dismiss completed/cancelled downloads after 5 seconds
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const dl of downloads) {
+      if (dl.state === "completed" || dl.state === "cancelled") {
+        const timer = setTimeout(() => onDismissDownload?.(dl.id), 5000);
+        timers.push(timer);
+      }
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [downloads, onDismissDownload]);
+
+  // Only show downloads that are active or recently finished
+  const visibleDownloads = downloads.filter(d => d.state === "progressing" || d.state === "completed" || d.state === "interrupted");
 
   useEffect(() => {
     if (covered || !activeTab) {
@@ -131,7 +157,59 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload }: Props)
     );
   }
 
-  return <div ref={viewportRef} style={styles.viewport} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0 }}>
+      <div ref={viewportRef} style={{ ...styles.viewport, flex: 1 }} />
+      {visibleDownloads.length > 0 && (
+        <div style={styles.downloadBar}>
+          {visibleDownloads.map(dl => {
+            const progress = dl.totalBytes > 0 ? dl.receivedBytes / dl.totalBytes : 0;
+            const progressPct = Math.round(progress * 100);
+            const sizeText = dl.totalBytes > 0
+              ? `${formatBytes(dl.receivedBytes)} / ${formatBytes(dl.totalBytes)}`
+              : formatBytes(dl.receivedBytes);
+            return (
+              <div key={dl.id} style={styles.downloadItem}>
+                {/* Download icon */}
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+                  <path d="M7 1v8m0 0L4 6.5M7 9l3-2.5M2 11.5h10" stroke={dl.state === "completed" ? colors.emerald : colors.textSecondary} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span style={styles.downloadFilename}>{dl.filename}</span>
+                {dl.state === "progressing" && (
+                  <>
+                    <div style={styles.downloadProgressTrack}>
+                      <div style={{ ...styles.downloadProgressFill, width: `${progressPct}%` }} />
+                    </div>
+                    <span style={styles.downloadSize}>{sizeText}</span>
+                  </>
+                )}
+                {dl.state === "completed" && (
+                  <span style={{ ...styles.downloadSize, color: colors.emerald }}>Done</span>
+                )}
+                {dl.state === "interrupted" && (
+                  <span style={{ ...styles.downloadSize, color: colors.statusFailed }}>Failed</span>
+                )}
+                <button
+                  style={styles.downloadDismiss}
+                  onClick={() => onDismissDownload?.(dl.id)}
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -206,5 +284,66 @@ const styles: Record<string, React.CSSProperties> = {
   reloadButtonHover: {
     background: "rgba(255,255,255,0.08)",
     borderColor: colors.borderHover,
+  },
+  // Download bar — Compact Chrome Widget pattern (like FindBar)
+  downloadBar: {
+    background: "transparent",
+    borderTop: `1px solid ${colors.borderSubtle}`,
+    padding: "4px 10px",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+    flexShrink: 0,
+  },
+  downloadItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    ...glass.control,
+    border: `1px solid ${colors.borderDefault}`,
+    borderRadius: radii.md,
+    padding: "3px 8px",
+  },
+  downloadFilename: {
+    fontSize: "0.78rem",
+    fontWeight: 500,
+    color: colors.textPrimary,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+    maxWidth: 200,
+    flexShrink: 1,
+  },
+  downloadProgressTrack: {
+    flex: 1,
+    minWidth: 60,
+    maxWidth: 120,
+    height: 4,
+    borderRadius: 2,
+    background: "rgba(255,255,255,0.06)",
+    overflow: "hidden",
+  },
+  downloadProgressFill: {
+    height: "100%",
+    background: colors.emerald,
+    borderRadius: 2,
+    transition: `width ${transitions.fast}`,
+  },
+  downloadSize: {
+    fontSize: "0.72rem",
+    color: colors.textMuted,
+    whiteSpace: "nowrap" as const,
+    flexShrink: 0,
+  },
+  downloadDismiss: {
+    background: "transparent",
+    border: "none",
+    color: colors.textMuted,
+    cursor: "pointer",
+    fontSize: "0.72rem",
+    padding: "2px 4px",
+    borderRadius: radii.md,
+    lineHeight: 1,
+    flexShrink: 0,
   },
 };

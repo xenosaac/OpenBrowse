@@ -175,6 +175,12 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  setDownloadCallback(cb: (info: import("./BrowserViewManager").DownloadInfo) => void): void {
+    if (this.viewManager) {
+      this.viewManager.onDownloadUpdated = cb;
+    }
+  }
+
   // --- DevTools / Print / PDF ---
 
   openDevTools(sessionId: string): void {
