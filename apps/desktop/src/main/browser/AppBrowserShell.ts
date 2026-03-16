@@ -109,6 +109,36 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  setContextMenuCallback(cb: (sessionId: string, params: {
+    x: number; y: number; linkURL: string; linkText: string;
+    selectionText: string; mediaType: string; srcURL: string; isEditable: boolean;
+  }) => void): void {
+    if (this.viewManager) {
+      this.viewManager.onContextMenu = cb;
+    }
+  }
+
+  inspectElement(sessionId: string, x: number, y: number): void {
+    const managed = this.viewManager?.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.inspectElement(x, y);
+    }
+  }
+
+  copyImageAt(sessionId: string, x: number, y: number): void {
+    const managed = this.viewManager?.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.copyImageAt(x, y);
+    }
+  }
+
+  executeEditCommand(sessionId: string, command: "cut" | "copy" | "paste" | "selectAll"): void {
+    const managed = this.viewManager?.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents[command]();
+    }
+  }
+
   setNavigationCallback(cb: (sessionId: string, url: string, title: string) => void): void {
     if (this.viewManager) {
       this.viewManager.onNavigate = cb;

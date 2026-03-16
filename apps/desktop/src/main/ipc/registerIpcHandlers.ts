@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
 import {
@@ -55,6 +55,79 @@ export function registerIpcHandlers(
 
   browserShell.setFindCallback((sessionId, result) => {
     mainWindow.webContents.send("runtime:event", { type: "find_in_page_result", sessionId, ...result });
+  });
+
+  browserShell.setContextMenuCallback((sessionId, params) => {
+    const navState = browserShell.getNavState(sessionId);
+    const template: Electron.MenuItemConstructorOptions[] = [];
+
+    if (params.linkURL) {
+      template.push({
+        label: "Open Link in New Tab",
+        click: () => {
+          const tab = browserShell.createStandaloneTab(params.linkURL);
+          mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+        }
+      });
+      template.push({
+        label: "Copy Link Address",
+        click: () => clipboard.writeText(params.linkURL)
+      });
+      template.push({ type: "separator" });
+    }
+
+    if (params.mediaType === "image") {
+      template.push({
+        label: "Copy Image",
+        click: () => browserShell.copyImageAt(sessionId, params.x, params.y)
+      });
+      template.push({ type: "separator" });
+    }
+
+    if (params.isEditable) {
+      template.push({ label: "Cut", click: () => browserShell.executeEditCommand(sessionId, "cut") });
+      template.push({ label: "Copy", click: () => browserShell.executeEditCommand(sessionId, "copy") });
+      template.push({ label: "Paste", click: () => browserShell.executeEditCommand(sessionId, "paste") });
+      template.push({ label: "Select All", click: () => browserShell.executeEditCommand(sessionId, "selectAll") });
+      template.push({ type: "separator" });
+    } else if (params.selectionText) {
+      template.push({ label: "Copy", click: () => browserShell.executeEditCommand(sessionId, "copy") });
+      const truncated = params.selectionText.length > 30
+        ? params.selectionText.slice(0, 30) + "\u2026"
+        : params.selectionText;
+      template.push({
+        label: `Search Google for \u201c${truncated}\u201d`,
+        click: () => {
+          const q = encodeURIComponent(params.selectionText);
+          const tab = browserShell.createStandaloneTab(`https://www.google.com/search?q=${q}`);
+          mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+        }
+      });
+      template.push({ type: "separator" });
+    }
+
+    template.push({
+      label: "Back",
+      enabled: navState?.canGoBack ?? false,
+      click: () => browserShell.goBack(sessionId)
+    });
+    template.push({
+      label: "Forward",
+      enabled: navState?.canGoForward ?? false,
+      click: () => browserShell.goForward(sessionId)
+    });
+    template.push({
+      label: "Reload",
+      click: () => browserShell.reload(sessionId)
+    });
+    template.push({ type: "separator" });
+    template.push({
+      label: "Inspect Element",
+      click: () => browserShell.inspectElement(sessionId, params.x, params.y)
+    });
+
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: mainWindow });
   });
 
   register("task:start", async (_event, intent: TaskIntent) => {
