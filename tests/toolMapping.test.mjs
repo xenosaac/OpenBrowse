@@ -292,6 +292,70 @@ describe("mapToolCallToDecision — task_complete", () => {
     const result = mapToolCallToDecision("task_complete", {}, "the reasoning", "run_1");
     assert.equal(result.completionSummary, "the reasoning");
   });
+
+  it("includes extractedData when extracted_data is provided", () => {
+    const result = mapToolCallToDecision(
+      "task_complete",
+      {
+        summary: "Found the top 3 results",
+        extracted_data: [
+          { label: "Result 1", value: "Sony WH-1000XM6" },
+          { label: "Result 2", value: "Bose QC Ultra" },
+          { label: "Result 3", value: "Apple AirPods Max 2" }
+        ]
+      },
+      "done",
+      "run_1"
+    );
+    assert.equal(result.type, "task_complete");
+    assert.equal(result.completionSummary, "Found the top 3 results");
+    assert.ok(Array.isArray(result.extractedData));
+    assert.equal(result.extractedData.length, 3);
+    assert.equal(result.extractedData[0].label, "Result 1");
+    assert.equal(result.extractedData[0].value, "Sony WH-1000XM6");
+    assert.equal(result.extractedData[2].label, "Result 3");
+  });
+
+  it("omits extractedData when extracted_data is empty array", () => {
+    const result = mapToolCallToDecision(
+      "task_complete",
+      { summary: "Done", extracted_data: [] },
+      "done",
+      "run_1"
+    );
+    assert.equal(result.extractedData, undefined);
+  });
+
+  it("filters out malformed items in extracted_data", () => {
+    const result = mapToolCallToDecision(
+      "task_complete",
+      {
+        summary: "Done",
+        extracted_data: [
+          { label: "Good", value: "item" },
+          { label: 123, value: "bad label" },
+          { label: "No value" },
+          { label: "Also good", value: "item 2" }
+        ]
+      },
+      "done",
+      "run_1"
+    );
+    assert.ok(Array.isArray(result.extractedData));
+    assert.equal(result.extractedData.length, 2);
+    assert.equal(result.extractedData[0].label, "Good");
+    assert.equal(result.extractedData[1].label, "Also good");
+  });
+
+  it("omits extractedData when extracted_data is not an array", () => {
+    const result = mapToolCallToDecision(
+      "task_complete",
+      { summary: "Done", extracted_data: "not an array" },
+      "done",
+      "run_1"
+    );
+    assert.equal(result.extractedData, undefined);
+  });
 });
 
 describe("mapToolCallToDecision — task_failed", () => {

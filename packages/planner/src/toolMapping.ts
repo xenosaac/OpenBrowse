@@ -127,11 +127,23 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "task_complete",
-    description: "Mark the task as successfully completed.",
+    description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
       type: "object" as const,
       properties: {
-        summary: { type: "string", description: "A summary of what was accomplished" }
+        summary: { type: "string", description: "A summary of what was accomplished" },
+        extracted_data: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string", description: "Label for this data item (e.g. 'Top result', 'Price', 'Email')" },
+              value: { type: "string", description: "The extracted value" }
+            },
+            required: ["label", "value"]
+          },
+          description: "Structured data extracted during the task. Use for search results, extracted fields, looked-up values, etc."
+        }
       },
       required: ["summary"]
     }
@@ -189,6 +201,7 @@ export interface ToolInput {
   reason?: string;
   question?: string;
   options?: Array<{ label: string; summary?: string }>;
+  extracted_data?: Array<Record<string, unknown>>;
 }
 
 export function mapToolCallToDecision(
@@ -323,12 +336,19 @@ export function mapToolCallToDecision(
         }
       };
 
-    case "task_complete":
+    case "task_complete": {
+      const extractedData = Array.isArray(input.extracted_data)
+        ? input.extracted_data
+            .filter((item: Record<string, unknown>) => typeof item.label === "string" && typeof item.value === "string")
+            .map((item: Record<string, unknown>) => ({ label: item.label as string, value: item.value as string }))
+        : undefined;
       return {
         type: "task_complete",
         reasoning,
-        completionSummary: input.summary ?? reasoning
+        completionSummary: input.summary ?? reasoning,
+        extractedData: extractedData && extractedData.length > 0 ? extractedData : undefined
       };
+    }
 
     case "task_failed":
       return {
