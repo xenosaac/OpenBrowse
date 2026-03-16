@@ -7181,3 +7181,91 @@ Removed "Ask for clarification only when genuinely ambiguous" — redundant with
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 119)*
+
+---
+
+### Session 120 — 2026-03-16: D10 — Comprehensive Token Hygiene — Eliminate All Remaining Raw Hex
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T15) and design tasks (D1-D9) are complete. D10 is the only remaining design task from `docs/ui_design.md`. It is a mechanical token replacement across 6 files plus 3 new tint tokens. No visual hierarchy or material system changes.
+
+#### Plan
+
+1. **`tokens.ts`**: Add 3 status background tint tokens: `statusRunningTint`, `statusWaitingTint`, `statusFailedTint` at 0.12 opacity.
+2. **`TabBar.tsx`**: Replace 2 raw hex (`#f59e0b`, `#ef4444`) with token refs in `getTabStatusDot()`.
+3. **`NavBar.tsx`**: Replace 4 raw values in `waitingPip`/`waitingDot` — fixes `#fbbf24` (amber-400) to `statusWaiting`.
+4. **`AgentActivityBar.tsx`**: Replace 5 raw values (`#cbd5e1`, `#6b6b82`, `rgba(239,68,68,...)`, `#f87171`).
+5. **`RunContextCard.tsx`**: Replace 8 raw values (status colors, status backgrounds, text colors).
+6. **`ChatMessageItem.tsx`**: Replace 2 raw hex (`#e5e7eb`, `#ffffff`) with token refs.
+7. **`markdown.ts`**: Import `colors`, replace H3 `#6ee7b7` with `colors.emeraldHover`, H2 `#e8e8f0` with `colors.textPrimary`.
+8. Run `pnpm run typecheck` and verify.
+
+#### Implementation
+
+**1. `apps/desktop/src/renderer/styles/tokens.ts`** — 3 new status background tint tokens:
+- `statusRunningTint: "rgba(16,185,129,0.12)"`
+- `statusWaitingTint: "rgba(245,158,11,0.12)"`
+- `statusFailedTint: "rgba(239,68,68,0.12)"`
+
+**2. `apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — `getTabStatusDot()`:
+- `"#f59e0b"` → `colors.statusWaiting`
+- `"#ef4444"` → `colors.statusFailed`
+
+**3. `apps/desktop/src/renderer/components/chrome/NavBar.tsx`** — `waitingPip` + `waitingDot`:
+- `background: "rgba(245,158,11,0.12)"` → `colors.statusWaitingTint`
+- `border: "1px solid rgba(245,158,11,0.3)"` → `"1px solid " + colors.statusWaitingBorder`
+- `color: "#fbbf24"` → `colors.statusWaiting` (fixes genuine amber-400 → amber-500 mismatch)
+- `background: "#f59e0b"` → `colors.statusWaiting`
+
+**4. `apps/desktop/src/renderer/components/AgentActivityBar.tsx`**:
+- `action.color: "#cbd5e1"` → `colors.textPrimary`
+- `step.color: "#6b6b82"` → `colors.textMuted`
+- `stopButton.background: "rgba(239,68,68,0.12)"` → `colors.statusFailedTint`
+- `stopButton.border: "1px solid rgba(239,68,68,0.3)"` → `"1px solid " + colors.statusFailedBorder`
+- `stopButton.color: "#f87171"` → `colors.statusFailed`
+
+**5. `apps/desktop/src/renderer/components/sidebar/RunContextCard.tsx`**:
+- `statusColor`: `"#f59e0b"` → `colors.statusWaiting`, `"#ef4444"` → `colors.statusFailed`
+- `statusBg`: `"rgba(34,197,94,0.15)"` → `colors.statusRunningTint`, `"rgba(245,158,11,0.15)"` → `colors.statusWaitingTint`, `"rgba(239,68,68,0.15)"` → `colors.statusFailedTint`
+- `step.color: "#6b6b82"` → `colors.textMuted`
+- `goal.color: "#e5e7eb"` → `colors.textPrimary`
+- `actionItem.color: "#9090a8"` → `colors.textSecondary`
+
+**6. `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`**:
+- `chatBubble.color: "#e5e7eb"` → `colors.textPrimary`
+- `chatBubbleUser.color: "#ffffff"` → `colors.textWhite`
+
+**7. `apps/desktop/src/renderer/lib/markdown.ts`**:
+- Added `import { colors } from "../styles/tokens"`
+- H3 `color:#6ee7b7` → `color:${colors.emeraldHover}` (fixes Tailwind emerald-300 → system emerald hover)
+- H2 `color:#e8e8f0` → `color:${colors.textPrimary}`
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — 3 new status tint tokens
+- `apps/desktop/src/renderer/components/chrome/TabBar.tsx` — 2 raw hex → token refs
+- `apps/desktop/src/renderer/components/chrome/NavBar.tsx` — 4 raw values → token refs (fixes amber-400 mismatch)
+- `apps/desktop/src/renderer/components/AgentActivityBar.tsx` — 5 raw values → token refs
+- `apps/desktop/src/renderer/components/sidebar/RunContextCard.tsx` — 8 raw values → token refs
+- `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx` — 2 raw hex → token refs
+- `apps/desktop/src/renderer/lib/markdown.ts` — import tokens, 2 raw hex → interpolated token refs
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1068/1068 pass (unchanged)
+- `grep -n '#[0-9a-fA-F]{6}' <6 target files>` — zero raw hex remaining in any target file
+- Two genuine color corrections: NavBar `#fbbf24` (amber-400) → `#f59e0b` (system statusWaiting), markdown H3 `#6ee7b7` (emerald-300) → `#34d399` (system emeraldHover)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D10 is complete. All renderer components now use `tokens.ts` exclusively — zero raw hex in the 6 target files.
+- All PM tasks (T1-T15) complete. All design tasks (D1-D10) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- P3-10 (profile system) remains deferred.
+- No remaining directed work. PM guidance: "prefer code review and test coverage analysis over new features."
+
+*Session log entry written: 2026-03-16 (Session 120)*

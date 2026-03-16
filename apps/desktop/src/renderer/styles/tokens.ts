@@ -40,6 +40,9 @@ export const colors = {
   statusRunningBorder: "rgba(16,185,129,0.3)",
   statusWaitingBorder: "rgba(245,158,11,0.3)",
   statusFailedBorder: "rgba(239,68,68,0.3)",
+  statusRunningTint: "rgba(16,185,129,0.12)",
+  statusWaitingTint: "rgba(245,158,11,0.12)",
+  statusFailedTint: "rgba(239,68,68,0.12)",
 
   // Button rest state
   buttonBg: "rgba(255,255,255,0.04)",

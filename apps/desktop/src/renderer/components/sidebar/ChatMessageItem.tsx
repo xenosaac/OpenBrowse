@@ -64,12 +64,12 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: "82%",
     ...glass.card,
     border: "1px solid " + colors.borderSubtle,
-    color: "#e5e7eb", borderRadius: 14, padding: "9px 12px",
+    color: colors.textPrimary, borderRadius: 14, padding: "9px 12px",
     fontSize: "0.88rem", lineHeight: 1.45
   } as React.CSSProperties,
   chatBubbleUser: {
     ...glass.emerald,
-    color: "#ffffff"
+    color: colors.textWhite
   } as React.CSSProperties,
   chatBubbleSuccess: { borderColor: colors.statusRunningBorder },
   chatBubbleWarning: { borderColor: colors.statusWaitingBorder },

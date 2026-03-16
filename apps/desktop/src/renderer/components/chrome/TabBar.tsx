@@ -22,10 +22,10 @@ function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { col
   switch (run.status) {
     case "running": return { color: colors.statusRunning, animate: true, title: "Agent running" };
     case "suspended_for_clarification":
-    case "suspended_for_approval": return { color: "#f59e0b", animate: false, title: "Awaiting input" };
+    case "suspended_for_approval": return { color: colors.statusWaiting, animate: false, title: "Awaiting input" };
     case "completed": return { color: colors.statusRunning, animate: false, title: "Completed" };
     case "failed":
-    case "cancelled": return { color: "#ef4444", animate: false, title: "Failed" };
+    case "cancelled": return { color: colors.statusFailed, animate: false, title: "Failed" };
     default: return { color: colors.emerald, animate: false, title: run.status };
   }
 }

@@ -175,10 +175,10 @@ const styles: Record<string, React.CSSProperties> = {
   } as React.CSSProperties,
   waitingPip: {
     display: "flex", alignItems: "center", gap: 5,
-    background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
-    borderRadius: 999, padding: "4px 9px", fontSize: "0.78rem", color: "#fbbf24"
+    background: colors.statusWaitingTint, border: "1px solid " + colors.statusWaitingBorder,
+    borderRadius: 999, padding: "4px 9px", fontSize: "0.78rem", color: colors.statusWaiting
   },
   waitingDot: {
-    width: 6, height: 6, borderRadius: "50%", background: "#f59e0b", display: "inline-block"
+    width: 6, height: 6, borderRadius: "50%", background: colors.statusWaiting, display: "inline-block"
   }
 };
