@@ -349,6 +349,73 @@ describe("mapToolCallToDecision — ask_user", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — missing required fields → task_failed
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — missing required fields", () => {
+  it("browser_navigate without url returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_navigate", { description: "Go" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_navigate called without url");
+    assert.equal(result.reasoning, "r");
+  });
+
+  it("browser_click without ref returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_click", { description: "Click" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_click called without ref");
+  });
+
+  it("browser_type without ref returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_type", { text: "hello" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_type called without ref");
+  });
+
+  it("browser_type without text returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_type", { ref: "el_1" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_type called without text");
+  });
+
+  it("browser_select without ref returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_select", { value: "opt" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_select called without ref");
+  });
+
+  it("browser_select without value returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_select", { ref: "el_1" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_select called without value");
+  });
+
+  it("browser_hover without ref returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_hover", { description: "Hover" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_hover called without ref");
+  });
+
+  it("browser_press_key without key returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_press_key", { description: "Press" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_press_key called without key");
+  });
+
+  it("browser_navigate with empty string url returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_navigate", { url: "" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_navigate called without url");
+  });
+
+  it("browser_type with empty string text returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_type", { ref: "el_1", text: "" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_type called without text");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — unknown tool
 // ---------------------------------------------------------------------------
 
