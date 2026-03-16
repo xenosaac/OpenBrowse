@@ -124,7 +124,7 @@ const styles: Record<string, React.CSSProperties> = {
   select: {
     ...glass.input,
     color: "#f5f5ff",
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 8,
     padding: "4px 8px",
     fontSize: "0.85rem"

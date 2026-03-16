@@ -61,7 +61,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: { display: "flex", flexDirection: "column", gap: 12 },
   search: {
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderDefault}`,
     borderRadius: 8,
     padding: "8px 12px",
     color: colors.textPrimary,

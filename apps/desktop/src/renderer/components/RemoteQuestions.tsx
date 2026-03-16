@@ -214,7 +214,7 @@ const styles: Record<string, React.CSSProperties> = {
   input: {
     ...glass.input,
     flex: 1,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 10,
     padding: "10px 12px",
     color: "#f5f5ff",

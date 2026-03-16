@@ -123,7 +123,7 @@ const styles: Record<string, React.CSSProperties> = {
   search: {
     flex: 1,
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderDefault}`,
     borderRadius: 8,
     padding: "8px 12px",
     color: colors.textPrimary,
@@ -131,8 +131,8 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
   } as React.CSSProperties,
   refreshBtn: {
-    background: colors.buttonBg,
-    border: `1px solid ${colors.borderGlass}`,
+    ...glass.control,
+    border: `1px solid rgba(255,255,255,0.08)`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",
@@ -141,8 +141,8 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   clearBtn: {
-    background: colors.buttonBg,
-    border: `1px solid ${colors.borderGlass}`,
+    ...glass.control,
+    border: `1px solid rgba(255,255,255,0.08)`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",

@@ -261,7 +261,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 18,
     padding: 16,
     display: "flex",
@@ -281,7 +281,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     ...glass.input,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 12,
     padding: "10px 12px",
     color: "#f5f5ff",
