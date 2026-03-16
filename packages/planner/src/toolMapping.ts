@@ -186,8 +186,15 @@ export function mapToolCallToDecision(
   reasoning: string,
   runId: string
 ): PlannerDecision<BrowserAction> {
+  const fail = (msg: string): PlannerDecision<BrowserAction> => ({
+    type: "task_failed",
+    reasoning,
+    failureSummary: msg
+  });
+
   switch (toolName) {
     case "browser_navigate":
+      if (!input.url) return fail("browser_navigate called without url");
       return {
         type: "browser_action",
         reasoning,
@@ -199,6 +206,7 @@ export function mapToolCallToDecision(
       };
 
     case "browser_click":
+      if (!input.ref) return fail("browser_click called without ref");
       return {
         type: "browser_action",
         reasoning,
@@ -210,6 +218,8 @@ export function mapToolCallToDecision(
       };
 
     case "browser_type":
+      if (!input.ref) return fail("browser_type called without ref");
+      if (!input.text) return fail("browser_type called without text");
       return {
         type: "browser_action",
         reasoning,
@@ -222,6 +232,8 @@ export function mapToolCallToDecision(
       };
 
     case "browser_select":
+      if (!input.ref) return fail("browser_select called without ref");
+      if (!input.value) return fail("browser_select called without value");
       return {
         type: "browser_action",
         reasoning,
@@ -246,6 +258,7 @@ export function mapToolCallToDecision(
       };
 
     case "browser_hover":
+      if (!input.ref) return fail("browser_hover called without ref");
       return {
         type: "browser_action",
         reasoning,
@@ -257,6 +270,7 @@ export function mapToolCallToDecision(
       };
 
     case "browser_press_key":
+      if (!input.key) return fail("browser_press_key called without key");
       return {
         type: "browser_action",
         reasoning,

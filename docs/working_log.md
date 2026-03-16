@@ -2817,4 +2817,56 @@ Gap analysis (Session 48 done, all pure-logic modules tested, 817 tests). Code r
 - P3-10 (profile system) remains deferred
 - Consider integration testing under Electron test harness for SQLite stores and browser kernel
 
+*Session log entry written: 2026-03-16 (Session 49)*
+
+---
+
+### Session 50 — 2026-03-16: Add Required-Field Guards to mapToolCallToDecision (Boundary Validation)
+
+#### Context
+
+Code review / gap analysis after all P0-P2 backlog complete and 798 tests passing. Found that `mapToolCallToDecision` in `packages/planner/src/toolMapping.ts` passes optional `ToolInput` fields directly into `BrowserAction` fields without validation. If Claude omits a required field (e.g. `url` for `browser_navigate`, `key` for `browser_press_key`, `ref` for `browser_click`), `undefined` propagates to the browser kernel, causing a runtime error instead of a clean `task_failed` at the planner boundary.
+
+#### Plan
+
+1. Add presence guards for required fields in each tool case in `mapToolCallToDecision`
+2. Return `task_failed` with descriptive message when required field is missing
+3. Add tests for all missing-required-field cases
+4. Run typecheck + tests
+5. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/planner/src/toolMapping.ts`:**
+- Added `fail()` helper to DRY up task_failed returns
+- Added required-field guards before each browser action case:
+  - `browser_navigate`: requires `url`
+  - `browser_click`: requires `ref`
+  - `browser_type`: requires `ref` and `text`
+  - `browser_select`: requires `ref` and `value`
+  - `browser_hover`: requires `ref`
+  - `browser_press_key`: requires `key`
+- `browser_scroll`, `browser_wait`, `browser_screenshot` have no strictly required fields (all have sensible defaults)
+- Missing fields now return `task_failed` with a descriptive `failureSummary` (e.g. `"browser_navigate called without url"`)
+
+**Added 10 tests to `tests/toolMapping.test.mjs`:**
+- 8 missing-field cases: navigate/url, click/ref, type/ref, type/text, select/ref, select/value, hover/ref, press_key/key
+- 2 empty-string cases: navigate with `""` url, type with `""` text (both falsy, caught by guards)
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 46/46 pass (was 36, +10 new)
+- `node --test tests/*.test.mjs` — 808/808 pass (was 798, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Issue 1 from gap analysis: validate `riskClassPolicies` from JSON.parse in `settingsStore.ts` (security boundary)
+- Issue 4: add try/catch around JSON.parse in `SqliteRunCheckpointStore` (resilience)
+- Issue 5: surface retry error in `ClaudePlannerGateway` catch block (observability)
+- P3-10 (profile system) remains deferred
+
 *Session log entry written: 2026-03-16*
