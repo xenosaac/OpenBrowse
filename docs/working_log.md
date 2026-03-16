@@ -2397,3 +2397,61 @@ Also contains `BROWSER_TOOLS` — the tool schema definitions sent to Claude. Ex
 - Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 42 — 2026-03-16: Extract readStoredRuntimeSettings + Test Suite
+
+#### Context
+
+Session 41 noted: "Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability." `readStoredRuntimeSettings` is a pure async function that only depends on `services.preferenceStore.get()` and `createDefaultRuntimeSettings()`. However, it lives in `settings.ts` which imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.ts` → Electron chain. `applyRuntimeSettings` does depend on Electron imports, but `readStoredRuntimeSettings` does not.
+
+#### Plan
+
+1. Extract `readStoredRuntimeSettings` and `RUNTIME_SETTINGS_NAMESPACE` into `settingsStore.ts` (no Electron deps)
+2. Update `settings.ts` to import from `./settingsStore.js`
+3. Re-export from `index.ts`
+4. Run typecheck
+5. Write test suite for `readStoredRuntimeSettings` covering: defaults, stored values, JSON parsing, invalid JSON, partial settings
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/settingsStore.ts`:**
+- Extracted `readStoredRuntimeSettings` pure async function out of `settings.ts`
+- Extracted `RUNTIME_SETTINGS_NAMESPACE` constant
+- Signature changed from `(services: RuntimeServices)` to `(preferenceStore: PreferenceStore)` — cleaner dependency, no RuntimeServices bag needed
+- Only imports from `@openbrowse/contracts` and `@openbrowse/memory-store/memory` — no Electron dependency chain
+
+**Updated `settings.ts`:**
+- Removed inline `readStoredRuntimeSettings` function (30 lines) and `RUNTIME_SETTINGS_NAMESPACE` constant
+- Added `import { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE } from "./settingsStore.js"`
+- Added `export { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE } from "./settingsStore.js"` (preserves public API)
+- Updated 3 call sites: `readStoredRuntimeSettings(services)` → `readStoredRuntimeSettings(services.preferenceStore)`
+- Removed unused imports: `createDefaultRuntimeSettings`, `RiskClassPolicies`
+
+**Created `tests/settingsStore.test.mjs` — 18 tests:**
+- Namespace constant (1 test): correct value
+- Defaults (4 tests): all defaults when empty, anthropicApiKey empty, plannerModel default, notificationLevel quiet
+- Stored values (5 tests): each of the 5 string settings read correctly from store
+- riskClassPolicies JSON (4 tests): valid JSON, invalid JSON fallback, empty value fallback, all 6 risk classes
+- Partial settings (2 tests): mixed stored/default values, all 6 settings simultaneously
+- Return shape (2 tests): exactly 6 keys, concurrent independent reads
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/settingsStore.test.mjs` — 18/18 pass
+- `node --test tests/*.test.mjs` — 665/665 pass (was 647, +18 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
+
+*Session log entry written: 2026-03-16*
