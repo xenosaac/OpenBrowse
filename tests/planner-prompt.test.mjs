@@ -1098,3 +1098,38 @@ test("heading level rendered after role/label and before text", () => {
   assert.ok(textIdx > 0, "text should be present");
   assert.ok(levelIdx < textIdx, "level should come before text");
 });
+
+// --- aria-current ---
+
+test("current annotation rendered when aria-current is 'page'", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Home", current: "page", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current=page\)/);
+});
+
+test("current annotation rendered as bare (current) when value is 'true'", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Dashboard", current: "true", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current\)/);
+  assert.ok(!user.includes("(current=true)"), "should not show =true for boolean current");
+});
+
+test("current annotation absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "About", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(current"), "should not show current annotation");
+});
+
+test("current=step rendered for step indicators", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Step 2", current: "step", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current=step\)/);
+});

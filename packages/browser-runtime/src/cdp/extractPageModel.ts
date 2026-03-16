@@ -321,6 +321,10 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       if (ariaLevel) elLevel = parseInt(ariaLevel, 10) || undefined;
     }
 
+    // aria-current: marks the current item in navigation, breadcrumbs, step indicators
+    var elCurrent = el.getAttribute('aria-current');
+    elCurrent = (elCurrent && elCurrent !== 'false') ? elCurrent : undefined;
+
     elements.push({
       id: targetId,
       role: role,
@@ -328,6 +332,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       text: elText,
       description: elDesc,
       level: elLevel,
+      current: elCurrent,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
