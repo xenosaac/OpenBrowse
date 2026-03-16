@@ -15,7 +15,8 @@ export type BrowserActionType =
   | "screenshot"
   | "go_back"
   | "read_text"
-  | "wait_for_text";
+  | "wait_for_text"
+  | "wait_for_navigation";
 
 export type BrowserActionFailureClass =
   | "element_not_found"
