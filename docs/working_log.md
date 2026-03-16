@@ -4735,3 +4735,56 @@ Gap analysis (Session 81 suggestion): `disabled` extraction in `extractPageModel
 - Consider: element grouping/landmark awareness (nav, main, aside regions), iframe content extraction, or shadow DOM penetration
 
 *Session log entry written: 2026-03-16 (Session 82)*
+
+---
+
+### Session 83 — 2026-03-16: Surface Landmark Regions in Page Model for Planner Structural Awareness
+
+#### Context
+
+Gap analysis (Session 82 suggestion): The planner sees a flat list of elements with no page structure information. HTML5 landmark elements (`<nav>`, `<main>`, `<aside>`, `<header>`, `<footer>`) and ARIA landmark roles (`navigation`, `main`, `complementary`, `banner`, `contentinfo`, `search`, `region`, `form`) provide page structure that helps the planner understand where content lives and make better navigation decisions.
+
+#### Plan
+
+1. Add `landmarks?: Array<{ role: string; label: string }>` to `PageModel` in `contracts/browser.ts`
+2. Add landmark extraction function in `extractPageModel.ts` — find landmark elements, deduplicate, limit to 10
+3. Render landmarks section in `buildPlannerPrompt.ts` before elements list
+4. Add planner-prompt tests: landmarks render, absent when empty, label handling
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `landmarks?: Array<{ role: string; label: string }>` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `extractLandmarks()` function:
+- Detects explicit ARIA landmark roles (`banner`, `navigation`, `main`, `complementary`, `contentinfo`, `search`, `region`, `form`)
+- Detects implicit HTML5 landmark tags (`<header>`, `<nav>`, `<main>`, `<aside>`, `<footer>`) with correct role mapping
+- Deduplicates by role+label key, limits to 10 landmarks
+- Extracts label from `aria-label` or `aria-labelledby`
+- Returns `undefined` when no landmarks found (keeps model lean)
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added "Page regions" section rendering landmarks with role and optional label, placed after tables section in the prompt.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (139 → 143):
+- Landmarks render with role and label
+- Landmarks absent when undefined
+- Landmarks absent when empty array
+- Landmarks render without label quotes when label is empty
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 143/143 pass (was 139, +4 new)
+- `node --test tests/*.test.mjs` — 978/978 pass (was 974, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (978 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, shadow DOM penetration, or element-to-landmark association (annotating each element with its containing landmark)
+
+*Session log entry written: 2026-03-16 (Session 83)*

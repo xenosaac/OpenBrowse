@@ -128,6 +128,7 @@ export interface PageModel {
     rowCount: number;
     sampleRows?: string[][];
   }>;
+  landmarks?: Array<{ role: string; label: string }>;
 }
 
 export interface BrowserAction {
