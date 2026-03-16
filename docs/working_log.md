@@ -1835,6 +1835,49 @@ Key mock design: full mock of `RuntimeServices` (orchestrator, planner, browserK
 
 ---
 
+### Session 32 — 2026-03-16: Gap Analysis — Extract and Test detectCycle
+
+#### Context
+
+All P0–P2 backlog done, P3 deferred. Continuing gap analysis from Session 31 which identified `detectCycle()` as extractable pure logic buried as a private function in `RunExecutor.ts`. The RunExecutor test suite tests cycle detection indirectly through the full planner loop, but doesn't exercise edge cases (near-miss patterns, boundary lengths, mixed cycle lengths, window boundaries).
+
+#### Plan
+
+1. Export `detectCycle` from `RunExecutor.ts` (keep it in the same file, just add `export`)
+2. Add `tests/detectCycle.test.mjs` with comprehensive edge-case tests
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Exported `detectCycle` from `RunExecutor.ts` (single keyword change: `function` → `export function`).
+
+**`tests/detectCycle.test.mjs`** — 29 tests across 9 describe blocks:
+- No cycle (5 tests): empty, single, all distinct, below-threshold 2-step and 3-step
+- 2-step cycles (5 tests): exact 4 reps, 5 reps, 3 reps rejected, tail with prefix noise, near-miss broken last element
+- 3-step cycles (4 tests): exact 3 reps, 4 reps, 2 reps rejected, tail with noise
+- 4-step cycles (2 tests): exact 3 reps, 2 reps rejected
+- 5-step cycles (2 tests): exact 3 reps, 2 reps rejected
+- Beyond max length (1 test): 6-step pattern not detected
+- Priority (1 test): shorter cycle wins when both match
+- Realistic action keys (5 tests): click-scroll cycle, 3-step nav loop, distinct targetIds safe, distinct descriptions safe, same description cycle
+- Edge cases (4 tests): all-identical 8 elements, 7 identical below threshold, 8 identical, 9 identical shortest wins
+
+#### Verification
+
+- `node --test tests/detectCycle.test.mjs` — 29/29 pass
+- `node --test tests/*.test.mjs` — 408/408 pass (was 379, +29 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `compose.ts` (`createRuntimeStorage` / `assembleRuntimeServices`) — `createRuntimeStorage` is importable but requires mocking SQLite dynamic import
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
