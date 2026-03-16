@@ -1512,3 +1512,41 @@ test("required renders after multiselectable and before invalid", () => {
   assert.ok(msIdx < reqIdx, "required should come after multiselectable");
   assert.ok(reqIdx < invIdx, "required should come before invalid");
 });
+
+// --- hasPopup tests ---
+
+test("hasPopup renders (haspopup=menu) for button with aria-haspopup=menu", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Options", hasPopup: "menu", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(haspopup=menu\)/);
+});
+
+test("hasPopup absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /haspopup/);
+});
+
+test("hasPopup renders (haspopup=dialog) for dialog triggers", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Settings", hasPopup: "dialog", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(haspopup=dialog\)/);
+});
+
+test("hasPopup renders after required and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", required: true, hasPopup: "listbox", invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const reqIdx = user.indexOf("(required)");
+  const hpIdx = user.indexOf("(haspopup=listbox)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(reqIdx < hpIdx, "hasPopup should come after required");
+  assert.ok(hpIdx < invIdx, "hasPopup should come before invalid");
+});
