@@ -3847,3 +3847,67 @@ This helps the planner understand page structure, prioritize content extraction,
 - Consider surfacing `aria-current` for navigation elements (active page, step indicators)
 
 *Session log entry written: 2026-03-16 (Session 67)*
+
+---
+
+### Session 68 — 2026-03-16: Surface aria-current in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 67 suggestion): `aria-current` is used on navigation elements (nav links, breadcrumb items, step indicators) to mark the currently active item. Values: "page", "step", "location", "date", "time", or "true". The planner currently has no visibility into which nav item is active — it may click a link that's already the current page, or miss the current step in a multi-step flow.
+
+#### Plan
+
+1. Add `current?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-current` attribute when truthy
+3. Surface `(current)` or `(current=page)` annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `current?: string` optional field to `PageElementModel`
+- Captures the `aria-current` attribute value for navigation elements, breadcrumbs, step indicators
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving heading level, captures `aria-current` attribute
+- Filters out `"false"` values (spec says `aria-current="false"` means not current)
+- Only set when truthy (field is `undefined` for non-current elements)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(current=page)`, `(current=step)`, `(current=location)`, etc.
+- For `aria-current="true"` (boolean form), shows bare `(current)` without redundant `=true`
+- Placed after `level` and before `text` for natural reading order
+
+**Impact:** The planner can now see:
+- Which nav link is the current page (`(current=page)`)
+- Which step is active in a multi-step flow (`(current=step)`)
+- Which breadcrumb is the current location (`(current=location)`)
+This prevents the planner from clicking already-active navigation items and helps it understand flow state.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- current=page rendered for nav links
+- bare (current) rendered when value is "true"
+- current absent when undefined
+- current=step rendered for step indicators
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 88/88 pass (was 84, +4 new)
+- `node --test tests/*.test.mjs` — 921/921 pass (was 917, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (921 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-sort` for sortable table columns
+
+*Session log entry written: 2026-03-16 (Session 68)*
