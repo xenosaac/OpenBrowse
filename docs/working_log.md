@@ -2511,3 +2511,49 @@ Also cleaning up scripted-planner.test.mjs duplicate (2 tests, both covered by s
 - All major pure-function modules now have test coverage; remaining untested code requires Electron context or network mocking
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 44 — 2026-03-16: RunExecutor Stuck Detection + Safety Path Tests
+
+#### Context
+
+Gap analysis: RunExecutor has 18 tests covering happy paths and basic failure modes, but several critical safety/reliability paths are untested: consecutive identical action detection, URL visit count limit, cycle detection integration, page model capture failure with retry/fallback, cancellation after planner call, checkpoint-based cancellation, and step progress sending. These are the planner loop's core safety mechanisms.
+
+#### Plan
+
+1. Add tests to `tests/runExecutor.test.mjs` for untested plannerLoop paths
+2. Targets: consecutive identical actions → fail, URL visit count → fail, cycle detection → fail, capturePageModel retry/fallback, cancellation after planner, checkpoint cancellation, step progress
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Extended `tests/runExecutor.test.mjs` — 9 new tests (18 → 27):**
+
+- `consecutive identical actions` (1 test): 9+ identical actionKeys trigger fail with "repeated" message; uses custom `recordBrowserResult` mock to produce unique history entries (avoiding false cycle detection trigger)
+- `URL visit count limit` (1 test): pre-populated `urlVisitCounts` at 12 triggers fail with "visited" message
+- `cycle detection integration` (1 test): pre-populated 7-entry alternating action history + 1 new entry completes 2-step cycle (4 reps), triggers fail with "cycle" message
+- `capturePageModel retry on first failure` (1 test): first `capturePageModel` throws, second succeeds → run completes normally; verifies retry logic (includes 500ms settle delay)
+- `capturePageModel double failure fallback` (1 test): both captures throw → fallback page model with `PAGE_MODEL_CAPTURE_FAILED` alert → planner still called → run completes
+- `cancellation after planner` (1 test): cancellation flag set during planner.decide callback → detected at post-planner checkpoint → acknowledged, no handoff
+- `checkpoint-based cancellation` (1 test): `runCheckpointStore.load` returns cancelled run → loop exits early returning cancelled status
+- `step progress sending` (1 test): `shouldSendStepProgress()` returns true → chatBridge.send called with step text containing channel "telegram"
+- `network_error soft failure` (1 test): `failureClass: "network_error"` treated as soft failure (like `element_not_found`), loop continues
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 27/27 pass
+- `node --test tests/*.test.mjs` — 691/691 pass (was 682, +9 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `continueResume` without `lastKnownUrl` (skip navigate path)
+- Consider testing `buildPlannerPrompt` untested conditional sections (scrollSection, activePageHint, selfAssessment triggers)
+
+*Session log entry written: 2026-03-16*
