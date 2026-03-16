@@ -1012,3 +1012,26 @@ test("element text absent when same as label", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.ok(!user.includes('text='));
 });
+
+// ---------------------------------------------------------------------------
+// Active dialog detection
+// ---------------------------------------------------------------------------
+
+test("active dialog hint shown when activeDialog present", () => {
+  const pm = makePageModel({ activeDialog: { label: "Cookie Consent" } });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /DIALOG OPEN: "Cookie Consent"/);
+  assert.match(user, /modal dialog is covering the page/);
+});
+
+test("active dialog hint absent when no activeDialog", () => {
+  const pm = makePageModel();
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("DIALOG OPEN"));
+});
+
+test("active dialog hint absent when activeDialog is undefined", () => {
+  const pm = makePageModel({ activeDialog: undefined });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("DIALOG OPEN"));
+});
