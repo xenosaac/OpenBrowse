@@ -1666,3 +1666,33 @@ test("landmarks render without label when label is empty", () => {
   assert.match(user, /^\s+banner$/m);
   assert.doesNotMatch(user, /banner ""/);
 });
+
+// ---------------------------------------------------------------------------
+// Element count truncation notice
+// ---------------------------------------------------------------------------
+
+test("truncation notice shown when elements exceed 150", () => {
+  const elements = Array.from({ length: 200 }, (_, i) => ({
+    id: `el_${i}`, role: "button", label: `Btn ${i}`, isActionable: true
+  }));
+  const pm = makePageModel({ elements });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /showing 150 of 200/);
+  assert.match(user, /scroll to reveal more/);
+});
+
+test("truncation notice absent when elements are 150 or fewer", () => {
+  const elements = Array.from({ length: 150 }, (_, i) => ({
+    id: `el_${i}`, role: "button", label: `Btn ${i}`, isActionable: true
+  }));
+  const pm = makePageModel({ elements });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /showing 150 of/);
+  assert.doesNotMatch(user, /scroll to reveal more/);
+});
+
+test("truncation notice absent when no elements", () => {
+  const pm = makePageModel({ elements: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /showing.*of/);
+});

@@ -299,7 +299,7 @@ ${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${aler
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}
 
-Interactive elements (* = actionable):
+Interactive elements (* = actionable)${pageModel.elements.length > 150 ? ` — showing 150 of ${pageModel.elements.length} (scroll to reveal more)` : ""}:
 ${elementsSummary || "(no interactive elements found)"}
 
 What should I do next?`;
