@@ -3602,4 +3602,63 @@ Gap analysis (Session 62): suggested surfacing `aria-errormessage` / form valida
 
 *Session log entry written: 2026-03-16 (Session 63)*
 
-*Session log entry written: 2026-03-16 (Session 62)*
+---
+
+### Session 64 — 2026-03-16: Surface Element Visible Text When It Differs From aria-label
+
+#### Context
+
+Gap analysis (Session 60/63 suggestion): `getLabel()` in `extractPageModel.ts` uses `aria-label` as its first priority. When `aria-label` is set, the element's visible `innerText` is lost. For icon buttons (e.g., aria-label="Close" but showing "✕"), search toggles (aria-label="Search" but showing a magnifying glass icon text), or styled buttons where aria-label differs from display text, the planner only sees the programmatic label and cannot correlate with what's visually on the page.
+
+#### Plan
+
+1. Add `text?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `el.innerText` (trimmed, capped at 40 chars) and include as `text` only when it differs from `label` and is non-empty
+3. Surface `text="..."` in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `text?: string` optional field to `PageElementModel`
+- Captures the element's visible `innerText` when it differs from the resolved `label` (which may come from `aria-label`, `aria-labelledby`, `<label>`, title, or placeholder)
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `label` via `getLabel()`, captures `el.innerText` (trimmed, capped at 40 chars)
+- Sets `text` field only when `innerText` is non-empty AND differs from `label`
+- Zero overhead for elements where label matches visible text (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `text="..."` after label, before href
+- Example: `[el_5] button "Close" text="✕" *` — planner sees both the programmatic label and what's visually displayed
+
+**Impact:** The planner can now distinguish between:
+- An icon button with `aria-label="Close"` showing "✕"
+- A styled button with `aria-label="Search"` showing a different visual text
+- Any element where the accessibility label differs from visible content
+This helps the planner correlate what it "sees" in the prompt with what a user would see on screen.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- text rendered when different from label
+- text absent when undefined
+- text absent when same as label (undefined check)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 75/75 pass (was 72, +3 new)
+- `node --test tests/*.test.mjs` — 908/908 pass (was 905, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (908 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` for elements that have additional descriptive context
+
+*Session log entry written: 2026-03-16 (Session 64)*

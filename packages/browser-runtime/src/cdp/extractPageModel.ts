@@ -261,10 +261,15 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       && rect.top < window.innerHeight && rect.bottom > 0
       && rect.left < window.innerWidth && rect.right > 0;
 
+    var elLabel = getLabel(el);
+    var elInnerText = (el.innerText || '').trim().slice(0, 40);
+    var elText = (elInnerText && elInnerText !== elLabel) ? elInnerText : undefined;
+
     elements.push({
       id: targetId,
       role: role,
-      label: getLabel(el),
+      label: elLabel,
+      text: elText,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,

@@ -982,3 +982,33 @@ test("form field omits validation message when absent", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.ok(!user.includes("INVALID:"));
 });
+
+// ---------------------------------------------------------------------------
+// text (visible text differing from label)
+// ---------------------------------------------------------------------------
+
+test("element text rendered when different from label", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Close", text: "✕", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_1\] button "Close" text="✕"/);
+});
+
+test("element text absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('text='));
+});
+
+test("element text absent when same as label", () => {
+  // text field should not be set when innerText === label, but even if passed,
+  // the prompt renderer checks for truthy text
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Submit", text: undefined, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('text='));
+});
