@@ -4638,3 +4638,57 @@ Gap analysis (Session 79 suggestion): `aria-busy="true"` is used on elements (an
 - Consider surfacing `aria-disabled` as distinct from HTML disabled (custom disabled widgets)
 
 *Session log entry written: 2026-03-16 (Session 80)*
+
+---
+
+### Session 81 — 2026-03-16: Surface aria-live in Page Model for Dynamic Content Region Awareness
+
+#### Context
+
+Gap analysis (Session 80 suggestion): `aria-live` marks regions whose content updates dynamically (e.g., status messages, notifications, search results, chat messages). Values: `polite`, `assertive`, `off`. Surfacing this helps the planner:
+- Know which regions will update dynamically (and may need re-reading after actions)
+- Understand that content in live regions may change without page navigation
+- Distinguish between static content and auto-updating areas
+
+#### Plan
+
+1. Add `live?: string` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-live` in `extractPageModel.ts` element enumeration (filter out `off`)
+3. Render `(live=<value>)` in `buildPlannerPrompt.ts` element line — place after `busy` and before `invalid`
+4. Add 4 planner-prompt tests: live renders, absent when undefined, absent when "off", ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `live?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `live` extraction in element enumeration:
+- Reads `aria-live` attribute; filters out `"off"` (treated as no live region)
+- Valid values: `polite`, `assertive`
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(live=<value>)` rendering in element line after `(busy)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (135 → 139):
+- `live=polite` renders `(live=polite)` for region element
+- `live` absent when undefined
+- `live=assertive` renders `(live=assertive)` for alert regions
+- `live` renders after busy and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 139/139 pass (was 135, +4 new)
+- `node --test tests/*.test.mjs` — 974/974 pass (was 970, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (974 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-disabled` as distinct from HTML disabled (custom disabled widgets)
+- Consider surfacing `aria-roledescription` for custom widget type labels
+
+*Session log entry written: 2026-03-16 (Session 81)*

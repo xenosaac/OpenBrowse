@@ -1588,3 +1588,41 @@ test("busy renders after haspopup and before invalid", () => {
   assert.ok(hpIdx < busyIdx, "busy should come after haspopup");
   assert.ok(busyIdx < invIdx, "busy should come before invalid");
 });
+
+// --- live tests ---
+
+test("live renders (live=polite) for element with aria-live=polite", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Status", live: "polite", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(live=polite\)/);
+});
+
+test("live absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Content", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(live=/);
+});
+
+test("live renders (live=assertive) for assertive regions", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "alert", label: "Error", live: "assertive", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(live=assertive\)/);
+});
+
+test("live renders after busy and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: true, live: "polite", invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const busyIdx = user.indexOf("(busy)");
+  const liveIdx = user.indexOf("(live=polite)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(busyIdx < liveIdx, "live should come after busy");
+  assert.ok(liveIdx < invIdx, "live should come before invalid");
+});
