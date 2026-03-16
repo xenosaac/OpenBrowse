@@ -135,6 +135,33 @@ test("parsePlannerResponse: browser_action action description defaults to reason
   assert.equal(result.action.description, "Click button");
 });
 
+// --- Edge cases ---
+
+test("parsePlannerResponse: handles escaped quotes in JSON strings", () => {
+  const raw = JSON.stringify({
+    type: "browser_action",
+    reasoning: 'Click the "Submit" button',
+    action: { type: "click", targetId: "btn_2", description: 'Click "Submit"' },
+  });
+  const result = parsePlannerResponse(raw);
+  assert.equal(result.action.description, 'Click "Submit"');
+});
+
+test("parsePlannerResponse: parses clarification_request with missing optional fields", () => {
+  const raw = JSON.stringify({
+    type: "clarification_request",
+    reasoning: "Ambiguous query",
+    clarificationRequest: {
+      question: "What do you mean?",
+    },
+  });
+  const result = parsePlannerResponse(raw);
+  assert.equal(result.type, "clarification_request");
+  assert.ok(result.clarificationRequest.id); // auto-generated
+  assert.equal(result.clarificationRequest.contextSummary, "");
+  assert.deepEqual(result.clarificationRequest.options, []);
+});
+
 // --- Error cases ---
 
 test("parsePlannerResponse: throws on missing type", () => {

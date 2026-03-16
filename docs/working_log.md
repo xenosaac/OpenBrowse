@@ -2018,3 +2018,48 @@ Fixed by including `description` in cycle keys (differentiates clicks on differe
 **10. Profile system / Google login**
 
 User accounts, OAuth (Google Sign-In), profile sync across devices. Large scope — defer until core browser features are stable and the product surface is validated.
+
+---
+
+### Session 35 — 2026-03-16: Test Suite Consolidation — Remove Duplicate Test Files
+
+#### Context
+
+Gap analysis discovered 3 pairs of duplicate test files inflating the test count (464 → real unique coverage is lower). Each pair has an older file from early sessions and a newer comprehensive file from the gap analysis sessions:
+
+1. `planner-parser.test.mjs` (14 tests, Session 15) + `parsePlannerResponse.test.mjs` (18 tests, Session 25) — both test `parsePlannerResponse`
+2. `telegram-state.test.mjs` (1 test, earlier) + `telegramStateStore.test.mjs` (21 tests, Session 33) — both test `TelegramStateStore`
+3. `watch-scheduler.test.mjs` (1 test, earlier) + `watchScheduler.test.mjs` (17 tests, Session 34) — both test `IntervalWatchScheduler`
+
+#### Plan
+
+1. Merge 2 unique tests from `planner-parser.test.mjs` into `parsePlannerResponse.test.mjs` (escaped quotes, clarification with missing optionals)
+2. Delete old files: `planner-parser.test.mjs`, `telegram-state.test.mjs`, `watch-scheduler.test.mjs`
+3. Run `node --test tests/*.test.mjs` to verify correct count
+4. Update this log and commit
+
+#### Implementation
+
+**Merged into `parsePlannerResponse.test.mjs`** (2 unique tests from old file):
+- "handles escaped quotes in JSON strings" — verifies escaped `"Submit"` in action description
+- "parses clarification_request with missing optional fields" — verifies auto-generated id, empty contextSummary, empty options array
+
+**Deleted 3 old files:**
+- `tests/planner-parser.test.mjs` — 14 tests, all covered by `parsePlannerResponse.test.mjs` (12 redundant + 2 merged)
+- `tests/telegram-state.test.mjs` — 1 test, fully covered by `telegramStateStore.test.mjs`'s 21 comprehensive tests
+- `tests/watch-scheduler.test.mjs` — 1 test, fully covered by `watchScheduler.test.mjs`'s 17 comprehensive tests
+
+#### Verification
+
+- `node --test tests/*.test.mjs` — 450/450 pass (was 464, -16 removed, +2 merged = net -14)
+- Test count now accurately reflects unique coverage (no inflation from duplicates)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
