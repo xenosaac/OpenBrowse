@@ -4476,3 +4476,57 @@ Expected behavior: soft failure classes should be recoverable — skip the pendi
 - Consider surfacing `aria-required` for form elements in element list
 
 *Session log entry written: 2026-03-16 (Session 77)*
+
+---
+
+### Session 78 — 2026-03-16: Surface aria-required in Page Model for Form Element Required State
+
+#### Context
+
+The page model currently surfaces `required` only inside `forms[].fields[].required` (via HTML `required` attribute or `aria-required="true"`). However, the element list — which the planner uses for action planning — does not expose required state. This means the planner cannot see which individual textboxes, comboboxes, or other inputs are required when deciding form-filling strategy.
+
+Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectable`, and `invalid` following the same pattern. This session adds `required`.
+
+#### Plan
+
+1. Add `required?: boolean` to `PageElementModel` in `packages/contracts/src/browser.ts`
+2. Extract `required` (HTML attribute) and `aria-required="true"` in `extractPageModel.ts` element enumeration
+3. Render `(required)` in `buildPlannerPrompt.ts` element line — place after `multiselectable` and before `invalid`
+4. Add 4 planner-prompt tests: required=true renders, undefined absent, false absent, ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `required?: boolean` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `required` extraction in element enumeration:
+- Uses `(el.required || el.getAttribute('aria-required') === 'true') ? true : undefined`
+- Covers both HTML `required` attribute (input, select, textarea) and ARIA `aria-required="true"` (custom widgets)
+- Placed after `multiselectable` and before `invalid` in the element object
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(required)` rendering in element line after `(multiselectable)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (123 → 127):
+- `required=true` renders `(required)` for textbox
+- `required` absent when undefined
+- `required` absent when false
+- `required` renders after multiselectable and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 127/127 pass (was 123, +4 new)
+- `node --test tests/*.test.mjs` — 962/962 pass (was 958, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (962 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-haspopup` so planner knows which buttons open menus/dialogs
+- Consider surfacing `aria-busy` for loading states
+
+*Session log entry written: 2026-03-16 (Session 78)*

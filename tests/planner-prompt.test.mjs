@@ -1474,3 +1474,41 @@ test("multiselectable renders after autocomplete and before invalid", () => {
   assert.ok(acIdx < msIdx, "multiselectable should come after autocomplete");
   assert.ok(msIdx < invIdx, "multiselectable should come before invalid");
 });
+
+// --- aria-required (form element required state) ---
+
+test("required=true renders (required) for textbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "textbox", label: "Email", required: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(required\)/);
+});
+
+test("required absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "textbox", label: "Email", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /required/);
+});
+
+test("required absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", required: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /required/);
+});
+
+test("required renders after multiselectable and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Items", multiselectable: true, required: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const msIdx = user.indexOf("(multiselectable)");
+  const reqIdx = user.indexOf("(required)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(msIdx < reqIdx, "required should come after multiselectable");
+  assert.ok(reqIdx < invIdx, "required should come before invalid");
+});
