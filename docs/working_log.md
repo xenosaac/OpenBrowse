@@ -2663,3 +2663,56 @@ Also adding `continueResume` without `lastKnownUrl` test to `runExecutor.test.mj
 - Consider testing `ClaudePlannerGateway.decide` integration paths (needs API mock)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 47 — 2026-03-16: ClaudePlannerGateway Unit Tests (Mock API)
+
+#### Context
+
+Gap analysis: `ClaudePlannerGateway` is the sole untested pure-logic module in `packages/planner`. It has 4 distinct code paths: (1) happy path — first API call returns tool_use, (2) text-only response triggers retry with forced tool_choice, (3) timeout returns task_failed, (4) retry also returns no tool_use → task_failed. All are testable by overriding the `client.messages.create` method after construction.
+
+#### Plan
+
+1. Create `tests/claudePlannerGateway.test.mjs` with mock-based tests for all code paths
+2. Run tests, update log, commit
+
+#### Implementation
+
+**Created `tests/claudePlannerGateway.test.mjs` — 17 tests:**
+
+- `happy path — browser_action` (1 test): first API call returns `tool_use` with `browser_click` → correct `browser_action` decision with targetId, description, reasoning
+- `happy path — task_complete` (1 test): `task_complete` tool → correct decision with completionSummary
+- `happy path — task_failed` (1 test): `task_failed` tool → correct decision with failureSummary
+- `happy path — clarification_request` (1 test): `ask_user` tool → correct decision with question, options, runId
+- `happy path — browser_navigate` (1 test): `browser_navigate` tool → navigate action with URL
+- `reasoning extraction — multiple text blocks` (1 test): two text blocks joined with newline
+- `reasoning extraction — no text blocks` (1 test): fallback "No reasoning provided"
+- `retry path — text-only first response` (1 test): first call returns text-only → retry with `tool_choice: "any"` → second call returns tool_use → correct decision; verifies both API calls made
+- `retry path — context preservation` (1 test): retry messages include original assistant response + follow-up prompt
+- `retry failure — text-only on both calls` (1 test): both text-only → `task_failed` with "no tool call after retry"
+- `retry failure — retry throws` (1 test): retry throws → `task_failed` with "no tool call after retry"
+- `timeout` (1 test): error containing "Planner timed out" → `task_failed` with timeout message (not re-thrown)
+- `non-timeout error re-throws` (1 test): other errors propagate normally
+- `config — custom model and maxTokens` (1 test): configured values passed to API
+- `config — defaults` (1 test): default `claude-opus-4-6` model, 4096 maxTokens
+- `API params` (1 test): BROWSER_TOOLS, system prompt, and user message all passed correctly
+- `runId propagation` (1 test): custom runId appears in clarification_request
+
+Mock approach: override `gateway.client.messages.create` after construction (compiled JS exposes `client` as a public property). No import mocking needed.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/claudePlannerGateway.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 787/787 pass (was 770, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs Grammy Bot mock — more complex)
+- P3-10 (profile system) remains deferred
+- All pure-logic modules in `planner`, `orchestrator`, `runtime-core`, `observability`, `security`, `chat-bridge` (except TelegramChatBridge) now have test coverage
+
+*Session log entry written: 2026-03-16*
