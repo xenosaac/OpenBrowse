@@ -2175,3 +2175,54 @@ Session 36 noted: "RecoveryManager tests still blocked by Electron — could app
 - P3-10 (profile system) remains deferred
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 38 — 2026-03-16: Extract createPlanner/createChatBridge Factories + Test Suite
+
+#### Context
+
+Session 37 noted: "createPlanner/createChatBridge factory tests — these import non-Electron packages but need mocking." These two factories in `settings.ts` are pure functions that don't use Electron, but `settings.ts` imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.ts` which chains to Electron. Same extraction pattern as Sessions 36-37.
+
+#### Plan
+
+1. Extract `createPlanner` and `createChatBridge` from `settings.ts` into `factories.ts` (no Electron deps)
+2. Update `settings.ts` to import/re-export from `./factories.js`
+3. Build runtime-core
+4. Write comprehensive test suite for both factories
+5. Run tests
+6. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/factories.ts`:**
+- Moved `createPlanner` and `createChatBridge` pure factory functions out of `settings.ts`
+- Imports only from `@openbrowse/chat-bridge`, `@openbrowse/contracts`, `@openbrowse/planner` — no Electron dependency chain
+- This unblocks Node-based testing for both factory functions
+
+**Updated `settings.ts`:**
+- Removed inline definitions of both factories (90 lines)
+- Added `import { createPlanner, createChatBridge } from "./factories.js"` (internal use in `applyRuntimeSettings`)
+- Added `export { createPlanner, createChatBridge } from "./factories.js"` (preserves public API)
+- Removed unused imports: `resolveTelegramConfig`, `type ChatBridge`, `type TelegramNotificationLevel`, `StubChatBridge`, `StubPlannerGateway`, `ClaudePlannerGateway`, `type PlannerGateway`, `type RuntimeDescriptor`
+
+**Created `tests/factories.test.mjs` — 20 tests:**
+- createPlanner (10 tests): stub when disabled, stub with key but disabled, live with key, custom model, default model fallback, env var fallback, no key anywhere, whitespace trimming on key/model, whitespace-only key
+- createChatBridge (10 tests): stub when disabled, stub with no token, live with token, locked-to-chat vs pairing-mode descriptors, whitespace trimming on token/chatId, whitespace-only token, chatBridgeInit presence/absence
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/factories.test.mjs` — 20/20 pass
+- `node --test tests/*.test.mjs` — 507/507 pass (was 487, +20 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability (still blocked by `wireInboundChat`/`wireBotCommands`)
+
+*Session log entry written: 2026-03-16*
