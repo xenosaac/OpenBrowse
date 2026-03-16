@@ -1254,3 +1254,90 @@ test("range annotation placed after roleDesc and before text", () => {
   assert.ok(roleDescIdx < rangeIdx, "roleDesc should come before range");
   assert.ok(rangeIdx < textIdx, "range should come before text");
 });
+
+// ---------------------------------------------------------------------------
+// tables section
+// ---------------------------------------------------------------------------
+
+test("tablesSection shows table with caption, headers, and sample rows", () => {
+  const pm = makePageModel({
+    tables: [{
+      caption: "Flight Results",
+      headers: ["Airline", "Price", "Duration"],
+      rowCount: 5,
+      sampleRows: [
+        ["Delta", "$450", "14h 30m"],
+        ["United", "$520", "15h 10m"],
+        ["ANA", "$480", "13h 45m"]
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE "Flight Results"/);
+  assert.match(user, /Airline \| Price \| Duration/);
+  assert.match(user, /5 rows/);
+  assert.match(user, /Delta \| \$450 \| 14h 30m/);
+  assert.match(user, /ANA \| \$480 \| 13h 45m/);
+});
+
+test("tablesSection shows table without caption", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: ["Name", "Value"],
+      rowCount: 2,
+      sampleRows: [["A", "1"], ["B", "2"]]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE: Name \| Value/);
+  assert.doesNotMatch(user, /TABLE "/);
+});
+
+test("tablesSection shows (no headers) when headers empty", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: [],
+      rowCount: 3,
+      sampleRows: [["x", "y"]]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(no headers\)/);
+  assert.match(user, /3 rows/);
+});
+
+test("tablesSection shows singular row for rowCount 1", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: ["Col"],
+      rowCount: 1
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /1 row\)/);
+  assert.doesNotMatch(user, /1 rows/);
+});
+
+test("tablesSection absent when no tables", () => {
+  const pm = makePageModel({ tables: undefined });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Data tables on page/);
+});
+
+test("tablesSection absent when tables empty array", () => {
+  const pm = makePageModel({ tables: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Data tables on page/);
+});
+
+test("tablesSection shows multiple tables", () => {
+  const pm = makePageModel({
+    tables: [
+      { headers: ["A"], rowCount: 1 },
+      { headers: ["B"], rowCount: 2 }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE: A/);
+  assert.match(user, /TABLE: B/);
+});

@@ -159,6 +159,17 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       }).join("\n")}`
     : "";
 
+  // --- Table structure ---
+  const tablesSection = pageModel.tables && pageModel.tables.length > 0
+    ? `\nData tables on page:\n${pageModel.tables.map((t, i) => {
+        let tLine = `  TABLE${t.caption ? ` "${t.caption}"` : ""}: ${t.headers.length > 0 ? t.headers.join(" | ") : "(no headers)"} (${t.rowCount} row${t.rowCount !== 1 ? "s" : ""})`;
+        if (t.sampleRows && t.sampleRows.length > 0) {
+          tLine += "\n" + t.sampleRows.map(row => `    ${row.join(" | ")}`).join("\n");
+        }
+        return tLine;
+      }).join("\n")}`
+    : "";
+
   // --- Scroll position context ---
   const scrollSection = pageModel.scrollY !== undefined
     ? `\nScroll position: Y=${pageModel.scrollY}px`
@@ -268,7 +279,7 @@ Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistor
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${alertsSection}${formsSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}
 
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}

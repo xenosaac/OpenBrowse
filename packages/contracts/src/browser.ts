@@ -114,6 +114,12 @@ export interface PageModel {
   captchaDetected?: boolean;
   scrollY?: number;
   activeDialog?: { label: string };
+  tables?: Array<{
+    caption?: string;
+    headers: string[];
+    rowCount: number;
+    sampleRows?: string[][];
+  }>;
 }
 
 export interface BrowserAction {

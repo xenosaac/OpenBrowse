@@ -4101,3 +4101,74 @@ This prevents blind interactions with range controls and helps the planner under
 - Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
 
 *Session log entry written: 2026-03-16 (Session 71)*
+
+---
+
+### Session 72 — 2026-03-16: Surface Table Structure in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Sessions 67–71 repeatedly suggested): data tables on pages like comparison shopping, flight results, product lists, search result tables have no structural representation in the page model. The planner only gets a flat text dump in `visibleText` with no column/row awareness. This prevents the planner from understanding tabular data, making it difficult to compare items, extract specific cell values, or navigate table-heavy pages effectively.
+
+#### Plan
+
+1. Add `tables?: Array<{ caption?: string; headers: string[]; rowCount: number; sampleRows?: string[][] }>` to `PageModel` in `contracts/browser.ts`
+2. Add `extractTables()` function to `extractPageModel.ts` — capture up to 3 visible tables with headers and first 3 sample rows
+3. Surface table summaries in `buildPlannerPrompt.ts` between forms and scroll position
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `tables?: Array<{ caption?: string; headers: string[]; rowCount: number; sampleRows?: string[][] }>` to `PageModel`
+- Captures structural representation of data tables on the page
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `extractTables()` function: scans up to 3 visible `<table>` elements
+- Captures `<caption>` text (capped at 80 chars)
+- Extracts headers from `<thead><tr>` or first `<tr>` (up to 10 columns, 40 chars each)
+- Counts body rows (from `<tbody>` or all `<tr>` minus header)
+- Captures first 3 sample rows with cell text (up to 10 columns, 40 chars each)
+- Returns `undefined` when no tables exist (zero overhead)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `tablesSection` — renders `Data tables on page:` with structured table summaries
+- Each table shows: caption (if any), headers joined by ` | `, row count, and sample rows
+- Placed between forms section and scroll position in the user prompt
+
+**Impact:** The planner can now see:
+- Table structure on data-heavy pages (comparison shopping, flight results, product lists)
+- Column headers for understanding what data is available
+- Sample rows for understanding data format and values
+- Row counts for understanding table size
+This prevents the planner from relying solely on flat text dumps to understand tabular data.
+
+**Added 7 tests to `tests/planner-prompt.test.mjs`:**
+- table with caption, headers, sample rows rendered correctly
+- table without caption omits quote-wrapped caption
+- (no headers) shown when headers empty
+- singular "row" for rowCount 1
+- tables section absent when undefined
+- tables section absent when empty array
+- multiple tables both rendered
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 108/108 pass (was 101, +7 new)
+- `node --test tests/*.test.mjs` — 941/941 pass (was 934, +7 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (941 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 72)*
