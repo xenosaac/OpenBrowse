@@ -2557,3 +2557,54 @@ Gap analysis: RunExecutor has 18 tests covering happy paths and basic failure mo
 - Consider testing `buildPlannerPrompt` untested conditional sections (scrollSection, activePageHint, selfAssessment triggers)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 45 — 2026-03-16: Gap Analysis — buildPlannerPrompt Untested Conditional Sections
+
+#### Context
+
+Continuing gap analysis. `buildPlannerPrompt` has 18 tests but 11 conditional sections are untested: failedUrlsSection, usedQueriesSection, repeatedNavWarning, scrollSection, lastActionSection, urlWarning, pageTypeStr, alertsSection, formsSection, activePageHint, and self-assessment trigger 3 (URL visit count >= 4).
+
+#### Plan
+
+1. Add tests to `tests/planner-prompt.test.mjs` for all 11 untested conditional sections
+2. Run tests
+3. Update this log and commit
+
+#### Implementation
+
+Extended `tests/planner-prompt.test.mjs` — 27 new tests (18 → 45, but file already had 17 existing + 1 replaced = 44 total):
+
+- `failedUrlsSection` (2 tests): unique failed URLs listed, absent when no failures
+- `usedQueriesSection` (2 tests): unique typed queries listed, absent when no type actions
+- `repeatedNavWarning` (2 tests): triggers on 3 same-URL navigates, absent for varied
+- `scrollSection` (2 tests): shows Y position, absent when undefined
+- `lastActionSection` (2 tests): success result, failure with class
+- `urlWarning` (2 tests): frequent URLs listed (>=4), absent below threshold
+- `pageTypeStr` (2 tests): shows non-unknown type, absent for unknown
+- `alertsSection` (2 tests): lists alerts, absent when empty
+- `formsSection` (2 tests): enriched fields with labels/types/required/values/submitRef, absent when empty
+- `activePageHint` (3 tests): appears on step 0 + non-blank URL, absent for about:blank, absent after step 0
+- `selfAssessment trigger 3` (1 test): URL visited 4+ times triggers PROGRESS CHECK
+- `typedText in action history` (1 test): Typed text field rendered
+- `targetUrl in action history` (1 test): URL field rendered
+- `element attributes` (1 test): href, inputType, value, disabled, readonly, off-screen all rendered
+- `no interactive elements` (1 test): "(no interactive elements found)" message
+- `constraints none` (1 test): "none" shown when constraints empty
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 44/44 pass
+- `node --test tests/*.test.mjs` — 718/718 pass (was 691, +27 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `continueResume` without `lastKnownUrl` (skip navigate path)
+
+*Session log entry written: 2026-03-16*
