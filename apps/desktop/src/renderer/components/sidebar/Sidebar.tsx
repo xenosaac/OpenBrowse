@@ -140,7 +140,7 @@ const styles: Record<string, React.CSSProperties> = {
   questionsSection: { display: "flex", flexDirection: "column", gap: 6 },
   questionsDivider: { display: "flex", alignItems: "center", gap: 8, margin: "6px 0 2px" },
   questionsDividerLabel: {
-    fontSize: "0.72rem", color: "#f59e0b",
+    fontSize: "0.72rem", color: colors.statusWaiting,
     textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600
   }
 };
