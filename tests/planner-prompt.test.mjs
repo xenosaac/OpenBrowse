@@ -316,3 +316,375 @@ test("visibleText truncated to 3000 chars", () => {
   const longestRun = Math.max(...matches.map((m) => m.length));
   assert.ok(longestRun <= 3000, `Expected at most 3000 chars, got ${longestRun}`);
 });
+
+// ---------------------------------------------------------------------------
+// Untested conditional sections
+// ---------------------------------------------------------------------------
+
+test("failedUrlsSection lists unique failed URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to A", ok: false, targetUrl: "https://a.com", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go to B", ok: false, targetUrl: "https://b.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go to A again", ok: false, targetUrl: "https://a.com", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /FAILED URLs.*do NOT revisit/);
+  assert.match(user, /https:\/\/a\.com/);
+  assert.match(user, /https:\/\/b\.com/);
+});
+
+test("failedUrlsSection absent when no failed URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to page", ok: true, targetUrl: "https://ok.com", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /FAILED URLs/);
+});
+
+test("usedQueriesSection lists unique typed search queries", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "type", description: "Type query", ok: true, typedText: "flights to tokyo", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "type", description: "Type again", ok: true, typedText: "cheap flights japan", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "type", description: "Dupe", ok: true, typedText: "flights to tokyo", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Search queries already used.*DIFFERENT terms/);
+  assert.match(user, /flights to tokyo/);
+  assert.match(user, /cheap flights japan/);
+});
+
+test("usedQueriesSection absent when no type actions", () => {
+  const { user } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.doesNotMatch(user, /Search queries already used/);
+});
+
+test("repeatedNavWarning appears when last 3 actions are same-URL navigations", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 4,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click something", ok: true, createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go to page", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go again", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:02:00Z" },
+        { step: 3, type: "navigate", description: "Go third time", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:03:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /navigated to the same URL.*times in a row/);
+});
+
+test("repeatedNavWarning absent for varied navigations", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go A", ok: true, url: "https://a.com", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go B", ok: true, url: "https://b.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go C", ok: true, url: "https://c.com", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /navigated to the same URL/);
+});
+
+test("scrollSection shows scroll position", () => {
+  const pm = makePageModel({ scrollY: 1234 });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Scroll position: Y=1234px/);
+});
+
+test("scrollSection absent when scrollY undefined", () => {
+  const pm = makePageModel();
+  delete pm.scrollY;
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Scroll position:/);
+});
+
+test("lastActionSection shows success result", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click Submit", ok: true, createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Last action result: SUCCESS.*click "Click Submit"/);
+});
+
+test("lastActionSection shows failure result with class", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 1,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click Missing", ok: false, failureClass: "element_not_found", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Last action result: FAILED \(element_not_found\).*click "Click Missing"/);
+});
+
+test("urlWarning shows frequently visited URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://stuck.com": 5, "https://ok.com": 2 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /WARNING.*visited these URLs too many times/);
+  assert.match(user, /https:\/\/stuck\.com: 5 visits/);
+  assert.doesNotMatch(user, /https:\/\/ok\.com/);
+});
+
+test("urlWarning absent when no frequent URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 2,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://ok.com": 2 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /visited these URLs too many times/);
+});
+
+test("pageTypeStr appears when pageType is not unknown", () => {
+  const pm = makePageModel({ pageType: "search_results" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page type: search_results/);
+});
+
+test("pageTypeStr absent when pageType is unknown", () => {
+  const pm = makePageModel({ pageType: "unknown" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page type:/);
+});
+
+test("alertsSection lists page alerts", () => {
+  const pm = makePageModel({ alerts: ["Session expired", "Please log in"] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page alerts:/);
+  assert.match(user, /Session expired/);
+  assert.match(user, /Please log in/);
+});
+
+test("alertsSection absent when no alerts", () => {
+  const pm = makePageModel({ alerts: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page alerts:/);
+});
+
+test("formsSection renders enriched form fields", () => {
+  const pm = makePageModel({
+    forms: [{
+      method: "POST",
+      action: "/login",
+      fieldCount: 2,
+      fields: [
+        { ref: "el_5", label: "Username", type: "text", required: true, currentValue: "john" },
+        { ref: "el_6", label: "Password", type: "password", required: true }
+      ],
+      submitRef: "el_7"
+    }]
+  });
+
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /FORM: POST \/login \(2 fields\)/);
+  assert.match(user, /\[el_5\] "Username" type=text REQUIRED value="john"/);
+  assert.match(user, /\[el_6\] "Password" type=password REQUIRED/);
+  assert.match(user, /Submit button: \[el_7\]/);
+});
+
+test("formsSection absent when no forms", () => {
+  const pm = makePageModel({ forms: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Forms on page:/);
+});
+
+test("activePageHint appears on step 0 with non-blank URL", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 0,
+      actionHistory: [],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "https://shopping.example.com" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.match(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("activePageHint absent on step 0 with about:blank", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 0,
+      actionHistory: [],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "about:blank" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.doesNotMatch(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("activePageHint absent after step 0", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go", ok: true, createdAt: "2026-03-15T00:00:00Z" }
+      ],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "https://shopping.example.com" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.doesNotMatch(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("self-assessment triggers on URL visited 4+ times", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://stuck.com": 4 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /PROGRESS CHECK/);
+});
+
+test("typedText appears in action history", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "type", description: "Type search", ok: true, typedText: "hello world", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /→ Typed: "hello world"/);
+});
+
+test("targetUrl appears in action history", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to page", ok: true, targetUrl: "https://target.com", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /→ URL: https:\/\/target\.com/);
+});
+
+test("element attributes rendered (href, inputType, value, disabled, readonly, off-screen)", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_1", role: "link", label: "Home", isActionable: true, boundingVisible: true, href: "https://home.com" },
+      { id: "el_2", role: "input", label: "Email", isActionable: true, boundingVisible: true, inputType: "email", value: "test@test.com" },
+      { id: "el_3", role: "button", label: "Disabled", isActionable: true, boundingVisible: true, disabled: true },
+      { id: "el_4", role: "input", label: "ReadOnly", isActionable: true, boundingVisible: true, readonly: true },
+      { id: "el_5", role: "button", label: "Hidden", isActionable: true, boundingVisible: false }
+    ]
+  });
+
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_1\].*href="https:\/\/home\.com"/);
+  assert.match(user, /\[el_2\].*type="email".*value="test@test\.com"/);
+  assert.match(user, /\[el_3\].*\(disabled\)/);
+  assert.match(user, /\[el_4\].*\(readonly\)/);
+  assert.match(user, /\[el_5\].*\(off-screen\)/);
+});
+
+test("no interactive elements message when elements empty", () => {
+  const pm = makePageModel({ elements: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(no interactive elements found\)/);
+});
+
+test("constraints shows none when empty", () => {
+  const run = makeRun({ constraints: [] });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Constraints: none/);
+});
