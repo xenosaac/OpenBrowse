@@ -1614,6 +1614,49 @@ Added two test files:
 
 ---
 
+### Session 27 — 2026-03-16: Gap Analysis — AuditTrail + LogReplayer Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred, all open problems resolved. Two pure-class modules in `packages/observability` have zero test coverage:
+
+1. `AuditTrail` — builds structured run summaries and formatted timelines from workflow events. Pure class with `WorkflowLogReader` dependency. Untested = risk of incorrect event counting, missing phases, or broken timeline formatting.
+2. `LogReplayer` — replays workflow events with elapsed time calculations. Pure class with same dependency. Untested = risk of incorrect elapsed time math or empty-run edge cases.
+
+#### Plan
+
+1. Add `tests/auditTrail.test.mjs` — test generateRunSummary (empty events, single event, full run with all event types, failure/cancellation paths, duration calculation) and generateRunTimeline (empty, phase transitions, formatting)
+2. Add `tests/logReplayer.test.mjs` — test replay (empty, single, multi-event elapsed calculation) and replayFormatted (empty, formatting)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/auditTrail.test.mjs`** — 19 tests:
+- `generateRunSummary` (12 tests): empty events, single run_created, browser action counting, clarification counting, approval counting, page_modeled counting, completed run with duration, failed run with failure reason, cancelled run, recovery event counting, full run with all event types
+- `generateRunTimeline` (7 tests): empty events message, single event with phase header, phase transitions create new headers, same-phase consecutive events share header, elapsed time correctness, recovery/approval/handoff phases appear
+
+**`tests/logReplayer.test.mjs`** — 8 tests:
+- `replay` (4 tests): empty run returns [], single step with elapsed=0, multi-event elapsed computation, event reference preservation
+- `replayFormatted` (3 tests): empty run message, single event formatting, multi-event elapsed formatting
+- Independent runId isolation (1 test)
+
+#### Verification
+
+- `pnpm test` — 280/280 pass (was 253, +27 new tests for AuditTrail and LogReplayer)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `ClarificationPolicy` in orchestrator (untested pure-function module)
+- Consider edge case tests for `getPhaseForEvent` with `planner_decision`, `planner_request_started`, `planner_request_failed` event types (currently fall to "Other" or "Execution")
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
