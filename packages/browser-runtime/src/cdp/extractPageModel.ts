@@ -102,7 +102,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     var SKIP_TAGS = new Set(['NAV', 'HEADER', 'FOOTER', 'ASIDE', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG']);
     var result = [];
     var charCount = 0;
-    var MAX_CHARS = 2000;
+    var MAX_CHARS = 4000;
 
     var walker = document.createTreeWalker(
       document.body,
@@ -165,16 +165,44 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return 'unknown';
   }
 
-  // --- Forms extraction ---
+  // --- Forms extraction (enriched with field details) ---
   function extractForms() {
     var forms = document.querySelectorAll('form');
     var result = [];
     for (var i = 0; i < Math.min(forms.length, 5); i++) {
       var form = forms[i];
+      var fields = [];
+      var inputs = form.querySelectorAll('input, select, textarea');
+      for (var fi = 0; fi < Math.min(inputs.length, 20); fi++) {
+        var inp = inputs[fi];
+        if (inp.type === 'hidden') continue;
+        var fLabel = '';
+        if (inp.id) {
+          var lbl = document.querySelector('label[for="' + CSS.escape(inp.id) + '"]');
+          if (lbl) fLabel = (lbl.textContent || '').trim().slice(0, 60);
+        }
+        if (!fLabel && inp.closest && inp.closest('label')) {
+          fLabel = (inp.closest('label').textContent || '').trim().slice(0, 60);
+        }
+        if (!fLabel) {
+          fLabel = inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || inp.name || '';
+        }
+        var ref = inp.getAttribute(targetAttr) || '';
+        fields.push({
+          ref: ref,
+          label: fLabel.slice(0, 60),
+          type: inp.type || inp.tagName.toLowerCase(),
+          required: inp.required || inp.getAttribute('aria-required') === 'true',
+          currentValue: inp.value || ''
+        });
+      }
+      var submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
       result.push({
         action: form.getAttribute('action') || '',
         method: (form.getAttribute('method') || 'get').toUpperCase(),
-        fieldCount: form.querySelectorAll('input, select, textarea').length
+        fieldCount: inputs.length,
+        fields: fields,
+        submitRef: submitBtn ? (submitBtn.getAttribute(targetAttr) || '') : ''
       });
     }
     return result;

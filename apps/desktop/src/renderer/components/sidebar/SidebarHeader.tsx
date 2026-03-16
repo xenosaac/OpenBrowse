@@ -6,9 +6,10 @@ interface Props {
   waitingCount: number;
   onToggleSessionList: () => void;
   onNewSession: () => void;
+  onClearChat: () => void;
 }
 
-export function SidebarHeader({ runningCount, waitingCount, onToggleSessionList, onNewSession }: Props) {
+export function SidebarHeader({ runningCount, waitingCount, onToggleSessionList, onNewSession, onClearChat }: Props) {
   return (
     <div style={styles.sidebarHeader}>
       <div style={styles.brandMark}>✦</div>
@@ -30,7 +31,8 @@ export function SidebarHeader({ runningCount, waitingCount, onToggleSessionList,
         )}
       </div>
       <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-        <button onClick={onToggleSessionList} style={styles.sessionListToggle} className="ob-btn" title="Session history">☰</button>
+        <button onClick={onClearChat} style={styles.sessionListToggle} className="ob-btn" title="Clear chat">&#x1F5D1;</button>
+        <button onClick={onToggleSessionList} style={styles.sessionListToggle} className="ob-btn" title="Session history">&#x2630;</button>
         <button onClick={onNewSession} style={styles.newSessionButton} className="ob-btn-primary" title="New session">+</button>
       </div>
     </div>

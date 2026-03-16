@@ -67,10 +67,20 @@ export interface PageElementModel {
 
 export type PageType = "search_results" | "form" | "login" | "checkout" | "article" | "unknown";
 
+export interface PageFormField {
+  ref: string;
+  label: string;
+  type: string;
+  required: boolean;
+  currentValue: string;
+}
+
 export interface PageFormSummary {
   action: string;
   method: string;
   fieldCount: number;
+  fields?: PageFormField[];
+  submitRef?: string;
 }
 
 export interface PageModel {

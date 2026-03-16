@@ -343,6 +343,8 @@ export interface ClaudePlannerConfig {
   maxTokens?: number;
 }
 
+const PLANNER_TIMEOUT_MS = 60_000;
+
 export class ClaudePlannerGateway implements PlannerGateway {
   private readonly client: Anthropic;
   private readonly model: string;
@@ -350,34 +352,67 @@ export class ClaudePlannerGateway implements PlannerGateway {
 
   constructor(config: ClaudePlannerConfig = {}) {
     this.client = new Anthropic({ apiKey: config.apiKey });
-    this.model = config.model ?? "claude-sonnet-4-6";
+    this.model = config.model ?? "claude-opus-4-6";
     this.maxTokens = config.maxTokens ?? 4096;
   }
 
   async decide(input: PlannerInput): Promise<PlannerDecision<BrowserAction>> {
     const { system, user } = buildPlannerPrompt(input.run, input.pageModel);
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: user }];
 
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: this.maxTokens,
-      system,
-      tools: BROWSER_TOOLS,
-      tool_choice: { type: "any" },
-      messages: [{ role: "user", content: user }]
-    });
+    // First call: tool_choice "auto" so Claude can reason before acting
+    let response: Anthropic.Message;
+    try {
+      response = await this.callWithTimeout({
+        model: this.model,
+        max_tokens: this.maxTokens,
+        system,
+        tools: BROWSER_TOOLS,
+        tool_choice: { type: "auto" },
+        messages
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Planner timed out")) {
+        return { type: "task_failed", reasoning: msg, failureSummary: msg };
+      }
+      throw err;
+    }
 
     // Extract reasoning from text blocks
     const textBlocks = response.content.filter((b) => b.type === "text");
     const reasoning = textBlocks.map((b) => b.type === "text" ? b.text : "").join("\n").trim() || "No reasoning provided";
 
     // Extract tool use block
-    const toolUseBlock = response.content.find((b) => b.type === "tool_use");
+    let toolUseBlock = response.content.find((b) => b.type === "tool_use");
+
+    // If Claude responded with text only (no tool call), retry with forced tool_choice
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      return {
-        type: "task_failed",
-        reasoning: "No tool call in Claude response",
-        failureSummary: "Planner returned no tool call"
-      };
+      try {
+        const retryResponse = await this.callWithTimeout({
+          model: this.model,
+          max_tokens: this.maxTokens,
+          system,
+          tools: BROWSER_TOOLS,
+          tool_choice: { type: "any" },
+          messages: [
+            ...messages,
+            { role: "assistant", content: response.content },
+            { role: "user", content: "You must now call exactly one tool to take action based on your analysis above." }
+          ]
+        });
+        toolUseBlock = retryResponse.content.find((b) => b.type === "tool_use");
+      } catch {
+        // If retry also fails, fall through to error below
+      }
+
+      if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+        return {
+          type: "task_failed",
+          reasoning: reasoning || "No tool call in Claude response",
+          failureSummary: "Planner returned no tool call after retry"
+        };
+      }
     }
 
     return mapToolCallToDecision(
@@ -386,5 +421,14 @@ export class ClaudePlannerGateway implements PlannerGateway {
       reasoning,
       input.run.id
     );
+  }
+
+  private async callWithTimeout(
+    params: Anthropic.MessageCreateParamsNonStreaming
+  ): Promise<Anthropic.Message> {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Planner timed out after ${PLANNER_TIMEOUT_MS / 1000}s`)), PLANNER_TIMEOUT_MS)
+    );
+    return Promise.race([this.client.messages.create(params), timeout]);
   }
 }

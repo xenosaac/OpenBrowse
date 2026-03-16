@@ -9,8 +9,10 @@ import { ManagedProfiles } from "./ManagedProfiles";
 import { SettingsPanel } from "./SettingsPanel";
 import { HandoffViewer } from "./HandoffViewer";
 import { WorkflowLog } from "./WorkflowLog";
+import { BookmarkPanel } from "./BookmarkPanel";
+import { HistoryPanel } from "./HistoryPanel";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -34,6 +36,8 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "demos", label: "Demos" },
   { key: "sessions", label: "Sessions" },
   { key: "profiles", label: "Profiles" },
+  { key: "bookmarks", label: "Bookmarks" },
+  { key: "history", label: "History" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -149,6 +153,10 @@ export function ManagementPanel({
           {activeTab === "profiles" && (
             <ManagedProfiles profiles={profiles} />
           )}
+
+          {activeTab === "bookmarks" && <BookmarkPanel />}
+
+          {activeTab === "history" && <HistoryPanel />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

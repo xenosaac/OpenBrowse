@@ -5,7 +5,7 @@ export interface PlannerPrompt {
   user: string;
 }
 
-const MAX_STEPS = 20;
+const MAX_STEPS = 35;
 
 export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerPrompt {
   // --- Harness context ---
@@ -17,6 +17,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? `\nActions already taken (${actionHistory.length}, most recent last):\n${actionHistory.map((r) => {
         const status = r.ok ? "OK" : `FAILED (${r.failureClass ?? "failed"})`;
         let detail = `  Step ${r.step}: ${r.type} — "${r.description}" ${status}`;
+        if (r.targetId) detail += `\n    → Element: [${r.targetId}]`;
         if (r.targetUrl) detail += `\n    → URL: ${r.targetUrl}`;
         if (r.typedText) detail += `\n    → Typed: "${r.typedText}"`;
         return detail;
@@ -70,16 +71,15 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
 - Compare the current page state below with the pre-interruption context above to decide what needs to be redone.\n`
     : "";
 
-  // --- Elements (up to 80, prioritize actionable + visible) ---
+  // --- Elements (up to 150, prioritize actionable + visible) ---
   const sortedElements = [...pageModel.elements].sort((a, b) => {
-    // Prioritize: actionable + visible > actionable > visible > others
     const scoreA = (a.isActionable ? 2 : 0) + (a.boundingVisible ? 1 : 0);
     const scoreB = (b.isActionable ? 2 : 0) + (b.boundingVisible ? 1 : 0);
     return scoreB - scoreA;
   });
 
   const elementsSummary = sortedElements
-    .slice(0, 80)
+    .slice(0, 150)
     .map((el) => {
       let line = `[${el.id}] ${el.role} "${el.label}"`;
       if (el.href) line += ` href="${el.href}"`;
@@ -108,9 +108,39 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? "\n** CAPTCHA DETECTED: This page has a CAPTCHA. You cannot solve CAPTCHAs. Use ask_user to request the user to solve it."
     : "";
 
-  // --- Forms ---
+  // --- Forms (enriched with field details) ---
   const formsSection = pageModel.forms && pageModel.forms.length > 0
-    ? `\nForms on page:\n${pageModel.forms.map((f) => `  - ${f.method} ${f.action || "(no action)"} (${f.fieldCount} fields)`).join("\n")}`
+    ? `\nForms on page:\n${pageModel.forms.map((f) => {
+        let formLine = `  FORM: ${f.method} ${f.action || "(no action)"} (${f.fieldCount} fields)`;
+        if (f.fields && f.fields.length > 0) {
+          formLine += "\n" + f.fields.map((field) => {
+            let fl = `    [${field.ref}] "${field.label}" type=${field.type}`;
+            if (field.required) fl += " REQUIRED";
+            if (field.currentValue) fl += ` value="${field.currentValue}"`;
+            return fl;
+          }).join("\n");
+          if (f.submitRef) formLine += `\n    Submit button: [${f.submitRef}]`;
+        }
+        return formLine;
+      }).join("\n")}`
+    : "";
+
+  // --- Scroll position context ---
+  const scrollSection = pageModel.scrollY !== undefined
+    ? `\nScroll position: Y=${pageModel.scrollY}px`
+    : "";
+
+  // --- Last action result (explicit feedback to planner) ---
+  const lastAction = actionHistory.length > 0 ? actionHistory[actionHistory.length - 1] : null;
+  const lastActionSection = lastAction
+    ? `\nLast action result: ${lastAction.ok ? "SUCCESS" : `FAILED (${lastAction.failureClass ?? "unknown"})`} — ${lastAction.type} "${lastAction.description}"`
+    : "";
+
+  // --- URL visit warnings ---
+  const urlCounts = run.checkpoint.urlVisitCounts ?? {};
+  const frequentUrls = Object.entries(urlCounts).filter(([, count]) => count >= 4);
+  const urlWarning = frequentUrls.length > 0
+    ? `\n** WARNING: You have visited these URLs too many times — try a completely different approach:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}`
     : "";
 
   // --- System prompt ---
@@ -164,17 +194,45 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently.
     ? `\n** CONTEXT: This is the page the user currently has open. Evaluate whether it is relevant to the goal before deciding to navigate elsewhere. If the page is relevant, continue working on it directly.`
     : "";
 
+  // --- Self-assessment injection ---
+  const shouldInjectSelfAssessment = (() => {
+    // Trigger 1: 3+ of the last 5 actions share the same type
+    const last5 = actionHistory.slice(-5);
+    if (last5.length >= 3) {
+      const typeCounts: Record<string, number> = {};
+      for (const a of last5) {
+        typeCounts[a.type] = (typeCounts[a.type] ?? 0) + 1;
+      }
+      if (Object.values(typeCounts).some(c => c >= 3)) return true;
+    }
+    // Trigger 2: Step count >= 15 (halfway progress check)
+    if (stepCount >= 15) return true;
+    // Trigger 3: Any URL visited 4+ times
+    const urlCounts = run.checkpoint.urlVisitCounts ?? {};
+    if (Object.values(urlCounts).some(c => c >= 4)) return true;
+    return false;
+  })();
+
+  const selfAssessmentSection = shouldInjectSelfAssessment
+    ? `\n** PROGRESS CHECK — Before choosing your next action, assess:
+1. Am I making real progress toward the goal? What has changed on the page?
+2. If I've performed similar actions recently (e.g., multiple clicks), am I clicking DIFFERENT elements for a reason, or the SAME element repeatedly without effect?
+3. Do I need something from the user to proceed (login credentials, CAPTCHA, a decision)?
+If you are genuinely stuck and cannot make progress, call task_failed with a clear explanation.
+If you need user input, call ask_user. Otherwise, continue with your next action.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${repeatedNavWarning}${recoverySection}${notesSection}${activePageHint}
+Steps taken: ${stepCount}/${MAX_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
 
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${captchaHint}${alertsSection}${formsSection}
+${pageTypeStr}${scrollSection}${captchaHint}${alertsSection}${formsSection}
 
 Visible text (excerpt):
-${(pageModel.visibleText ?? "").slice(0, 1500)}
+${(pageModel.visibleText ?? "").slice(0, 3000)}
 
 Interactive elements (* = actionable):
 ${elementsSummary || "(no interactive elements found)"}
