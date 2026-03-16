@@ -281,6 +281,9 @@ When an action fails, use the right recovery strategy:
 - **Type action failed:** The input may not be focused. Use browser_click on the input field first, then browser_type.
 - **After 2 consecutive failures on the same action:** Stop retrying. Either try a completely different approach or use ask_user to get guidance. Do not loop on the same failing action.
 
+## Partial Results
+If you have collected useful intermediate data (via save_note or read_text) and the task cannot be fully completed, prefer task_complete with partial extractedData over task_failed. Partial results are more valuable than failure.
+
 Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan efficiently.`;
 
   // --- User prompt ---
@@ -322,9 +325,14 @@ If you are genuinely stuck and cannot make progress, call task_failed with a cle
 If you need user input, call ask_user. Otherwise, continue with your next action.`
     : "";
 
+  const remaining = MAX_PLANNER_STEPS - (stepCount + 1);
+  const lowBudgetWarning = remaining <= 10
+    ? `\n** BUDGET LOW: ${remaining} step${remaining !== 1 ? "s" : ""} remaining. Complete the task now using task_complete — include any partial results in extractedData. Do not start new multi-step sequences.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${activePageHint}${selfAssessmentSection}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
 
 Current page:
 URL: ${pageModel.url}

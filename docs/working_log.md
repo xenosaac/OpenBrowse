@@ -7071,3 +7071,54 @@ Rationale: PM directive explicitly says "T13 (clear_first on browser_type) is th
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 117)*
+
+### Session 118 — 2026-03-16: T14 — Step-Budget Awareness and Partial Result Delivery
+
+#### Mode: feature
+
+Rationale: PM directive says "After T13: T14 (step-budget awareness), then T15." T14 prevents silent failures on long tasks by injecting a low-budget warning when remaining steps ≤ 10 and adding system prompt guidance preferring partial results over failure. The prompt already shows step counts; this adds the warning and guidance.
+
+#### Plan
+
+1. **`buildPlannerPrompt.ts`**: Add a low-budget warning in the user prompt when remaining steps ≤ 10. Format: "BUDGET LOW: N steps remaining. Complete the task now using task_complete — include any partial results in extractedData."
+2. **`buildPlannerPrompt.ts`**: Add system prompt guidance about preferring partial results with extractedData over task_failed when the task cannot be fully completed.
+3. **Tests**: Low-budget warning appears when remaining ≤ 10. Warning absent when budget is ample. Partial result guidance is in system prompt.
+
+#### Implementation
+
+**1. `packages/planner/src/buildPlannerPrompt.ts`** — System prompt:
+- Added "## Partial Results" section after Error Recovery: "If you have collected useful intermediate data (via save_note or read_text) and the task cannot be fully completed, prefer task_complete with partial extractedData over task_failed. Partial results are more valuable than failure."
+
+**2. `packages/planner/src/buildPlannerPrompt.ts`** — User prompt:
+- Computes `remaining = MAX_PLANNER_STEPS - (stepCount + 1)`
+- When `remaining <= 10`, injects: "BUDGET LOW: N steps remaining. Complete the task now using task_complete — include any partial results in extractedData. Do not start new multi-step sequences."
+- The warning appears after self-assessment but before "Current page:" section
+
+**3. Tests** (+5 tests):
+- "low-budget warning appears when remaining steps <= 10" — stepCount 40 → 9 remaining
+- "low-budget warning absent when budget is ample" — stepCount 10 → 39 remaining
+- "low-budget warning appears at exactly 10 remaining" — stepCount 39 → boundary test
+- "low-budget warning absent at 11 remaining" — stepCount 38 → off-by-one boundary
+- "system prompt includes partial result guidance" — verifies "Partial Results" section with extractedData/task_complete
+
+#### Files Changed
+
+- `packages/planner/src/buildPlannerPrompt.ts` — Partial Results guidance in system prompt + low-budget warning in user prompt
+- `tests/planner-prompt.test.mjs` — 5 new tests for budget awareness and partial result guidance
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 181/181 pass (was 176, +5 new)
+- `node --test tests/*.test.mjs` — 1068/1068 pass (was 1063, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T14 is complete. The planner now knows when budget is low and prefers partial results over silent failure.
+- T15 (prompt clarity pass) is the next PM-directed task — consolidation after T13/T14 additions.
+- All PM tasks (T1-T14) complete. All design tasks (D1-D9) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 118)*

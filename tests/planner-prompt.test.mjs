@@ -2675,3 +2675,49 @@ test("T4: all three realistic page models produce prompts under 30k chars", () =
   }
   console.log(`=================================\n`);
 });
+
+// --- T14: Step-budget awareness and partial result delivery ---
+
+test("low-budget warning appears when remaining steps <= 10", () => {
+  // stepCount 40 means step 41 of 50, remaining = 50 - 41 = 9
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, stepCount: 40 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /BUDGET LOW.*9 steps remaining/);
+  assert.match(user, /task_complete/);
+  assert.match(user, /extractedData/);
+});
+
+test("low-budget warning absent when budget is ample", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, stepCount: 10 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /BUDGET LOW/);
+});
+
+test("low-budget warning appears at exactly 10 remaining", () => {
+  // stepCount 39 means step 40 of 50, remaining = 50 - 40 = 10
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, stepCount: 39 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /BUDGET LOW.*10 steps remaining/);
+});
+
+test("low-budget warning absent at 11 remaining", () => {
+  // stepCount 38 means step 39 of 50, remaining = 50 - 39 = 11
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, stepCount: 38 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /BUDGET LOW/);
+});
+
+test("system prompt includes partial result guidance", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.match(system, /Partial Results/);
+  assert.match(system, /partial.*extractedData/i);
+  assert.match(system, /task_complete/);
+});
