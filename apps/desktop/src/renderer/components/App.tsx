@@ -27,6 +27,7 @@ import { HomePage } from "./panels/HomePage";
 import { AgentActivityBar } from "./AgentActivityBar";
 import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel } from "./ManagementPanel";
+import { FindBar } from "./chrome/FindBar";
 
 declare global {
   interface Window {
@@ -92,6 +93,9 @@ declare global {
       addBookmark: (data: { url: string; title: string; faviconUrl?: string }) => Promise<{ id: string }>;
       deleteBookmark: (id: string) => Promise<void>;
       searchBookmarks: (query: string) => Promise<unknown[]>;
+      // Find in page
+      findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<unknown>;
+      stopFindInPage: (sessionId: string) => Promise<unknown>;
       // DevTools / Print / PDF
       openDevTools: (sessionId: string) => Promise<unknown>;
       printPage: (sessionId: string) => Promise<unknown>;
@@ -141,6 +145,31 @@ export function App() {
   const layout = useUILayout();
   const addressBarRef = useRef<HTMLInputElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // ---- Find-in-page state ----
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findResult, setFindResult] = useState({ activeMatchOrdinal: 0, matches: 0 });
+
+  useEffect(() => {
+    return runtimeEventBus.subscribe((event) => {
+      if (event.type === "find_in_page_result" && event.finalUpdate) {
+        setFindResult({
+          activeMatchOrdinal: event.activeMatchOrdinal ?? 0,
+          matches: event.matches ?? 0,
+        });
+      }
+    });
+  }, []);
+
+  // Close find bar when switching tabs
+  useEffect(() => {
+    if (findBarOpen && selection.activeBrowserTab) {
+      void window.openbrowse.stopFindInPage(selection.activeBrowserTab.id);
+    }
+    setFindBarOpen(false);
+    setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.activeBrowserTab?.id]);
 
   // ---- Step 1.3: Sync selectedRunId → inspectedRunId, foregroundRunId ----
   useEffect(() => {
@@ -611,8 +640,32 @@ export function App() {
     onReload: () => { if (selection.activeBrowserTab) void browserTabs.reload(selection.activeBrowserTab.id); },
     onBack: () => { if (selection.activeBrowserTab) void browserTabs.goBack(selection.activeBrowserTab.id); },
     onForward: () => { if (selection.activeBrowserTab) void browserTabs.goForward(selection.activeBrowserTab.id); },
-    onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); }
+    onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); },
+    onFindInPage: () => {
+      if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+        setFindBarOpen(true);
+        setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+      }
+    }
   });
+
+  const handleFindInPage = useCallback((text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+    if (selection.activeBrowserTab) {
+      void window.openbrowse.findInPage(selection.activeBrowserTab.id, text, options);
+    }
+  }, [selection.activeBrowserTab]);
+
+  const handleStopFind = useCallback(() => {
+    if (selection.activeBrowserTab) {
+      void window.openbrowse.stopFindInPage(selection.activeBrowserTab.id);
+    }
+    setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+  }, [selection.activeBrowserTab]);
+
+  const handleCloseFindBar = useCallback(() => {
+    handleStopFind();
+    setFindBarOpen(false);
+  }, [handleStopFind]);
 
   // ---- Hamburger dropdown menu content (rendered via portal) ----
   const menuRect = menuButtonRef.current?.getBoundingClientRect();
@@ -807,6 +860,15 @@ export function App() {
                 recentAction={agentRuns.foregroundRunEvents.at(-1) ?? null}
                 onCancel={(runId) => void handleCancelRun(runId)}
               />
+              {findBarOpen && (
+                <FindBar
+                  onFind={handleFindInPage}
+                  onStopFind={handleStopFind}
+                  onClose={handleCloseFindBar}
+                  activeMatchOrdinal={findResult.activeMatchOrdinal}
+                  totalMatches={findResult.matches}
+                />
+              )}
               <BrowserPanel
                 activeTab={selection.activeBrowserTab}
                 covered={layout.managementOpen || layout.menuOpen}

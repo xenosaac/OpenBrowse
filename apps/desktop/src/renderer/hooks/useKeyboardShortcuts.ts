@@ -12,12 +12,13 @@ interface KeyboardShortcutsParams {
   onBack: () => void;
   onForward: () => void;
   onFocusAddressBar: () => void;
+  onFindInPage: () => void;
 }
 
 export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
   const {
     activeBrowserTab, mainPanel, addressBarRef,
-    onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar
+    onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage
   } = params;
 
   useEffect(() => {
@@ -41,6 +42,12 @@ export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
         return;
       }
 
+      if (e.key === "f") {
+        e.preventDefault();
+        onFindInPage();
+        return;
+      }
+
       if (mainPanel !== "browser" || !activeBrowserTab) return;
 
       if (e.key === "r") {
@@ -61,5 +68,5 @@ export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeBrowserTab, mainPanel, onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar]);
+  }, [activeBrowserTab, mainPanel, onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage]);
 }

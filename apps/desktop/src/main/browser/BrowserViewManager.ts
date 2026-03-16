@@ -22,6 +22,7 @@ export class BrowserViewManager {
   onNavigate: ((sessionId: string, url: string, title: string) => void) | null = null;
   onLoadingStateChanged: ((sessionId: string, isLoading: boolean) => void) | null = null;
   onFaviconUpdated: ((sessionId: string, faviconUrl: string) => void) | null = null;
+  onFindResult: ((sessionId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -77,6 +78,14 @@ export class BrowserViewManager {
       }
     });
 
+    view.webContents.on("found-in-page", (_event, result) => {
+      this.onFindResult?.(sessionId, {
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+        finalUpdate: result.finalUpdate
+      });
+    });
+
     view.webContents.on("destroyed", () => {
       this.views.delete(sessionId);
       if (this.activeViewId === sessionId) {
@@ -85,6 +94,20 @@ export class BrowserViewManager {
     });
 
     return managed;
+  }
+
+  findInPage(sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }): void {
+    const managed = this.views.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed() && text) {
+      managed.view.webContents.findInPage(text, options);
+    }
+  }
+
+  stopFindInPage(sessionId: string, action: "clearSelection" | "keepSelection" | "activateSelection" = "clearSelection"): void {
+    const managed = this.views.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.stopFindInPage(action);
+    }
   }
 
   navigate(sessionId: string, url: string): void {
