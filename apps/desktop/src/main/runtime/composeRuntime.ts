@@ -10,6 +10,7 @@ import type { RuntimeConfig, RuntimeDescriptor } from "@openbrowse/contracts";
 import { createDefaultRuntimeSettings } from "@openbrowse/contracts";
 import {
   assembleRuntimeServices,
+  bootstrapRun,
   createChatBridge,
   createPlanner,
   createRuntimeStorage,
@@ -113,6 +114,7 @@ export async function composeRuntime(options: ComposeRuntimeOptions = {}): Promi
     browserDescriptor: browserKernelSetup.descriptor,
     ...storage,
     hasDemos: options.hasDemos,
-    telegramStatePath
+    telegramStatePath,
+    schedulerDispatch: bootstrapRun
   });
 }
