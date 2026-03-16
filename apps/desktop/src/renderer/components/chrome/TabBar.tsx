@@ -51,7 +51,7 @@ export function TabBar(props: Props) {
   useEffect(() => { updateTabScroll(); }, [shellTabs.length, updateTabScroll]);
 
   return (
-    <div className="ob-glass-panel" style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
+    <div style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
       <button
         className="ob-btn"
         onClick={onToggleSidebar}
@@ -122,10 +122,8 @@ const styles: Record<string, React.CSSProperties> = {
   tabBar: {
     display: "flex", alignItems: "center", gap: 8,
     padding: "10px 10px 0",
-    ...glass.panel,
-    border: `1px solid ${colors.borderGlass}`,
-    boxShadow: shadows.glassSubtle,
-    WebkitAppRegion: "drag", borderBottom: `1px solid ${colors.borderGlass}`
+    background: "transparent",
+    WebkitAppRegion: "drag",
   } as React.CSSProperties,
   headerTabs: {
     display: "flex", alignItems: "center", gap: 6,

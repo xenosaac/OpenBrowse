@@ -1,7 +1,7 @@
 import React, { useRef, forwardRef } from "react";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
 import type { ManagementTab } from "../ManagementPanel";
-import { colors, radii, glass, shadows } from "../../styles/tokens";
+import { colors, radii, glass } from "../../styles/tokens";
 
 interface Props {
   activeBrowserTab: BrowserShellTabDescriptor | null;
@@ -39,7 +39,7 @@ export function NavBar(props: Props) {
   } = props;
 
   return (
-    <div className="ob-glass-panel" style={styles.navBar}>
+    <div style={styles.navBar}>
       <div style={styles.navButtons}>
         <button
           className="ob-btn"
@@ -140,10 +140,8 @@ const styles: Record<string, React.CSSProperties> = {
   navBar: {
     display: "flex", alignItems: "center", gap: 8,
     padding: "7px 10px",
-    ...glass.panel,
-    border: `1px solid ${colors.borderGlass}`,
-    boxShadow: shadows.glassSubtle,
-    borderBottom: `1px solid ${colors.borderGlass}`, WebkitAppRegion: "drag"
+    background: "transparent",
+    WebkitAppRegion: "drag",
   } as React.CSSProperties,
   navButtons: {
     display: "flex", alignItems: "center", gap: 3, WebkitAppRegion: "no-drag"
