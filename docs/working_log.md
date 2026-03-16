@@ -2455,3 +2455,59 @@ Session 41 noted: "Consider extracting `readStoredRuntimeSettings`/`applyRuntime
 - Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 43 — 2026-03-16: Extract assembleRuntimeServices from Electron dependency + Test Suite + Duplicate Cleanup
+
+#### Context
+
+Session 42 noted: "Consider extracting assembleRuntimeServices from compose.ts (blocked by bootstrapRun import from OpenBrowseRuntime.ts)." assembleRuntimeServices creates the scheduler with a hardcoded bootstrapRuntimeRun import from OpenBrowseRuntime.ts which chains to Electron. Making the scheduler dispatch function injectable (same pattern as RecoveryManager Session 37) will unblock Node-based testing.
+
+Also cleaning up scripted-planner.test.mjs duplicate (2 tests, both covered by scriptedPlanner.test.mjs 13 tests).
+
+#### Plan
+
+1. Add `schedulerDispatch` parameter to `AssembleServicesParams`
+2. Remove `bootstrapRun` import from `compose.ts`
+3. Update `composeRuntime.ts` to pass `bootstrapRun` as `schedulerDispatch`
+4. Run typecheck
+5. Write test suite for `assembleRuntimeServices` and `createRuntimeStorage`
+6. Delete duplicate `scripted-planner.test.mjs`
+7. Run tests
+8. Commit
+
+#### Implementation
+
+**Refactored `packages/runtime-core/src/compose.ts`:**
+- Removed direct import of `bootstrapRun` from `OpenBrowseRuntime.ts` (Electron chain breaker)
+- Added `schedulerDispatch: (services: RuntimeServices, intent: TaskIntent) => Promise<unknown>` to `AssembleServicesParams`
+- Scheduler now calls `params.schedulerDispatch(services, schedulerIntent)` instead of hardcoded `bootstrapRuntimeRun`
+- `compose.ts` is now fully importable from system Node without Electron
+
+**Updated `apps/desktop/src/main/runtime/composeRuntime.ts`:**
+- Imports `bootstrapRun` from `@openbrowse/runtime-core`
+- Passes it as `schedulerDispatch: bootstrapRun` to `assembleRuntimeServices`
+
+**Created `tests/compose.test.mjs` — 19 tests:**
+- `createRuntimeStorage` (3 tests): no dbPath returns in-memory, all 11 store properties present, invalid dbPath falls back to memory
+- `assembleRuntimeServices` (16 tests): all RuntimeServices keys present, store pass-through, kernel/bridge/planner pass-through, config/settings pass-through, EventBus creation, TaskOrchestrator creation, DefaultApprovalPolicy creation, scheduler creation, hasDemos propagation (true/false), telegramStatePath, sqliteDb, descriptor built from subsystem descriptors, init functions pass-through, schedulerDispatch integration, riskClassPolicies used in securityPolicy
+
+**Deleted duplicate `tests/scripted-planner.test.mjs`** — 2 tests fully covered by `scriptedPlanner.test.mjs` (13 tests)
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/compose.test.mjs` — 19/19 pass
+- `node --test tests/*.test.mjs` — 682/682 pass (was 665, +19 new, -2 duplicate removed)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- All major pure-function modules now have test coverage; remaining untested code requires Electron context or network mocking
+
+*Session log entry written: 2026-03-16*
