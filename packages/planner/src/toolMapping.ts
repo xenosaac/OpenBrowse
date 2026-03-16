@@ -138,6 +138,19 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_wait_for_text",
+    description: "Wait for specific text to appear on the page. Use after actions that trigger dynamic content loading (submitting a search, clicking a navigation link on an SPA, submitting a form). More reliable than browser_wait because it returns as soon as the text appears instead of waiting a fixed duration.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: { type: "string", description: "The text to wait for on the page (case-sensitive substring match)" },
+        timeout: { type: "number", description: "Maximum time to wait in milliseconds (default 5000)" },
+        description: { type: "string", description: "Why you are waiting for this text" }
+      },
+      required: ["text", "description"]
+    }
+  },
+  {
     name: "task_complete",
     description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
@@ -208,6 +221,7 @@ export interface ToolInput {
   direction?: string;
   key?: string;
   duration?: number;
+  timeout?: number;
   description?: string;
   summary?: string;
   reason?: string;
@@ -357,6 +371,19 @@ export function mapToolCallToDecision(
           type: "read_text",
           targetId: input.ref,
           description: input.description ?? "Read element text"
+        }
+      };
+
+    case "browser_wait_for_text":
+      if (!input.text) return fail("browser_wait_for_text called without text");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "wait_for_text",
+          value: input.text,
+          description: input.description ?? "Wait for text",
+          interactionHint: String(input.timeout ?? 5000)
         }
       };
 

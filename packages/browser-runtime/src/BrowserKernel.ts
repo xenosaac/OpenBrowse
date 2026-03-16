@@ -125,7 +125,8 @@ export class StubBrowserKernel implements BrowserKernel {
       action,
       pageModelId: `page_${session.id}`,
       summary: `Executed stub browser action: ${action.description}`,
-      extractedText: action.type === "read_text" ? "(stub: no text available)" : undefined
+      extractedText: action.type === "read_text" ? "(stub: no text available)" : undefined,
+      ...(action.type === "wait_for_text" ? { summary: `Stub: waited for text "${(action.value ?? "").slice(0, 60)}"` } : {})
     };
   }
 

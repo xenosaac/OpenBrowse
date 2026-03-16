@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 14 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 14);
+  it("defines exactly 15 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 15);
   });
 
   it("has unique tool names", () => {
@@ -30,7 +30,8 @@ describe("BROWSER_TOOLS", () => {
     const expected = [
       "browser_navigate", "browser_click", "browser_type", "browser_select",
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
-      "browser_screenshot", "browser_go_back", "browser_read_text", "task_complete", "task_failed", "ask_user"
+      "browser_screenshot", "browser_go_back", "browser_read_text", "browser_wait_for_text",
+      "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -304,6 +305,49 @@ describe("mapToolCallToDecision — browser_read_text", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_wait_for_text
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_wait_for_text", () => {
+  it("maps to wait_for_text action with text and default timeout", () => {
+    const result = mapToolCallToDecision(
+      "browser_wait_for_text",
+      { text: "Search results", description: "Wait for search results to load" },
+      "waiting for results",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "wait_for_text");
+    assert.equal(result.action.value, "Search results");
+    assert.equal(result.action.description, "Wait for search results to load");
+    assert.equal(result.action.interactionHint, "5000");
+    assert.equal(result.reasoning, "waiting for results");
+  });
+
+  it("uses custom timeout when provided", () => {
+    const result = mapToolCallToDecision(
+      "browser_wait_for_text",
+      { text: "Success", timeout: 10000, description: "Wait for confirmation" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.type, "wait_for_text");
+    assert.equal(result.action.interactionHint, "10000");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision("browser_wait_for_text", { text: "Hello" }, "r", "run_1");
+    assert.equal(result.action.description, "Wait for text");
+  });
+
+  it("fails when text is missing", () => {
+    const result = mapToolCallToDecision("browser_wait_for_text", { description: "Wait" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without text"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -567,6 +611,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_screenshot", {}],
       ["browser_go_back", {}],
       ["browser_read_text", { ref: "r" }],
+      ["browser_wait_for_text", { text: "t" }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

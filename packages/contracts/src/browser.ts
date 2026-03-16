@@ -14,7 +14,8 @@ export type BrowserActionType =
   | "pressKey"
   | "screenshot"
   | "go_back"
-  | "read_text";
+  | "read_text"
+  | "wait_for_text";
 
 export type BrowserActionFailureClass =
   | "element_not_found"

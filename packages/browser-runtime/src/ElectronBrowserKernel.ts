@@ -488,6 +488,48 @@ export class ElectronBrowserKernel implements BrowserKernel {
           break;
         }
 
+        case "wait_for_text": {
+          const searchText = this.requireActionValue(action);
+          const timeout = Number(action.interactionHint) || 5000;
+          const pollInterval = 200;
+          const maxAttempts = Math.ceil(timeout / pollInterval);
+
+          let found = false;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const hasText = await managed.cdp.callFunction<boolean>(
+              `function(searchText) {
+                return (document.body.innerText || '').includes(searchText);
+              }`,
+              searchText
+            );
+            if (hasText) {
+              found = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, pollInterval));
+          }
+
+          managed.cdp.invalidateContext();
+          const pageModelAfterWait = await this.capturePageModel(browserSession);
+
+          if (found) {
+            return {
+              ok: true,
+              action,
+              pageModelId: pageModelAfterWait.id,
+              summary: `Text "${searchText.slice(0, 60)}" found on page`
+            };
+          } else {
+            return {
+              ok: false,
+              action,
+              pageModelId: pageModelAfterWait.id,
+              summary: `Text "${searchText.slice(0, 60)}" not found after ${timeout}ms`,
+              failureClass: "interaction_failed" as const
+            };
+          }
+        }
+
         case "read_text": {
           const targetId = this.requireTargetId(action);
           const text = await managed.cdp.callFunction<string | null>(
