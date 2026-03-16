@@ -564,7 +564,7 @@ At the end of the current build arc, evaluate:
 
 **Circular import prevention:** `wireBotCommands` uses `instanceof TelegramChatBridge` check (same pattern as `wireInboundChat`). `runtime-core` already imports `chat-bridge`. No circular dependency.
 
-**Page model element cap:** `buildPlannerPrompt` caps `pageModel.elements` at 50. This may be too low for complex pages. Future: consider 100–150 or smarter relevance filtering.
+**Page model element cap:** `buildPlannerPrompt` caps `pageModel.elements` at 150 (increased from 50 in Session 20). Visible text cap is 3000 chars (extract: 4000). Future: consider smarter relevance filtering if 150 proves insufficient.
 
 **Planner token budget:** `maxTokens` is 4096. With adaptive thinking, Claude decides how much to think. Do not reduce this — 1024 was causing silent `task_failed` returns on complex pages.
 
@@ -2266,6 +2266,57 @@ Gap analysis: store-contract.test.mjs covers only 3 of 11 InMemory store impleme
 
 - `node --test tests/storeContractExtended.test.mjs` — 60/60 pass
 - `node --test tests/*.test.mjs` — 567/567 pass (was 507, +60 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 40 — 2026-03-16: Stale Doc Fix + ScriptedPlannerGateway & Demo Scenario Tests
+
+#### Context
+
+All P0–P2 backlog done, P3 deferred. Gap analysis continuing. `ScriptedPlannerGateway` has only 2 indirect tests (`scripted-planner.test.mjs`). The class has 4 methods (`decide`, `reset`, `getCurrentStep`, constructor with `initialStepIndex`) and supports function-based decisions — all undertested. The 3 demo scenario factory functions (`createTravelSearchScenario`, `createAppointmentBookingScenario`, `createPriceMonitorScenario`) have zero structural validation tests.
+
+Also fixed stale engineering note: element cap was documented as 50 but has been 150 since Session 20.
+
+#### Plan
+
+1. Fix stale engineering note (element cap 50 → 150) ✓
+2. Add `tests/scriptedPlanner.test.mjs` — comprehensive tests for ScriptedPlannerGateway
+3. Add `tests/demoScenarios.test.mjs` — structural validation of all 3 demo scenario factories
+4. Run tests
+5. Commit
+
+#### Implementation
+
+**Fixed stale engineering note** (Section 10): Element cap documented as 50, corrected to 150 with text cap 3000/4000 (updated in Session 20).
+
+**Created `tests/scriptedPlanner.test.mjs` — 13 tests:**
+- `getCurrentStep` (2 tests): starts at 0, respects `initialStepIndex`
+- `decide` sequencing (3 tests): advances step index, returns correct decision per step, auto-completes with label when steps exhausted
+- Function-based decisions (2 tests): receives PlannerInput, reads checkpoint notes
+- `reset` (2 tests): sets index back to 0, enables replay from beginning
+- Edge cases (4 tests): `initialStepIndex` skips earlier steps, empty scenario auto-completes immediately with "0 steps", auto-complete includes scenario label, mixed static and function decisions
+
+**Created `tests/demoScenarios.test.mjs` — 31 tests:**
+- Travel Search (9 tests): metadata, 8 steps, navigate to Google Flights, simulated page model, type departure/destination, clarification for dates, function uses answer, task_complete with airlines, all steps valid
+- Appointment Booking (7 tests): metadata, 7 steps, navigate to ZocDoc, clarification for provider (3+ options), approval request (irreversible), task_complete with booking, all steps valid
+- Price Monitor (9 tests): metadata, 4 steps, clarification for product URL, function navigate, URL extraction from answer, fallback URL, extract action, task_complete with price, all steps valid
+- Cross-scenario (2 tests): unique IDs, non-empty labels
+
+#### Verification
+
+- `node --test tests/scriptedPlanner.test.mjs tests/demoScenarios.test.mjs` — 44/44 pass
+- `node --test tests/*.test.mjs` — 611/611 pass (was 567, +44 new)
+- `pnpm run typecheck` — clean
 
 #### Status: DONE
 
