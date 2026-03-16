@@ -423,7 +423,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
       inputType: el.tagName === 'INPUT' ? (el.type || 'text') : undefined,
-      disabled: el.disabled || undefined,
+      disabled: el.disabled || el.getAttribute('aria-disabled') === 'true' || undefined,
       readonly: el.readOnly || undefined,
       checked: (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : (el.getAttribute('aria-checked') === 'true' ? true : undefined),
       selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
