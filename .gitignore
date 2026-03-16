@@ -25,6 +25,7 @@ working-log.md
 working-log-*.md
 *.worklog.md
 worklogs/
+taste_skills/
 
 # Local project docs kept out of git for now
 docs/*
