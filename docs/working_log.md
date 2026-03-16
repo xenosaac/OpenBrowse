@@ -6854,3 +6854,56 @@ Rationale: All PM tasks complete. D8 done. D9 is the next UI design task — add
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 114)*
+
+---
+
+### Session 115 — 2026-03-16: Chat Empty State — Sidebar Task Suggestions
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete. Feature backlog P0-P2 done, P3 deferred. T9 requires user action. The UI design doc gap #5 identifies "No chat empty state" — when the sidebar has no messages and no active run, the conversation area is blank with no guidance. This is a real first-run UX gap. Implementing it is the next small useful feature.
+
+#### Plan
+
+1. **`Sidebar.tsx`**: Add an empty state section that renders when `messages.length === 0 && !chatContextRun && sessionSuspendedRuns.length === 0`.
+2. The empty state shows a subtle heading and 3-4 clickable suggestion pills. Clicking a suggestion populates the chat input.
+3. Follow Interior Component Rule: `background: 'transparent'`, no `backdropFilter`, `borderSubtle` borders. Use token references only.
+4. **`App.tsx`**: Add `ob-suggestion-pill` hover/active CSS class (border brightens on hover, emerald accent on press).
+5. Run typecheck.
+
+#### Implementation
+
+**1. `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx`**:
+- Added `SUGGESTIONS` array with 4 example tasks that demonstrate core agent capabilities (search+extract, navigation+summarize, multi-step extraction, comparison)
+- Added empty state section that renders when `messages.length === 0 && !chatContextRun && sessionSuspendedRuns.length === 0`
+- Empty state shows "What can I help with?" heading, "Try a task like:" subtext, and 4 clickable suggestion pills
+- Clicking a suggestion pill calls `onChatInputChange(s)` to populate the chat input (user can review/edit before submitting)
+- Follows Interior Component Rule: `background: 'transparent'`, no `backdropFilter`, `borderSubtle` borders
+- All colors use token references
+
+**2. `apps/desktop/src/renderer/components/App.tsx`**:
+- Added `.ob-suggestion-pill` hover/active CSS class
+- Hover: border brightens to `rgba(255,255,255,0.14)`, text brightens to `textPrimary`
+- Active: emerald border accent `rgba(16,185,129,0.3)`, text changes to emerald
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx` — Empty state with 4 clickable task suggestions
+- `apps/desktop/src/renderer/components/App.tsx` — Suggestion pill hover/active CSS
+
+#### Verification
+
+- `pnpm run typecheck` — clean
+- `node --test tests/*.test.mjs` — 1059/1059 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Chat empty state gap (#5 from UI design doc) is resolved. The sidebar now shows task suggestions when the conversation is empty.
+- All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- Remaining low-priority UI audit items: traffic-light padding magic number (#6 from UI design doc).
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 115)*

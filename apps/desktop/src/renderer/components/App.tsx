@@ -454,6 +454,19 @@ export function App() {
         color: #ffffff !important;
       }
 
+      /* Suggestion pill hover */
+      .ob-suggestion-pill {
+        transition: border-color 150ms ease, color 150ms ease;
+      }
+      .ob-suggestion-pill:hover {
+        border-color: rgba(255,255,255,0.14) !important;
+        color: ${colors.textPrimary} !important;
+      }
+      .ob-suggestion-pill:active {
+        border-color: rgba(16,185,129,0.3) !important;
+        color: ${colors.emerald} !important;
+      }
+
       /* Scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }

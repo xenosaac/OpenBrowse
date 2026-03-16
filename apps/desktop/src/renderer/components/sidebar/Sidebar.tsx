@@ -95,6 +95,24 @@ export function Sidebar(props: Props) {
         {chatContextRun && (
           <RunContextCard run={chatContextRun} recentActions={globalActionEvents} />
         )}
+        {messages.length === 0 && !chatContextRun && sessionSuspendedRuns.length === 0 && (
+          <div style={styles.emptyState}>
+            <div style={styles.emptyHeading}>What can I help with?</div>
+            <div style={styles.emptySubtext}>Try a task like:</div>
+            <div style={styles.suggestionList}>
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  style={styles.suggestionPill}
+                  className="ob-suggestion-pill"
+                  onClick={() => onChatInputChange(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((message) => (
           <ChatMessageItem key={message.id} message={message} />
         ))}
@@ -125,6 +143,13 @@ export function Sidebar(props: Props) {
   );
 }
 
+const SUGGESTIONS = [
+  "Search Google for the top noise-cancelling headphones",
+  "Go to Wikipedia and summarize the article on Electron",
+  "Open Hacker News and extract the top 5 story titles",
+  "Compare flight prices on Google Flights from SFO to NYC",
+];
+
 const styles: Record<string, React.CSSProperties> = {
   titleBarSpacer: { height: 38, flexShrink: 0, WebkitAppRegion: "drag" } as React.CSSProperties,
   sessionLabel: {
@@ -142,5 +167,28 @@ const styles: Record<string, React.CSSProperties> = {
   questionsDividerLabel: {
     fontSize: "0.72rem", color: colors.statusWaiting,
     textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600
+  },
+  emptyState: {
+    display: "flex", flexDirection: "column", alignItems: "center",
+    justifyContent: "center", flex: 1, padding: "24px 8px", gap: 8,
+    textAlign: "center"
+  },
+  emptyHeading: {
+    fontSize: "1rem", fontWeight: 600, color: colors.textPrimary,
+    marginBottom: 2
+  },
+  emptySubtext: {
+    fontSize: "0.78rem", color: colors.textMuted, marginBottom: 6
+  },
+  suggestionList: {
+    display: "flex", flexDirection: "column", gap: 6, width: "100%"
+  },
+  suggestionPill: {
+    background: "transparent",
+    border: "1px solid " + colors.borderSubtle,
+    borderRadius: 8, padding: "8px 12px",
+    fontSize: "0.82rem", color: colors.textSecondary,
+    cursor: "pointer", textAlign: "left",
+    transition: "border-color 0.15s, color 0.15s"
   }
 };
