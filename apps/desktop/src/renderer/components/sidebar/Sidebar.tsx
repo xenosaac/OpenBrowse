@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ChatSession, ChatMessage } from "../../types/chat";
 import type { RuntimeDescriptor } from "../../../shared/runtime";
+import { colors } from "../../styles/tokens";
 import { SidebarHeader } from "./SidebarHeader";
 import { SessionListDropdown } from "./SessionListDropdown";
 import { RunContextCard } from "./RunContextCard";
@@ -123,8 +124,8 @@ export function Sidebar(props: Props) {
 const styles: Record<string, React.CSSProperties> = {
   titleBarSpacer: { height: 38, flexShrink: 0, WebkitAppRegion: "drag" } as React.CSSProperties,
   sessionLabel: {
-    padding: "4px 14px", fontSize: "0.7rem", color: "#6b6b82",
-    borderBottom: "1px solid #1f2030", flexShrink: 0,
+    padding: "4px 14px", fontSize: "0.7rem", color: colors.textMuted,
+    borderBottom: "1px solid " + colors.borderSubtle, flexShrink: 0,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const
   },
   conversationArea: {

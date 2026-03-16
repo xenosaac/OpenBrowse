@@ -18,7 +18,7 @@ function createWindow(): BrowserWindow {
     title: "OpenBrowse",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 14 },
-    backgroundColor: "#0f0f18",
+    backgroundColor: "#0a0a10", // must match colors.bgBase in renderer/styles/tokens.ts
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.mjs"),
       contextIsolation: true,

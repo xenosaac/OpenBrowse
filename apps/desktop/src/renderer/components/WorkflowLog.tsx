@@ -1,5 +1,6 @@
 import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface Props {
   logs: WorkflowEvent[];
@@ -10,17 +11,17 @@ interface Props {
 }
 
 const eventColors: Record<string, string> = {
-  run_created: "#6366f1",
-  page_modeled: "#22c55e",
+  run_created: colors.emerald,
+  page_modeled: colors.statusRunning,
   planner_request_started: "#0f766e",
   planner_decision: "#3b82f6",
   planner_request_failed: "#dc2626",
-  browser_action_executed: "#8b5cf6",
+  browser_action_executed: colors.emerald,
   clarification_requested: "#eab308",
-  clarification_answered: "#22c55e",
+  clarification_answered: colors.statusRunning,
   approval_requested: "#f97316",
-  approval_answered: "#22c55e",
-  run_completed: "#6366f1",
+  approval_answered: colors.statusRunning,
+  run_completed: colors.emerald,
   run_failed: "#ef4444",
   run_cancelled: "#6b7280"
 };
@@ -121,15 +122,15 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   select: {
-    background: "#1e1e2e",
+    ...glass.input,
     color: "#f5f5ff",
-    border: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 8,
     padding: "4px 8px",
     fontSize: "0.85rem"
-  },
+  } as React.CSSProperties,
   timeline: {
-    borderLeft: "2px solid #2a2a3e",
+    borderLeft: "2px solid " + colors.borderDefault,
     paddingLeft: 16,
     marginLeft: 4
   },
@@ -149,18 +150,18 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.9rem"
   },
   replayPanel: {
-    background: "#0f0f18",
-    border: "1px solid #2a2a3e",
+    ...glass.card,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 10,
     padding: 12
-  },
+  } as React.CSSProperties,
   replayStep: {
     display: "grid",
     gridTemplateColumns: "72px minmax(0, 1fr)",
     gap: 10,
     alignItems: "start",
     padding: "8px 0",
-    borderBottom: "1px solid #232335"
+    borderBottom: "1px solid " + colors.borderSubtle
   },
   replayElapsed: {
     color: "#9090a8",
@@ -209,9 +210,9 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 6
   },
   payloadItem: {
-    background: "rgba(139,92,246,0.12)",
-    color: "#c4b5fd",
-    border: "1px solid rgba(139,92,246,0.2)",
+    background: colors.emeraldTint,
+    color: colors.emeraldHover,
+    border: "1px solid " + colors.emeraldBorder,
     borderRadius: 999,
     padding: "2px 8px",
     fontSize: "0.72rem",

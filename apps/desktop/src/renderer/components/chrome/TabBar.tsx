@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useEffect, useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
+import { colors, radii, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   shellTabs: BrowserShellTabDescriptor[];
@@ -17,15 +18,15 @@ interface Props {
 
 function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { color: string; animate: boolean; title: string } {
   const run = runs.find((r) => r.id === tab.runId);
-  if (!run) return { color: "#8b5cf6", animate: false, title: "Standalone tab" };
+  if (!run) return { color: colors.emerald, animate: false, title: "Standalone tab" };
   switch (run.status) {
-    case "running": return { color: "#22c55e", animate: true, title: "Agent running" };
+    case "running": return { color: colors.statusRunning, animate: true, title: "Agent running" };
     case "suspended_for_clarification":
     case "suspended_for_approval": return { color: "#f59e0b", animate: false, title: "Awaiting input" };
-    case "completed": return { color: "#22c55e", animate: false, title: "Completed" };
+    case "completed": return { color: colors.statusRunning, animate: false, title: "Completed" };
     case "failed":
     case "cancelled": return { color: "#ef4444", animate: false, title: "Failed" };
-    default: return { color: "#8b5cf6", animate: false, title: run.status };
+    default: return { color: colors.emerald, animate: false, title: run.status };
   }
 }
 
@@ -50,8 +51,9 @@ export function TabBar(props: Props) {
   useEffect(() => { updateTabScroll(); }, [shellTabs.length, updateTabScroll]);
 
   return (
-    <div style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
+    <div className="ob-glass-panel" style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
       <button
+        className="ob-btn"
         onClick={onToggleSidebar}
         style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
         title={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
@@ -76,7 +78,7 @@ export function TabBar(props: Props) {
           const dot = getTabStatusDot(tab, runs);
           const favicon = tabFavicons[tab.id];
           return (
-            <div key={tab.groupId} style={{ ...styles.headerTabWrap, ...(active ? styles.headerTabWrapActive : {}) }}>
+            <div key={tab.groupId} className="ob-tab" style={{ ...styles.headerTabWrap, ...(active ? styles.headerTabWrapActive : {}) }}>
               <button
                 onClick={() => onSelectTab(tab)}
                 style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
@@ -95,6 +97,7 @@ export function TabBar(props: Props) {
                 <span style={styles.headerTabTitle}>{tab.title}</span>
               </button>
               <button
+                className="ob-tab-close"
                 style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
                 onClick={() => onCloseTab(tab)}
               >
@@ -104,6 +107,7 @@ export function TabBar(props: Props) {
           );
         })}
         <button
+          className="ob-btn"
           style={{ ...styles.addTabButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           onClick={onNewTab}
         >
@@ -117,42 +121,49 @@ export function TabBar(props: Props) {
 const styles: Record<string, React.CSSProperties> = {
   tabBar: {
     display: "flex", alignItems: "center", gap: 8,
-    padding: "10px 10px 0", background: "#0f0f18",
-    WebkitAppRegion: "drag", borderBottom: "1px solid #1f2030"
+    padding: "10px 10px 0",
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    boxShadow: shadows.glassSubtle,
+    WebkitAppRegion: "drag", borderBottom: `1px solid ${colors.borderGlass}`
   } as React.CSSProperties,
   headerTabs: {
     display: "flex", alignItems: "center", gap: 6,
     overflowX: "auto", flex: 1, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    background: "#1a1a26", color: "#cbd5e1", border: "1px solid #2a2a3e",
-    borderRadius: 9, minWidth: 30, height: 30,
+    background: colors.buttonBg, color: colors.textSecondary, border: `1px solid ${colors.borderGlass}`,
+    borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
   },
   headerTabWrap: {
     display: "flex", alignItems: "center", minWidth: 100, maxWidth: 200,
-    borderRadius: "9px 9px 0 0", background: "#0a0a12",
-    border: "1px solid #1f2030", borderBottom: "none", color: "#9090a8"
+    borderRadius: radii.md, background: "transparent",
+    border: "1px solid transparent", color: colors.textSecondary
   },
   headerTabWrapActive: {
-    background: "#16162a", borderColor: "#4a4a7a",
-    borderTopColor: "#8b5cf6", color: "#ffffff"
-  },
+    ...glass.emerald,
+    backdropFilter: "blur(16px) saturate(180%)",
+    WebkitBackdropFilter: "blur(16px) saturate(180%)",
+    borderRadius: radii.md,
+    color: colors.textWhite,
+    boxShadow: shadows.glassSubtle
+  } as React.CSSProperties,
   headerTabInner: {
     flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 7,
     background: "transparent", border: "none", color: "inherit",
     padding: "8px 6px 8px 10px", cursor: "pointer", fontSize: "0.82rem"
   },
-  headerTabDot: { width: 6, height: 6, borderRadius: "50%", background: "#8b5cf6", flexShrink: 0 },
+  headerTabDot: { width: 6, height: 6, borderRadius: "50%", background: colors.emerald, flexShrink: 0 },
   headerTabTitle: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   headerTabClose: {
     width: 22, height: 22, marginRight: 5, borderRadius: 5,
-    background: "transparent", border: "none", color: "#9090a8",
+    background: "transparent", border: "none",
     cursor: "pointer", fontSize: "0.72rem", display: "grid", placeItems: "center"
   },
   addTabButton: {
     width: 28, height: 28, borderRadius: 7,
-    background: "#141422", border: "1px solid #2a2a3e",
-    color: "#cbd5e1", cursor: "pointer", fontSize: "1rem"
+    background: colors.buttonBg, border: `1px solid ${colors.borderGlass}`,
+    color: colors.textSecondary, cursor: "pointer", fontSize: "1rem"
   }
 };
