@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 16 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 16);
+  it("defines exactly 17 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 17);
   });
 
   it("has unique tool names", () => {
@@ -31,7 +31,7 @@ describe("BROWSER_TOOLS", () => {
       "browser_navigate", "browser_click", "browser_type", "browser_select",
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
       "browser_screenshot", "browser_go_back", "browser_read_text", "browser_wait_for_text",
-      "browser_wait_for_navigation", "task_complete", "task_failed", "ask_user"
+      "browser_wait_for_navigation", "browser_save_note", "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -384,6 +384,59 @@ describe("mapToolCallToDecision — browser_wait_for_navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_save_note
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_save_note", () => {
+  it("maps to save_note action with key in interactionHint and value", () => {
+    const result = mapToolCallToDecision(
+      "browser_save_note",
+      { key: "Site 1 price", value: "$299", description: "Record price from Amazon" },
+      "saving price for comparison",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "save_note");
+    assert.equal(result.action.interactionHint, "Site 1 price");
+    assert.equal(result.action.value, "$299");
+    assert.equal(result.action.description, "Record price from Amazon");
+    assert.equal(result.reasoning, "saving price for comparison");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_save_note",
+      { key: "note1", value: "data" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.description, "Save note");
+  });
+
+  it("fails when key is missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_save_note",
+      { value: "data", description: "Save" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without key"));
+  });
+
+  it("fails when value is missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_save_note",
+      { key: "note1", description: "Save" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without value"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -603,6 +656,18 @@ describe("mapToolCallToDecision — missing required fields", () => {
     assert.equal(result.failureSummary, "browser_press_key called without key");
   });
 
+  it("browser_save_note without key returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_save_note", { value: "data" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_save_note called without key");
+  });
+
+  it("browser_save_note without value returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_save_note", { key: "k" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_save_note called without value");
+  });
+
   it("browser_navigate with empty string url returns task_failed", () => {
     const result = mapToolCallToDecision("browser_navigate", { url: "" }, "r", "run_1");
     assert.equal(result.type, "task_failed");
@@ -649,6 +714,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_read_text", { ref: "r" }],
       ["browser_wait_for_text", { text: "t" }],
       ["browser_wait_for_navigation", {}],
+      ["browser_save_note", { key: "k", value: "v" }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

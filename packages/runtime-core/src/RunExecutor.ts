@@ -142,6 +142,40 @@ export class RunExecutor {
 
       if (decision.type === "browser_action" && decision.action) {
         const action = decision.action as BrowserAction;
+
+        // Handle save_note locally — no browser kernel interaction needed
+        if (action.type === "save_note") {
+          const noteKey = action.interactionHint ?? "note";
+          const noteValue = action.value ?? "";
+          const existing = current.checkpoint.plannerNotes ?? [];
+          // Upsert: replace existing note with same key, or append
+          const idx = existing.findIndex(n => n.key === noteKey);
+          const updated = [...existing];
+          if (idx >= 0) {
+            updated[idx] = { key: noteKey, value: noteValue };
+          } else {
+            updated.push({ key: noteKey, value: noteValue });
+          }
+          // Cap at 20 notes to prevent unbounded growth
+          const plannerNotes = updated.slice(-20);
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Saved note: "${noteKey}"`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, plannerNotes }
+          };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true"
+          });
+          continue;
+        }
+
         if (this.services.securityPolicy.requiresApproval(current, action)) {
           const approvalRequest = this.services.securityPolicy.buildApprovalRequest(current, action);
           const approvalDecision = { ...decision, type: "approval_request" as const, approvalRequest };

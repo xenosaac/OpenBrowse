@@ -16,7 +16,8 @@ export type BrowserActionType =
   | "go_back"
   | "read_text"
   | "wait_for_text"
-  | "wait_for_navigation";
+  | "wait_for_navigation"
+  | "save_note";
 
 export type BrowserActionFailureClass =
   | "element_not_found"

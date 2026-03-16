@@ -2578,6 +2578,57 @@ test("T4-C2: Login form with validation errors — error states surfaced in prom
 
 // T4 summary: all three scenarios produce well-formed, actionable prompts
 
+// ---------------------------------------------------------------------------
+// Planner scratchpad notes (browser_save_note)
+// ---------------------------------------------------------------------------
+
+test("planner notes appear in user prompt when plannerNotes has entries", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "Run in progress.",
+      notes: [],
+      stepCount: 3,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      plannerNotes: [
+        { key: "Site 1 price", value: "$299 at Amazon" },
+        { key: "Site 2 price", value: "$279 at Best Buy" }
+      ]
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Your saved notes/);
+  assert.match(user, /"Site 1 price": \$299 at Amazon/);
+  assert.match(user, /"Site 2 price": \$279 at Best Buy/);
+});
+
+test("planner notes section is absent when plannerNotes is empty", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "Run started.",
+      notes: [],
+      stepCount: 0,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      plannerNotes: []
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.ok(!user.includes("Your saved notes"));
+});
+
+test("planner notes section is absent when plannerNotes is undefined", () => {
+  const run = makeRun(); // no plannerNotes field
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.ok(!user.includes("Your saved notes"));
+});
+
+test("system prompt mentions browser_save_note usage guidance", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.match(system, /browser_save_note/);
+  assert.match(system, /multi-page/i);
+});
+
 test("T4: all three realistic page models produce prompts under 30k chars", () => {
   const scenarios = [
     { name: "Google SERP", pm: makeGoogleSERPPageModel(), goal: "Search for OpenAI" },
