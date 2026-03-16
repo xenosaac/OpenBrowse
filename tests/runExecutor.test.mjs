@@ -607,3 +607,306 @@ test("continueResume injects recovery context", async () => {
   assert.equal(withRecovery.checkpoint.recoveryContext.preInterruptionPageTitle, "Snapshot Title");
   assert.equal(withRecovery.checkpoint.recoveryContext.preInterruptionPageSummary, "Snapshot Summary");
 });
+
+// --- plannerLoop: consecutive identical action stuck detection ---
+
+test("plannerLoop fails after MAX_CONSECUTIVE_IDENTICAL_ACTIONS identical actions", async () => {
+  // MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8. The actionKey counter starts at 0, first match at step 2,
+  // reaches 8 at step 9. Cycle detection triggers at 8 identical history entries (step 8).
+  // To avoid cycle detection firing first, override recordBrowserResult to record
+  // DIFFERENT history entries (varying url) while the real actionKey stays constant.
+  const count = 10;
+  const decisions = Array.from({ length: count }, () => ({
+    type: "browser_action",
+    reasoning: "Click same button",
+    action: { type: "click", targetId: "btn_same", description: "Same click" },
+  }));
+  const executeResults = Array.from({ length: count }, () => ({
+    ok: true, summary: "Clicked",
+  }));
+  const capturePageModels = Array.from({ length: count }, () =>
+    makePageModel({ url: "https://example.com" })
+  );
+
+  const { services } = makeServices({ decisions, executeResults, capturePageModels });
+
+  // Override recordBrowserResult to produce unique history entries per step
+  // so cycle detection doesn't fire, while the actionKey (from action params + pageModel.url) stays the same
+  let recordCount = 0;
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "click",
+          targetId: "btn_same",
+          description: `Unique description ${++recordCount}`,
+          url: `https://example.com/page${recordCount}`,
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("repeated"), `Expected "repeated" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1);
+});
+
+// --- plannerLoop: URL visit count stuck detection ---
+
+test("plannerLoop fails when URL visit count exceeds MAX_URL_VISITS_BEFORE_FAIL", async () => {
+  // MAX_URL_VISITS_BEFORE_FAIL = 12. Pre-populate urlVisitCounts at the limit.
+  const decisions = [
+    { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn_1", description: "Click" } },
+  ];
+  const executeResults = [{ ok: true, summary: "Clicked", targetId: "btn_1", url: "https://example.com" }];
+
+  const { services } = makeServices({ decisions, executeResults });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const run = makeRun({ urlVisitCounts: { "https://example.com": 12 } });
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("visited"), `Expected "visited" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1);
+});
+
+// --- plannerLoop: cycle detection integration ---
+
+test("plannerLoop fails when action history forms a 2-step cycle", async () => {
+  // 2-step cycle requires 4 full repetitions = 8 entries. Pre-populate 7, let the 8th complete the cycle.
+  const cycleHistory = [];
+  for (let i = 0; i < 7; i++) {
+    const isA = i % 2 === 0;
+    cycleHistory.push({
+      step: i + 1,
+      type: isA ? "click" : "navigate",
+      targetId: isA ? "btn_a" : "",
+      description: isA ? "Click A" : "Go to B",
+      targetUrl: isA ? undefined : "https://example.com/b",
+      url: isA ? "https://example.com/a" : "https://example.com/b",
+      ok: true,
+    });
+  }
+
+  // The 8th action should be click on btn_a (even index = 0-based entry 7 → i%2==1 → actually it's navigate)
+  // Entry 7 (0-based) has i%2=1 → navigate. Wait, the cycle is click/navigate alternating.
+  // Entries 0,2,4,6 → click:btn_a:Click A:https://example.com/a (via url fallback since targetUrl undefined)
+  // Entries 1,3,5 → navigate::Go to B:https://example.com/b (via targetUrl)
+  // After 7 entries: [click, nav, click, nav, click, nav, click]
+  // Need 8th to be: navigate (index 7, i%2=1)
+  // Pattern: [click,nav] repeated 4 times = 8 total
+
+  const decisions = [
+    {
+      type: "browser_action",
+      reasoning: "Go to B",
+      action: { type: "navigate", value: "https://example.com/b", description: "Go to B" },
+    },
+  ];
+  const executeResults = [{ ok: true, summary: "Go to B", targetId: "", url: "https://example.com/b" }];
+
+  const { services } = makeServices({ decisions, executeResults });
+  // Override recordBrowserResult to add the right entry for cycle detection
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "navigate",
+          targetId: "",
+          description: "Go to B",
+          targetUrl: "https://example.com/b",
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const run = makeRun({ actionHistory: cycleHistory });
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("cycle"), `Expected "cycle" in: "${result.outcome.summary}"`);
+});
+
+// --- plannerLoop: capturePageModel retry on first failure ---
+
+test("plannerLoop retries capturePageModel on first failure and succeeds", async () => {
+  let captureCallCount = 0;
+  const decisions = [{ type: "task_complete", reasoning: "Done" }];
+  const { services } = makeServices({ decisions });
+
+  // Override capturePageModel: fail first call, succeed second
+  services.browserKernel.capturePageModel = async () => {
+    captureCallCount++;
+    if (captureCallCount === 1) {
+      throw new Error("CDP disconnected");
+    }
+    return makePageModel();
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(captureCallCount, 2, "Should have tried capturePageModel twice");
+});
+
+// --- plannerLoop: capturePageModel fallback when both attempts fail ---
+
+test("plannerLoop uses fallback page model when capturePageModel fails twice", async () => {
+  const decisions = [{ type: "task_complete", reasoning: "Done despite capture failure" }];
+  const { services, appendedEvents } = makeServices({ decisions });
+
+  // Override capturePageModel: always fail
+  services.browserKernel.capturePageModel = async () => {
+    throw new Error("CDP gone");
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // Should have logged a capture failure event
+  assert.ok(appendedEvents.some(e => e.type === "planner_request_failed" && e.summary.includes("capturePageModel")));
+});
+
+// --- plannerLoop: cancellation detected after planner call ---
+
+test("plannerLoop detects cancellation after planner decision", async () => {
+  let plannerCallCount = 0;
+  const { services } = makeServices({ decisions: [] });
+
+  // Override planner to set cancellation after first call
+  const cancellation = makeCancellation();
+  services.planner.decide = async () => {
+    plannerCallCount++;
+    // Set cancellation flag during the planner call
+    cancellation.isCancelled = (id) => id === "run_1" && plannerCallCount >= 1;
+    return { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Click" } };
+  };
+
+  cancellation.acknowledge = (id) => { cancellation.acknowledged = cancellation.acknowledged || []; cancellation.acknowledged.push(id); };
+  cancellation.acknowledged = [];
+
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  // Should have acknowledged cancellation
+  assert.ok(cancellation.acknowledged.includes("run_1"));
+  // Handoff should NOT be called for cancellation
+  assert.equal(handoff.handoffs.length, 0);
+});
+
+// --- plannerLoop: checkpoint-based cancellation ---
+
+test("plannerLoop returns early when checkpoint shows run cancelled", async () => {
+  const decisions = [
+    { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Click" } },
+  ];
+  const executeResults = [{ ok: true, summary: "Clicked" }];
+
+  const { services } = makeServices({ decisions, executeResults });
+
+  // Override runCheckpointStore.load to return a cancelled run after planner call
+  let loadCallCount = 0;
+  services.runCheckpointStore.load = async (id) => {
+    loadCallCount++;
+    // After the first load (which happens after planner decision), return cancelled
+    return {
+      ...makeRun({ status: "cancelled" }),
+      id,
+      status: "cancelled",
+      outcome: { status: "cancelled", summary: "User cancelled", finishedAt: new Date().toISOString() },
+    };
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled");
+});
+
+// --- plannerLoop: step progress sending ---
+
+test("plannerLoop sends step progress when chatBridge.shouldSendStepProgress returns true", async () => {
+  const { services, sentMessages } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn_1", description: "Click submit" } },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+    executeResults: [{ ok: true, summary: "Clicked submit" }],
+  });
+
+  // Enable step progress
+  services.chatBridge.shouldSendStepProgress = () => true;
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // Should have sent at least one step progress message
+  assert.ok(sentMessages.length >= 1, "Expected at least 1 step progress message");
+  assert.ok(sentMessages[0].text.includes("Step"));
+  assert.equal(sentMessages[0].channel, "telegram");
+});
+
+// --- plannerLoop: network_error treated as soft failure ---
+
+test("plannerLoop continues on network_error soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Navigate", action: { type: "navigate", value: "https://example.com", description: "Go" } },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Network error", failureClass: "network_error" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
