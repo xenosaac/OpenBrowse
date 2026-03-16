@@ -2327,3 +2327,73 @@ Also fixed stale engineering note: element cap was documented as 50 but has been
 - Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 41 — 2026-03-16: Extract mapToolCallToDecision + Test Suite
+
+#### Context
+
+Gap analysis: `ClaudePlannerGateway.ts` contains `mapToolCallToDecision`, a pure function that translates Claude tool_use calls (12 tool types) into `PlannerDecision` objects. This is the critical translation layer between the Anthropic API response and the runtime's decision model. Currently: private, unexported, untested. The gateway class itself can't be tested under Node (needs real API), but the mapping logic is a pure function that can be extracted and tested.
+
+Also contains `BROWSER_TOOLS` — the tool schema definitions sent to Claude. Extracting both enables testing and reuse.
+
+#### Plan
+
+1. Extract `mapToolCallToDecision`, `ToolInput` type, and `BROWSER_TOOLS` from `ClaudePlannerGateway.ts` into `toolMapping.ts`
+2. Update `ClaudePlannerGateway.ts` to import from `./toolMapping.js`
+3. Run typecheck
+4. Write comprehensive test suite for all 12 tool mappings + edge cases
+5. Run tests
+6. Commit
+
+#### Implementation
+
+**Created `packages/planner/src/toolMapping.ts`:**
+- Extracted `mapToolCallToDecision` pure function (was private in `ClaudePlannerGateway.ts`)
+- Extracted `BROWSER_TOOLS` constant (12 tool schema definitions sent to Claude)
+- Exported `ToolInput` interface for typed tool call inputs
+- No new dependencies — only imports types from `@anthropic-ai/sdk` and `@openbrowse/contracts`
+
+**Updated `packages/planner/src/ClaudePlannerGateway.ts`:**
+- Removed 320 lines of inline tool definitions and mapping logic
+- Added `import { BROWSER_TOOLS, mapToolCallToDecision, type ToolInput } from "./toolMapping.js"`
+- Gateway class unchanged — only import source changed
+
+**Updated `packages/planner/src/index.ts`:**
+- Added `export * from "./toolMapping.js"` to public API
+
+**Created `tests/toolMapping.test.mjs` — 36 tests across 15 describe blocks:**
+- BROWSER_TOOLS schema validation (4 tests): count, uniqueness, structure, expected names
+- browser_navigate (2 tests): full mapping, default description
+- browser_click (2 tests): targetId mapping, default description
+- browser_type (2 tests): targetId+value mapping, default description
+- browser_select (2 tests): targetId+value mapping, default description
+- browser_scroll (4 tests): direction, element-scoped ref, default direction, default description
+- browser_hover (2 tests): targetId mapping, default description
+- browser_press_key (3 tests): key value, key combinations, default description
+- browser_wait (3 tests): duration as string, default 1000, default description
+- browser_screenshot (1 test): fixed description
+- task_complete (2 tests): summary, reasoning fallback
+- task_failed (2 tests): reason, reasoning fallback
+- ask_user (5 tests): question+options, no options, reasoning fallback, id prefix, createdAt
+- unknown tool (1 test): returns task_failed
+- cross-cutting (1 test): reasoning preserved across all 12 tool types
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 36/36 pass
+- `node --test tests/*.test.mjs` — 647/647 pass (was 611, +36 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+- Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
+
+*Session log entry written: 2026-03-16*
