@@ -3207,3 +3207,52 @@ Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic module
 - Consider testing `handleInboundMessage`/`handleNewTaskMessage` module-level orchestration (needs service mocking with OpenBrowseRuntime constructor)
 
 *Session log entry written: 2026-03-16 (Session 56)*
+
+---
+
+### Session 57 — 2026-03-16: Fix scrollY Drop Bug + Stale Forms Type in capturePageModel
+
+#### Context
+
+Code review / gap analysis found two issues in `ElectronBrowserKernel.capturePageModel`:
+
+1. **Bug**: `scrollY` is extracted by `EXTRACT_PAGE_MODEL_SCRIPT` and defined in the `PageModel` contract, but not mapped in `capturePageModel`'s return statement. This means `scrollY` is always `undefined` in production — scroll position context is never sent to the planner (no scroll section in prompt) and never preserved in recovery snapshots.
+
+2. **Stale type annotation**: The raw result type for `forms` is typed as `Array<{ action: string; method: string; fieldCount: number }>` but the script also returns `fields` and `submitRef`. These properties flow through at runtime due to JS's structural nature, but the type is misleading and incomplete.
+
+#### Plan
+
+1. Add `scrollY: raw.scrollY` to `capturePageModel` return in `ElectronBrowserKernel.ts`
+2. Add `scrollY` to the raw type annotation
+3. Add `fields` and `submitRef` to the raw forms type annotation
+4. Run typecheck
+5. Run tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed `packages/browser-runtime/src/ElectronBrowserKernel.ts`:**
+- Added `scrollY: raw.scrollY` to `capturePageModel` return object — **fixes the scroll position drop bug**
+- Added `scrollY?: number` to the raw result type annotation
+- Added `fields` and `submitRef` to the raw `forms` type annotation to match what the script actually returns
+- No behavioral change for forms (data was already flowing through at runtime, just typed incorrectly)
+
+**Impact of the scrollY fix:**
+- `buildPlannerPrompt` scroll section will now render `Scroll position: Y=...px` instead of being always absent
+- `TaskOrchestrator.observePage` snapshots will now include `scrollY` for recovery context
+- `RunExecutor.continueResume` recovery context will now include `preInterruptionScrollY`
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 877/877 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (877 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16 (Session 57)*
