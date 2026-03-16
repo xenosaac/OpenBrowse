@@ -432,6 +432,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       orientation: (el.getAttribute('aria-orientation') === 'horizontal' ? 'horizontal' : (el.getAttribute('aria-orientation') === 'vertical' ? 'vertical' : undefined)),
       autocomplete: (function() { var ac = el.getAttribute('aria-autocomplete'); return ac === 'inline' || ac === 'list' || ac === 'both' ? ac : undefined; })(),
       multiselectable: el.getAttribute('aria-multiselectable') === 'true' ? true : undefined,
+      required: (el.required || el.getAttribute('aria-required') === 'true') ? true : undefined,
       invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;
