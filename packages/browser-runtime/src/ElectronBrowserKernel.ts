@@ -552,6 +552,48 @@ export class ElectronBrowserKernel implements BrowserKernel {
           };
         }
 
+        case "wait_for_navigation": {
+          const initialUrl = wc.getURL();
+          const navTimeout = Number(action.interactionHint) || 10000;
+          const navPollInterval = 200;
+          const navMaxAttempts = Math.ceil(navTimeout / navPollInterval);
+
+          let navigated = false;
+          for (let attempt = 0; attempt < navMaxAttempts; attempt++) {
+            const currentUrl = wc.getURL();
+            if (currentUrl !== initialUrl) {
+              navigated = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, navPollInterval));
+          }
+
+          if (navigated) {
+            // Wait for the new page to finish loading
+            await this.waitForLoadIfNavigating(wc);
+          }
+
+          managed.cdp.invalidateContext();
+          const pageModelAfterNav = await this.capturePageModel(browserSession);
+
+          if (navigated) {
+            return {
+              ok: true,
+              action,
+              pageModelId: pageModelAfterNav.id,
+              summary: `Navigation detected: ${initialUrl.slice(0, 60)} → ${wc.getURL().slice(0, 60)}`
+            };
+          } else {
+            return {
+              ok: false,
+              action,
+              pageModelId: pageModelAfterNav.id,
+              summary: `URL did not change after ${navTimeout}ms (still at ${initialUrl.slice(0, 60)})`,
+              failureClass: "interaction_failed" as const
+            };
+          }
+        }
+
         case "screenshot": {
           const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
           const pageModelAfterScreenshot = await this.capturePageModel(browserSession);

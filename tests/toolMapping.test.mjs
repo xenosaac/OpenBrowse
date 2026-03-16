@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 15 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 15);
+  it("defines exactly 16 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 16);
   });
 
   it("has unique tool names", () => {
@@ -31,7 +31,7 @@ describe("BROWSER_TOOLS", () => {
       "browser_navigate", "browser_click", "browser_type", "browser_select",
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
       "browser_screenshot", "browser_go_back", "browser_read_text", "browser_wait_for_text",
-      "task_complete", "task_failed", "ask_user"
+      "browser_wait_for_navigation", "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -348,6 +348,42 @@ describe("mapToolCallToDecision — browser_wait_for_text", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_wait_for_navigation
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_wait_for_navigation", () => {
+  it("maps to wait_for_navigation action with default timeout", () => {
+    const result = mapToolCallToDecision(
+      "browser_wait_for_navigation",
+      { description: "Wait for login redirect" },
+      "submitted login form",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "wait_for_navigation");
+    assert.equal(result.action.description, "Wait for login redirect");
+    assert.equal(result.action.interactionHint, "10000");
+    assert.equal(result.reasoning, "submitted login form");
+  });
+
+  it("uses custom timeout when provided", () => {
+    const result = mapToolCallToDecision(
+      "browser_wait_for_navigation",
+      { timeout: 15000, description: "Wait for slow redirect" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.type, "wait_for_navigation");
+    assert.equal(result.action.interactionHint, "15000");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision("browser_wait_for_navigation", {}, "r", "run_1");
+    assert.equal(result.action.description, "Wait for navigation");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -612,6 +648,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_go_back", {}],
       ["browser_read_text", { ref: "r" }],
       ["browser_wait_for_text", { text: "t" }],
+      ["browser_wait_for_navigation", {}],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

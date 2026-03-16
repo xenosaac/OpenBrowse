@@ -581,7 +581,7 @@ Current schema version: **4**
 
 ### Planner Output Format
 
-`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (15 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
+`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (16 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
 
 ---
 
@@ -6341,3 +6341,73 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 106)*
+
+---
+
+### Session 107 — 2026-03-16: Add `browser_wait_for_navigation` Planner Tool — URL Change Waiting
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. The runtime already waits for navigation after clicks via `waitForLoadIfNavigating`, but this only catches traditional navigation (full page load). JavaScript-driven redirects (form submissions, SPA route changes, window.location assignments) may not trigger `isLoadingMainFrame()` within the 300ms check window. A `wait_for_navigation` tool lets the planner explicitly wait for the URL to change, which is essential for form submissions, login flows, checkout processes, and any workflow where the next step depends on arriving at a new page.
+
+#### Plan
+
+1. **contracts/src/browser.ts**: Add `"wait_for_navigation"` to `BrowserActionType`.
+2. **planner/src/toolMapping.ts**: Add `browser_wait_for_navigation` tool definition with `timeout` parameter. Add mapping case.
+3. **planner/src/buildPlannerPrompt.ts**: Add guideline about using wait_for_navigation after form submissions and login flows.
+4. **browser-runtime/src/ElectronBrowserKernel.ts**: Implement `wait_for_navigation` — record current URL, then poll for URL change every 200ms up to timeout (default 10000ms).
+5. **browser-runtime/src/BrowserKernel.ts**: Stub support.
+6. **tests/toolMapping.test.mjs**: Add tests for new tool.
+7. Run typecheck and tests.
+
+#### Implementation
+
+**1. contracts/src/browser.ts:**
+- Added `"wait_for_navigation"` to `BrowserActionType` union
+
+**2. planner/src/toolMapping.ts:**
+- Added `browser_wait_for_navigation` tool definition: takes `timeout` (optional, default 10000ms) and `description` (required). Described as waiting for the page URL to change after form submissions, login buttons, or redirect-triggering actions.
+- Added `browser_wait_for_navigation` mapping case: maps to `wait_for_navigation` action with interactionHint=timeout
+- Tool count: 16 (was 15)
+
+**3. planner/src/buildPlannerPrompt.ts:**
+- Split the dynamic content guideline: `browser_wait_for_text` is for content loading within the same page (search results, SPA updates), while `browser_wait_for_navigation` is for actions that redirect to a different URL (form submissions, login flows, checkout)
+
+**4. browser-runtime/src/ElectronBrowserKernel.ts:**
+- Added `wait_for_navigation` case: records current URL via `wc.getURL()`, then polls every 200ms for URL change up to timeout (from interactionHint, default 10000ms)
+- When URL changes, waits for page load via `waitForLoadIfNavigating` then captures fresh page model
+- Returns `ok: true` with navigation summary (old URL → new URL) on success, `ok: false` with `failureClass: "interaction_failed"` on timeout
+- Invalidates CDP context after wait (page content changed)
+
+**5. browser-runtime/src/BrowserKernel.ts:**
+- Stub returns success with descriptive summary for wait_for_navigation actions
+
+**Result:** The planner now has 16 tools (was 15). The new `browser_wait_for_navigation` tool lets the planner wait for the URL to change after actions that should cause a redirect. This is essential for form submissions, login flows, checkout processes, and any workflow where the next step depends on arriving at a new page. The 10-second default timeout is generous enough for slow server-side redirects while still failing promptly if no navigation occurs.
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `wait_for_navigation` to BrowserActionType
+- `packages/planner/src/toolMapping.ts` — Added `browser_wait_for_navigation` tool def + mapping case
+- `packages/planner/src/buildPlannerPrompt.ts` — Added browser guideline for wait_for_navigation usage
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Handle `wait_for_navigation` via URL polling
+- `packages/browser-runtime/src/BrowserKernel.ts` — Stub support for wait_for_navigation
+- `tests/toolMapping.test.mjs` — Updated tool count (16), expected names, +3 new tests (mapping, custom timeout, default desc), cross-cutting reasoning updated
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 62/62 pass (was 59, +3 new)
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (unchanged)
+- `node --test tests/*.test.mjs` — 1025/1025 pass (was 1022, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 16 tools: navigate, click, type, select, scroll, hover, press_key, wait, screenshot, go_back, read_text, wait_for_text, **wait_for_navigation**, task_complete, task_failed, ask_user.
+- The three wait tools cover different patterns: `browser_wait` (fixed duration), `browser_wait_for_text` (dynamic content on same page), `browser_wait_for_navigation` (URL change / redirect).
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate. T9 should test wait_for_navigation with a form submission or login flow.
+- Next potential features: auto-dismiss cookie banners at runtime level (save 1-2 planner steps per site), `browser_clear_field` (explicit field clearing before re-typing), or enhanced planner guidance for multi-step form workflows.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 107)*

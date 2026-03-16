@@ -151,6 +151,18 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_wait_for_navigation",
+    description: "Wait for the page URL to change (navigation to a new page). Use after submitting a form, clicking a login button, or any action that should redirect to a different URL. More reliable than browser_wait because it returns as soon as the URL changes instead of waiting a fixed duration.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        timeout: { type: "number", description: "Maximum time to wait in milliseconds (default 10000)" },
+        description: { type: "string", description: "Why you expect navigation to occur" }
+      },
+      required: ["description"]
+    }
+  },
+  {
     name: "task_complete",
     description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
@@ -384,6 +396,17 @@ export function mapToolCallToDecision(
           value: input.text,
           description: input.description ?? "Wait for text",
           interactionHint: String(input.timeout ?? 5000)
+        }
+      };
+
+    case "browser_wait_for_navigation":
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "wait_for_navigation",
+          description: input.description ?? "Wait for navigation",
+          interactionHint: String(input.timeout ?? 10000)
         }
       };
 
