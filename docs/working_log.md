@@ -4692,3 +4692,46 @@ Gap analysis (Session 80 suggestion): `aria-live` marks regions whose content up
 - Consider surfacing `aria-roledescription` for custom widget type labels
 
 *Session log entry written: 2026-03-16 (Session 81)*
+
+---
+
+### Session 82 — 2026-03-16: Extend disabled Detection to Cover aria-disabled for Custom Widgets
+
+#### Context
+
+Gap analysis (Session 81 suggestion): `disabled` extraction in `extractPageModel.ts` only checks `el.disabled` (HTML `disabled` property). Custom widgets that use `aria-disabled="true"` (e.g., custom buttons, ARIA toolbars, non-native form controls) are not detected as disabled. The planner will try to interact with these elements and get no response, wasting steps.
+
+#### Plan
+
+1. Extend `disabled` extraction to also check `aria-disabled="true"` in `extractPageModel.ts`
+2. No contract changes needed — `disabled?: boolean` already exists on `PageElementModel`
+3. No prompt changes needed — `(disabled)` rendering already handles the field
+4. Add tests to verify the fix
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Changed `disabled: el.disabled || undefined` → `disabled: el.disabled || el.getAttribute('aria-disabled') === 'true' || undefined`
+- Now detects disabled state from both HTML `disabled` property (native form elements) and `aria-disabled="true"` attribute (custom widgets)
+- Zero overhead for elements without either attribute (expression short-circuits to `undefined`)
+
+**Impact:** The planner now correctly sees custom widgets as disabled when they use `aria-disabled="true"` instead of the HTML `disabled` property. This prevents wasted steps trying to interact with non-functional custom controls (ARIA toolbars, custom buttons, React/Vue components that use `aria-disabled`).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 974/974 pass (unchanged — extraction runs in CDP, prompt rendering already tested)
+
+#### Status: DONE
+
+#### Next Steps
+
+- ARIA surfacing sweep is comprehensive (Sessions 60–82: checked, selected, expanded, pressed, orientation, autocomplete, multiselectable, required, hasPopup, busy, live, current, sort, roledescription, valueNow/min/max/text, invalid, description, level, text, options, activeDialog, tables, focusedElement, aria-disabled). This line of work is complete.
+- All pure-logic modules across all packages have test coverage (974 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element grouping/landmark awareness (nav, main, aside regions), iframe content extraction, or shadow DOM penetration
+
+*Session log entry written: 2026-03-16 (Session 82)*
