@@ -10,8 +10,8 @@ export const colors = {
   bgOverlay: "rgba(0,0,0,0.58)",
 
   // Borders
-  borderSubtle: "rgba(255,255,255,0.08)",
-  borderDefault: "rgba(255,255,255,0.08)",
+  borderSubtle: "rgba(255,255,255,0.06)",
+  borderDefault: "rgba(255,255,255,0.10)",
   borderHover: "rgba(255,255,255,0.12)",
   borderGlass: "rgba(255,255,255,0.18)",
   borderGlassHover: "rgba(255,255,255,0.28)",

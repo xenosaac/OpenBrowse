@@ -5621,3 +5621,67 @@ Redesigned `HomePage.tsx` per D3 spec and wired `submitChatTask` to accept a `go
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 96)*
+
+---
+
+### Session 97 — 2026-03-16: D6 — Fix Border Token Redundancy
+
+#### Mode: feature
+
+Rationale: T7/D3 (home page brand surface) is complete. Per UI designer guidance, D5 and D6 should land together, with D6 first (fix tokens) then D5 (use them). D6 fixes `borderSubtle` and `borderDefault` which currently have identical values (both 0.08), preventing the border hierarchy from being expressed.
+
+#### Plan
+
+1. In `tokens.ts`, change `borderSubtle` from 0.08 → 0.06, `borderDefault` from 0.08 → 0.10.
+2. Reclassify two separator usages that currently use `borderDefault` to `borderSubtle`:
+   - `ManagementPanel.tsx` header borderBottom (internal separator)
+   - `App.tsx` dropdownSeparator background (menu separator)
+3. Replace hardcoded `rgba(255,255,255,0.06)` in `App.tsx` chromeSeparator with `colors.borderSubtle` token.
+4. All other existing usages are correctly categorized (cards → borderSubtle, controls/inputs → borderDefault).
+5. Run typecheck.
+6. Update log and commit.
+
+#### Implementation
+
+Fixed the border token redundancy in `tokens.ts` and reclassified two separator usages:
+
+**Token changes (`tokens.ts`):**
+- `borderSubtle`: `rgba(255,255,255,0.08)` → `rgba(255,255,255,0.06)` — for Tier 2 card borders, dividers
+- `borderDefault`: `rgba(255,255,255,0.08)` → `rgba(255,255,255,0.10)` — for Tier 3 control idle borders, inputs
+
+**Border hierarchy is now:**
+`borderSubtle` (0.06) < `borderDefault` (0.10) < `borderHover` (0.12) < `borderGlass` (0.18)
+
+**Reclassified separators (borderDefault → borderSubtle):**
+- `ManagementPanel.tsx` header `borderBottom` — internal separator, not a control
+- `App.tsx` `dropdownSeparator` background — menu separator, not a control
+
+**Hardcode → token replacement:**
+- `App.tsx` `chromeSeparator` background — `rgba(255,255,255,0.06)` → `colors.borderSubtle`
+
+**Existing usages confirmed correct (no change needed):**
+- 14 `borderSubtle` usages: all Tier 2 card borders and dividers ✓
+- 5 `borderDefault` usages: all controls/inputs (TaskStartForm, DemoPanel buttonDisabled, WorkflowLog step indicator, HandoffViewer, SettingsPanel x2) ✓
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — borderSubtle 0.08→0.06, borderDefault 0.08→0.10
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — header borderBottom: borderDefault → borderSubtle
+- `apps/desktop/src/renderer/components/App.tsx` — dropdownSeparator: borderDefault → borderSubtle; chromeSeparator: hardcoded → colors.borderSubtle
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D6 is complete. Border tokens are now differentiated: cards (0.06) < controls (0.10) < panels (0.18).
+- Next design task: D5 (glass.control token + button borders). D6 landing unblocks D5 — controls can now use `borderDefault` (0.10) instead of `borderGlass` (0.18).
+- After D5: D7 (sidebar glass-on-glass nesting).
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 97)*

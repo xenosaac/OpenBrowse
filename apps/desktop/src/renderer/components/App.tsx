@@ -880,7 +880,7 @@ const styles: Record<string, React.CSSProperties> = {
   } as React.CSSProperties,
   chromeSeparator: {
     height: 1,
-    background: 'rgba(255,255,255,0.06)',
+    background: colors.borderSubtle,
     margin: '0 10px',
   },
   main: {
@@ -920,7 +920,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dropdownSeparator: {
     height: 1,
-    background: colors.borderDefault,
+    background: colors.borderSubtle,
     margin: "4px 0"
   }
 };
