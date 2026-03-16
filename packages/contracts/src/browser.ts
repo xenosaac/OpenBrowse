@@ -82,6 +82,7 @@ export interface PageElementModel {
   required?: boolean;
   hasPopup?: string;
   busy?: boolean;
+  live?: string;
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
