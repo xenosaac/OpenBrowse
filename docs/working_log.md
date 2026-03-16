@@ -6286,3 +6286,58 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 *Session log entry written: 2026-03-16 (Session 105)*
 
 *Session log entry written: 2026-03-16 (Session 104)*
+
+---
+
+### Session 106 — 2026-03-16: Increase Step Budget from 35 to 50
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. The PM capability mapping identified the 35-step ceiling as a "real limit" for complex workflows: multi-page forms (~27 steps), data collection across N URLs, and multi-step web workflows all strain or exceed 35 steps. Sessions 101-105 added tools that improve step efficiency (go_back, read_text, wait_for_text), and now the budget itself should be raised to accommodate the richer tool set and more complex user jobs.
+
+#### Plan
+
+1. **buildPlannerPrompt.ts**: Change `MAX_PLANNER_STEPS` from 35 to 50.
+2. **buildPlannerPrompt.ts**: Adjust self-assessment trigger from `stepCount >= 15` to `stepCount >= 25` (proportionally scaled — halfway checkpoint).
+3. **tests/planner-prompt.test.mjs**: Update assertions for new MAX_PLANNER_STEPS value and self-assessment trigger step count.
+4. **tests/runExecutor.test.mjs**: Update max-steps-exceeded test to create 51 decisions (was 36 for the old limit of 35).
+5. Run typecheck and tests.
+
+#### Implementation
+
+**1. `packages/planner/src/buildPlannerPrompt.ts`:**
+- Changed `MAX_PLANNER_STEPS` from `35` to `50`
+- Changed self-assessment trigger from `stepCount >= 15` to `stepCount >= 25` (proportionally scaled halfway checkpoint)
+
+**2. `tests/planner-prompt.test.mjs`:**
+- Updated `MAX_PLANNER_STEPS` assertion from `35` to `50`
+- Updated step budget regex from `/step 6 of 35/` to `/step 6 of 50/`
+- Updated self-assessment test from "triggers after 15 steps" to "triggers after 25 steps" (stepCount: 25)
+
+**3. `tests/runExecutor.test.mjs`:**
+- Updated max-steps-exceeded test: 36 → 51 decisions to exceed the new 50-step limit
+
+**Result:** The planner now has a 50-step budget (was 35). This gives complex workflows ~43% more room: multi-page forms (estimated ~27 steps), multi-site data collection, and multi-step web workflows all have more headroom. The self-assessment checkpoint scales proportionally to step 25 (halfway). The `RunExecutor` loop also uses `MAX_PLANNER_STEPS` (imported from `@openbrowse/planner`), so the runtime limit updates automatically.
+
+#### Files Changed
+
+- `packages/planner/src/buildPlannerPrompt.ts` — MAX_PLANNER_STEPS 35→50, self-assessment trigger 15→25
+- `tests/planner-prompt.test.mjs` — Updated 3 assertions for new budget values
+- `tests/runExecutor.test.mjs` — Updated max-steps-exceeded test (36→51 decisions)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass
+- `node --test tests/*.test.mjs` — 1022/1022 pass (unchanged count, updated assertions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 15 tools and a 50-step budget (was 35).
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate.
+- Next potential features: `browser_wait_for_navigation` (wait for URL change after click), auto-dismiss cookie banners (save 1-2 planner steps per site), or enhanced planner guidance for multi-step form workflows.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 106)*

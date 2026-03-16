@@ -223,7 +223,7 @@ test("step budget shows correct values", () => {
   });
 
   const { system } = buildPlannerPrompt(run, makePageModel());
-  assert.match(system, /step 6 of 35/);
+  assert.match(system, /step 6 of 50/);
 });
 
 test("captcha hint appears when captchaDetected", () => {
@@ -251,12 +251,12 @@ test("targetId appears in action history output", () => {
   assert.match(user, /→ Element: \[el_22\]/);
 });
 
-test("self-assessment triggers after 15 steps", () => {
+test("self-assessment triggers after 25 steps", () => {
   const run = makeRun({
     checkpoint: {
       summary: "ok",
       notes: [],
-      stepCount: 15,
+      stepCount: 25,
       actionHistory: [],
       consecutiveSoftFailures: 0
     }
@@ -711,8 +711,8 @@ test("constraints shows none when empty", () => {
 
 // --- MAX_PLANNER_STEPS export ---
 
-test("MAX_PLANNER_STEPS is exported and equals 35", () => {
-  assert.strictEqual(MAX_PLANNER_STEPS, 35);
+test("MAX_PLANNER_STEPS is exported and equals 50", () => {
+  assert.strictEqual(MAX_PLANNER_STEPS, 50);
   assert.strictEqual(typeof MAX_PLANNER_STEPS, "number");
 });
 
