@@ -2716,3 +2716,51 @@ Mock approach: override `gateway.client.messages.create` after construction (com
 - All pure-logic modules in `planner`, `orchestrator`, `runtime-core`, `observability`, `security`, `chat-bridge` (except TelegramChatBridge) now have test coverage
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 48 — 2026-03-16: TelegramChatBridge Public API Tests (Mock Bot)
+
+#### Context
+
+Gap analysis: `TelegramChatBridge` is the last untested module in the entire codebase (excluding Electron-dependent modules). It implements the `ChatBridge` interface and manages Telegram bot message routing. Grammy's `Bot` constructor works with a fake token without network calls — all API methods (`bot.api.sendMessage`, `bot.api.editMessageReplyMarkup`, etc.) can be monkey-patched after construction.
+
+#### Plan
+
+1. Create `tests/telegramChatBridge.test.mjs` with mock-based tests for all public methods
+2. Test targets: `send` (chatId resolution, split messages, error handling), `sendClarification` (markdown, keyboard, fallback), `shouldSendStepProgress`, `bindRunToChat`, `clearRunState`, `normalizeInbound`, `start`/`stop` (idempotency, chatId auto-approve)
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Created `tests/telegramChatBridge.test.mjs` — 30 tests:**
+
+- `shouldSendStepProgress` (3 tests): verbose=true, quiet=false, undefined=false
+- `normalizeInbound` (1 test): passthrough identity
+- `start` (4 tests): registers 4 commands, idempotent, auto-approves config.chatId, handles setMyCommands failure
+- `stop` (2 tests): no-op when not started, clears started flag
+- `send` (7 tests): config.chatId fallback, run binding priority, primary approved fallback, no chatId silent return, error swallowed, long message splitting at line boundaries, short message single call
+- `sendClarification` (6 tests): markdown+keyboard+registration, no keyboard when no options, plain text fallback on markdown error, double failure silent, Markdown special char escaping, no chatId silent return
+- `bindRunToChat` (1 test): delegates to stateStore
+- `clearRunState` (3 tests): removes stale clarifications + edits keyboard, no-op for unknown, swallows edit errors
+- `setInboundHandler` / `setCommandHandler` (2 tests): stores handler references
+- `resolveOutboundChatId priority` (1 test): run binding > config.chatId > primary approved
+
+Mock approach: Grammy's `Bot` constructor works with a fake token without network calls. After construction, monkey-patch `bot.api.sendMessage`, `bot.api.editMessageReplyMarkup`, `bot.api.setMyCommands`, `bot.start`, and `bot.stop` — capturing all calls in an array. Each test creates an isolated bridge with a temp state directory.
+
+#### Verification
+
+- `node --test tests/telegramChatBridge.test.mjs` — 30/30 pass
+- `node --test tests/*.test.mjs` — 817/817 pass (was 787, +30 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (817 tests, 0 failures)
+- Remaining untested code requires Electron context (BrowserViewManager, ElectronBrowserKernel, AppBrowserShell, renderer components)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16*
