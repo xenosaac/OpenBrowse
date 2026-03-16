@@ -1436,3 +1436,41 @@ test("autocomplete undefined does not render autocomplete text", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.doesNotMatch(user, /autocomplete=/);
 });
+
+// --- multiselectable ---
+
+test("multiselectable renders (multiselectable) for listbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Colors", multiselectable: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(multiselectable\)/);
+});
+
+test("multiselectable absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Colors", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /multiselectable/);
+});
+
+test("multiselectable absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "grid", label: "Data", multiselectable: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /multiselectable/);
+});
+
+test("multiselectable renders after autocomplete and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Items", autocomplete: "list", multiselectable: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const acIdx = user.indexOf("(autocomplete=list)");
+  const msIdx = user.indexOf("(multiselectable)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(acIdx < msIdx, "multiselectable should come after autocomplete");
+  assert.ok(msIdx < invIdx, "multiselectable should come before invalid");
+});

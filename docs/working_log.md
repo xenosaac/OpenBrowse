@@ -4360,3 +4360,61 @@ This helps the planner decide whether to type the full value or wait for suggest
 - Consider table column/row span awareness for complex tables
 
 *Session log entry written: 2026-03-16 (Session 75)*
+
+---
+
+### Session 76 — 2026-03-16: Surface aria-multiselectable for Listbox/Grid Elements in Page Model
+
+#### Context
+
+Gap analysis (Session 75 suggestion): `aria-multiselectable` is used on `listbox`, `grid`, `tablist`, and `tree` container elements to indicate whether multiple children can be selected simultaneously. Without this, the planner cannot distinguish between a single-select listbox and a multi-select one — affecting whether it tries to select multiple items or assumes only one selection is allowed.
+
+#### Plan
+
+1. Add `multiselectable?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-multiselectable="true"` in `extractPageModel.ts` element enumeration
+3. Surface `(multiselectable)` annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `multiselectable?: boolean` optional field to `PageElementModel`
+- Captures the `aria-multiselectable` attribute for listbox, grid, tablist, and tree container elements
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After `autocomplete`, captures `aria-multiselectable="true"` → `true`, otherwise `undefined`
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(multiselectable)` annotation between `autocomplete` and `invalid`
+- Example: `[el_5] listbox "Colors" (multiselectable) *`
+
+**Impact:** The planner can now distinguish between single-select and multi-select list/grid containers. This affects whether it tries to select multiple items or assumes only one selection is allowed.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- multiselectable renders (multiselectable) for listbox
+- multiselectable absent when undefined
+- multiselectable absent when false
+- multiselectable renders after autocomplete and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 123/123 pass (was 119, +4 new)
+- `node --test tests/*.test.mjs` — 956/956 pass (was 952, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (956 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-required` for form elements that must be filled
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 76)*
