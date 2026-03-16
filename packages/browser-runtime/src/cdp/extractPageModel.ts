@@ -332,6 +332,18 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     // aria-roledescription: custom widget description overriding generic role
     var elRoleDesc = (el.getAttribute('aria-roledescription') || '').trim().slice(0, 40) || undefined;
 
+    // aria-value*: range widget properties (slider, progressbar, spinbutton, scrollbar, meter)
+    var rawValueNow = el.getAttribute('aria-valuenow');
+    var elValueNow = rawValueNow !== null ? parseFloat(rawValueNow) : undefined;
+    if (elValueNow !== undefined && isNaN(elValueNow)) elValueNow = undefined;
+    var rawValueMin = el.getAttribute('aria-valuemin');
+    var elValueMin = rawValueMin !== null ? parseFloat(rawValueMin) : undefined;
+    if (elValueMin !== undefined && isNaN(elValueMin)) elValueMin = undefined;
+    var rawValueMax = el.getAttribute('aria-valuemax');
+    var elValueMax = rawValueMax !== null ? parseFloat(rawValueMax) : undefined;
+    if (elValueMax !== undefined && isNaN(elValueMax)) elValueMax = undefined;
+    var elValueText = (el.getAttribute('aria-valuetext') || '').trim().slice(0, 60) || undefined;
+
     elements.push({
       id: targetId,
       role: role,
@@ -342,6 +354,10 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       current: elCurrent,
       sort: elSort,
       roleDescription: elRoleDesc,
+      valueNow: elValueNow,
+      valueMin: elValueMin,
+      valueMax: elValueMax,
+      valueText: elValueText,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
