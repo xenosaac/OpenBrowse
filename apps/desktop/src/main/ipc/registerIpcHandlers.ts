@@ -57,6 +57,12 @@ export function registerIpcHandlers(
     mainWindow.webContents.send("runtime:event", { type: "find_in_page_result", sessionId, ...result });
   });
 
+  browserShell.setLoadErrorCallback((sessionId, errorCode, errorDescription, validatedURL) => {
+    mainWindow.webContents.send("runtime:event", {
+      type: "tab_load_error", sessionId, errorCode, errorDescription, url: validatedURL
+    });
+  });
+
   browserShell.setContextMenuCallback((sessionId, params) => {
     const navState = browserShell.getNavState(sessionId);
     const template: Electron.MenuItemConstructorOptions[] = [];

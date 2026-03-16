@@ -169,6 +169,12 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  setLoadErrorCallback(cb: (sessionId: string, errorCode: number, errorDescription: string, validatedURL: string) => void): void {
+    if (this.viewManager) {
+      this.viewManager.onLoadError = cb;
+    }
+  }
+
   // --- DevTools / Print / PDF ---
 
   openDevTools(sessionId: string): void {

@@ -7682,3 +7682,85 @@ Rationale: PM ordering says T19 is next after T18. Framework maturity checklist 
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 126)*
+
+---
+
+### Session 127 — 2026-03-16: T20 — Navigation Error Handling
+
+#### Mode: feature
+
+Rationale: PM ordering says T20 is next after T19. Framework maturity checklist is satisfied. T20 addresses a real UX gap: when pages fail to load (ERR_ABORTED, DNS failure, timeout), users see a blank viewport with no feedback. The failure evidence shows 3+ recent runs failing with navigation errors (ERR_ABORTED, navigation timeout, ERR_NAME_NOT_RESOLVED). Showing error pages improves both user experience and agent debugging visibility.
+
+#### Plan
+
+1. **BrowserViewManager.ts**: Add `onLoadError` callback + `did-fail-load` event listener in `create()`. Only handle main-frame failures.
+2. **AppBrowserShell.ts**: Add `setLoadErrorCallback(cb)` proxy method.
+3. **registerIpcHandlers.ts**: Wire load error callback to send `tab_load_error` event via `runtime:event` channel.
+4. **App.tsx**: Listen for `tab_load_error` events — store error state per tab. Clear error state on `tab_navigated`. Pass error info to BrowserPanel.
+5. **BrowserPanel.tsx**: When active tab has an error, show an error overlay following ui_design.md guidance: transparent background, centered content, no glass, token colors, Reload button with `glass.control`.
+6. Run `pnpm run typecheck`.
+7. Update this log and commit.
+
+#### Implementation
+
+**`BrowserViewManager.ts`** — Added `onLoadError` callback and `did-fail-load` event listener in `create()`:
+- Listens for `did-fail-load` on each WebContentsView's webContents
+- Only handles main-frame failures (`isMainFrame === true`)
+- Filters out ERR_ABORTED (-3) — this fires frequently for normal browser operations (navigation interruptions, redirects) and is not a real load error
+- Forwards sessionId, errorCode, errorDescription, validatedURL to the callback
+
+**`AppBrowserShell.ts`** — Added `setLoadErrorCallback(cb)` proxy method that wires the BrowserViewManager's `onLoadError` callback.
+
+**`registerIpcHandlers.ts`** — Added load error callback wiring:
+- Sends `tab_load_error` event via `runtime:event` channel with sessionId, errorCode, errorDescription, url
+
+**`eventBus.ts`** — Added `tab_load_error` to the `RuntimeEvent` discriminated union type.
+
+**`App.tsx`** — Added tab load error state management:
+- `tabErrors` state: Record keyed by sessionId → `{ errorCode, errorDescription, url }`
+- Subscribes to `tab_load_error` events to set error state per tab
+- Subscribes to `tab_navigated` events to clear error state (successful navigation dismisses the error)
+- Passes `loadError` and `onReload` props to BrowserPanel
+
+**`BrowserPanel.tsx`** — Added error overlay following `docs/ui_design.md` "New Surface Design Guidance" strictly:
+- No glass presets — transparent background lets atmospheric gradient show through
+- Centered vertically and horizontally, max-width 420px, biased slightly above center
+- Error icon (24px SVG circle with exclamation, `textMuted` color)
+- Heading ("This page can't be reached", `textPrimary`, 0.95rem, weight 600)
+- URL (`textSecondary`, 0.82rem, truncated with ellipsis)
+- Error description (`textMuted`, 0.78rem) — human-readable message from error code mapping
+- Reload button: `glass.control` + `borderDefault` + `radii.md`, hover state with tint
+- No card container around the error content
+- When error is active, the native WebContentsView is hidden via IPC so the DOM overlay is visible
+- Error clears when `tab_navigated` event fires for the tab
+- Also cleaned up the `emptyState` color: replaced raw `#9090a8` with `colors.textSecondary`
+
+Key design decisions:
+- ERR_ABORTED (-3) is filtered at the BrowserViewManager level because it fires for normal navigation interruptions (user clicks link before page loads, redirects). Including it would cause false error pages during normal browsing.
+- The native WebContentsView must be explicitly hidden when showing the error overlay because it lives outside the renderer compositor — CSS z-index cannot cover it.
+- Human-readable error messages map common Chromium net error codes (DNS not found, connection lost, timeout, certificate errors) to plain English.
+
+#### Files Changed
+
+- `apps/desktop/src/main/browser/BrowserViewManager.ts` — `onLoadError` callback + `did-fail-load` event listener
+- `apps/desktop/src/main/browser/AppBrowserShell.ts` — `setLoadErrorCallback` proxy method
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — `tab_load_error` event wiring
+- `apps/desktop/src/renderer/lib/eventBus.ts` — `tab_load_error` in RuntimeEvent type
+- `apps/desktop/src/renderer/components/App.tsx` — error state management + props to BrowserPanel
+- `apps/desktop/src/renderer/components/BrowserPanel.tsx` — error overlay UI + error code mapping
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1092/1092 pass (no change — feature is main-process + renderer only)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T20 is complete. When a page fails to load, the browser viewport shows a clear error message with the URL, human-readable error description, and a Reload button instead of a blank viewport.
+- All PM tasks T16-T20 are complete. Program G (test hardening) and Program H (browser fundamentals) are both complete.
+- D12 (sidebar residual token cleanup) is available as a quick design polish task.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 127)*
