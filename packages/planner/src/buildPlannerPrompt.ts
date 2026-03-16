@@ -88,6 +88,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     .map((el) => {
       let line = `[${el.id}] ${el.role} "${el.label}"`;
       if (el.text) line += ` text="${el.text}"`;
+      if (el.description) line += ` desc="${el.description}"`;
       if (el.href) line += ` href="${el.href}"`;
       if (el.inputType && el.inputType !== "text") line += ` type="${el.inputType}"`;
       if (el.value) line += ` value="${el.value}"`;

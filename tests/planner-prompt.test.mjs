@@ -1035,3 +1035,36 @@ test("active dialog hint absent when activeDialog is undefined", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.ok(!user.includes("DIALOG OPEN"));
 });
+
+// ---------------------------------------------------------------------------
+// Element description (aria-description)
+// ---------------------------------------------------------------------------
+
+test("element description rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Delete", description: "Permanently removes the selected items", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /desc="Permanently removes the selected items"/);
+});
+
+test("element description absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Delete", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('desc='));
+});
+
+test("element description rendered after text and before href", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Help", text: "?", description: "Opens help center", href: "/help", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  // Verify ordering: text before desc before href
+  const textIdx = user.indexOf('text="?"');
+  const descIdx = user.indexOf('desc="Opens help center"');
+  const hrefIdx = user.indexOf('href="/help"');
+  assert.ok(textIdx < descIdx, "text should come before desc");
+  assert.ok(descIdx < hrefIdx, "desc should come before href");
+});

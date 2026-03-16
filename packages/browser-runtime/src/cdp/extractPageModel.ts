@@ -297,11 +297,26 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     var elInnerText = (el.innerText || '').trim().slice(0, 40);
     var elText = (elInnerText && elInnerText !== elLabel) ? elInnerText : undefined;
 
+    // aria-description or aria-describedby
+    var elDesc = el.getAttribute('aria-description');
+    if (!elDesc) {
+      var describedBy = el.getAttribute('aria-describedby');
+      if (describedBy) {
+        var descParts = describedBy.split(/\\s+/).map(function(id) {
+          var ref = document.getElementById(id);
+          return ref ? (ref.textContent || '').trim() : '';
+        }).filter(Boolean);
+        if (descParts.length > 0) elDesc = descParts.join(' ');
+      }
+    }
+    elDesc = elDesc ? elDesc.trim().slice(0, 80) : undefined;
+
     elements.push({
       id: targetId,
       role: role,
       label: elLabel,
       text: elText,
+      description: elDesc,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
