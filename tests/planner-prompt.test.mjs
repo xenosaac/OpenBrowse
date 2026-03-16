@@ -1626,3 +1626,43 @@ test("live renders after busy and before invalid", () => {
   assert.ok(busyIdx < liveIdx, "live should come after busy");
   assert.ok(liveIdx < invIdx, "live should come before invalid");
 });
+
+// --- landmarks tests ---
+
+test("landmarks render Page regions section with role and label", () => {
+  const pm = makePageModel({
+    landmarks: [
+      { role: "navigation", label: "Main menu" },
+      { role: "main", label: "" },
+      { role: "complementary", label: "Sidebar" }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page regions:/);
+  assert.match(user, /navigation "Main menu"/);
+  assert.match(user, /^\s+main$/m);
+  assert.match(user, /complementary "Sidebar"/);
+});
+
+test("landmarks absent when undefined", () => {
+  const pm = makePageModel({});
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page regions:/);
+});
+
+test("landmarks absent when empty array", () => {
+  const pm = makePageModel({ landmarks: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page regions:/);
+});
+
+test("landmarks render without label when label is empty", () => {
+  const pm = makePageModel({
+    landmarks: [{ role: "banner", label: "" }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page regions:/);
+  // Should render just the role, no quotes
+  assert.match(user, /^\s+banner$/m);
+  assert.doesNotMatch(user, /banner ""/);
+});

@@ -180,6 +180,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       }).join("\n")}`
     : "";
 
+  // --- Landmark regions ---
+  const landmarksSection = pageModel.landmarks && pageModel.landmarks.length > 0
+    ? `\nPage regions:\n${pageModel.landmarks.map((l) => `  ${l.role}${l.label ? ` "${l.label}"` : ""}`).join("\n")}`
+    : "";
+
   // --- Scroll position context ---
   const scrollSection = pageModel.scrollY !== undefined
     ? `\nScroll position: Y=${pageModel.scrollY}px`
@@ -289,7 +294,7 @@ Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistor
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}${landmarksSection}
 
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}

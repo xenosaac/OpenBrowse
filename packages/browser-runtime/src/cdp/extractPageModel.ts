@@ -327,6 +327,70 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return result.length > 0 ? result : undefined;
   }
 
+  // --- Landmark region extraction ---
+  function extractLandmarks() {
+    var landmarkRoles = new Set([
+      'banner', 'navigation', 'main', 'complementary',
+      'contentinfo', 'search', 'region', 'form'
+    ]);
+    var tagToRole = {
+      'HEADER': 'banner',
+      'NAV': 'navigation',
+      'MAIN': 'main',
+      'ASIDE': 'complementary',
+      'FOOTER': 'contentinfo'
+    };
+
+    var result = [];
+    var seen = new Set();
+
+    // Explicit ARIA landmark roles
+    var roleEls = document.querySelectorAll('[role]');
+    for (var ri = 0; ri < roleEls.length; ri++) {
+      var rel = roleEls[ri];
+      var r = (rel.getAttribute('role') || '').toLowerCase();
+      if (!landmarkRoles.has(r)) continue;
+      if (!isVisible(rel)) continue;
+      var lbl = rel.getAttribute('aria-label')
+        || (rel.getAttribute('aria-labelledby') ? (function() {
+          var ref = document.getElementById(rel.getAttribute('aria-labelledby'));
+          return ref ? (ref.textContent || '').trim() : '';
+        })() : '')
+        || '';
+      var key = r + '::' + lbl.slice(0, 40);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({ role: r, label: lbl.slice(0, 60).trim() });
+      if (result.length >= 10) return result;
+    }
+
+    // Implicit landmark tags (only if not already covered by explicit role)
+    var tagSelectors = ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER'];
+    for (var ti = 0; ti < tagSelectors.length; ti++) {
+      var tagName = tagSelectors[ti];
+      var els = document.querySelectorAll(tagName);
+      for (var ei = 0; ei < els.length; ei++) {
+        var tel = els[ei];
+        if (tel.getAttribute('role')) continue; // already handled above
+        if (!isVisible(tel)) continue;
+        var implicitRole = tagToRole[tagName];
+        var tLbl = tel.getAttribute('aria-label')
+          || (tel.getAttribute('aria-labelledby') ? (function() {
+            var ref = document.getElementById(tel.getAttribute('aria-labelledby'));
+            return ref ? (ref.textContent || '').trim() : '';
+          })() : '')
+          || '';
+        var tKey = implicitRole + '::' + tLbl.slice(0, 40);
+        if (seen.has(tKey)) continue;
+        seen.add(tKey);
+        result.push({ role: implicitRole, label: tLbl.slice(0, 60).trim() });
+        if (result.length >= 10) return result;
+      }
+    }
+
+    return result.length > 0 ? result : undefined;
+  }
+
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
@@ -486,7 +550,8 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     captchaDetected: detectCaptcha(),
     scrollY: window.scrollY,
     activeDialog: detectActiveDialog(),
-    tables: extractTables()
+    tables: extractTables(),
+    landmarks: extractLandmarks()
   };
 })()
 `;
