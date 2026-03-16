@@ -874,3 +874,34 @@ test("select options absent when options empty", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.doesNotMatch(user, /options=\[/);
 });
+
+// --- datalist suggestions reuse same options rendering ---
+
+test("datalist options rendered same as select options", () => {
+  // datalist options populate the same `options` field on PageElementModel
+  // so they render identically via the existing options rendering path
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "City", isActionable: true, boundingVisible: true,
+      inputType: "text",
+      options: [
+        { value: "NYC", label: "New York City" },
+        { value: "LAX", label: "Los Angeles" },
+        { value: "CHI", label: "Chicago" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["NYC" \(New York City\), "LAX" \(Los Angeles\), "CHI" \(Chicago\)\]/);
+});
+
+test("datalist options omit label when same as value", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Color", isActionable: true, boundingVisible: true,
+      options: [{ value: "Red", label: "Red" }, { value: "Blue", label: "Blue" }]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["Red", "Blue"\]/);
+});
