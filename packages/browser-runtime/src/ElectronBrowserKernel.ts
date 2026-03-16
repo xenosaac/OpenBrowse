@@ -249,9 +249,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
       }>;
       visibleText: string;
       pageType?: string;
-      forms?: Array<{ action: string; method: string; fieldCount: number }>;
+      forms?: Array<{
+        action: string; method: string; fieldCount: number;
+        fields?: Array<{ ref: string; label: string; type: string; required: boolean; currentValue: string }>;
+        submitRef?: string;
+      }>;
       alerts?: string[];
       captchaDetected?: boolean;
+      scrollY?: number;
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
 
     return {
@@ -266,6 +271,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
       forms: raw.forms,
       alerts: raw.alerts,
       captchaDetected: raw.captchaDetected,
+      scrollY: raw.scrollY,
       createdAt: new Date().toISOString()
     };
   }
