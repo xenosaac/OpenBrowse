@@ -581,7 +581,7 @@ Current schema version: **4**
 
 ### Planner Output Format
 
-`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (12 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
+`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (15 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
 
 ---
 
@@ -6211,5 +6211,78 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 - T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate. T9 should specifically test read_text with extraction tasks (e.g., "read the first paragraph from this Wikipedia article").
 - Next potential features: step budget increase (35 → 50 for complex workflows), `browser_wait_for_element` (wait for dynamic content), or Telegram bridge validation.
 - P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 104)*
+
+---
+
+### Session 105 — 2026-03-16: Add `browser_wait_for_text` Planner Tool — Dynamic Content Waiting
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. The planner currently can only wait for a fixed duration (`browser_wait`), which is fragile for real-world web interaction. When the planner types a search query, search results load asynchronously. When it clicks a link on an SPA, content changes without a full navigation. A `wait_for_text` tool lets the planner wait for specific text to appear on the page, which is essential for search results, form submissions, SPA navigation, and dynamic content loading. This directly addresses a reliability gap identified in the PM capability mapping.
+
+#### Plan
+
+1. **contracts/src/browser.ts**: Add `"wait_for_text"` to `BrowserActionType`.
+2. **planner/src/toolMapping.ts**: Add `text` and `timeout` to `ToolInput`, add `browser_wait_for_text` tool definition and `mapToolCallToDecision` case.
+3. **planner/src/buildPlannerPrompt.ts**: Add guideline about using wait_for_text after dynamic content triggers.
+4. **browser-runtime/src/ElectronBrowserKernel.ts**: Implement `wait_for_text` — poll `document.body.innerText.includes(text)` every 200ms up to timeout (default 5000ms).
+5. **browser-runtime/src/BrowserKernel.ts**: Stub support.
+6. **tests/toolMapping.test.mjs**: Add tests for new tool.
+7. Run typecheck and tests.
+
+#### Implementation
+
+**1. contracts/src/browser.ts:**
+- Added `"wait_for_text"` to `BrowserActionType` union
+
+**2. planner/src/toolMapping.ts:**
+- Added `browser_wait_for_text` tool definition: takes `text` (required), `timeout` (optional, default 5000ms), `description` (required). Described as waiting for specific text to appear on page after dynamic content loading.
+- Added `timeout` to `ToolInput` interface
+- Added `browser_wait_for_text` mapping case: maps to `wait_for_text` action with value=text and interactionHint=timeout
+- Fails with descriptive error when text is missing
+- Tool count: 15 (was 14)
+
+**3. planner/src/buildPlannerPrompt.ts:**
+- Added browser guideline: "After actions that trigger dynamic content loading (submitting a search, clicking a navigation link on an SPA, submitting a form), use browser_wait_for_text to wait for expected content instead of browser_wait with a fixed duration — it's faster and more reliable"
+
+**4. browser-runtime/src/ElectronBrowserKernel.ts:**
+- Added `wait_for_text` case: polls `document.body.innerText.includes(searchText)` every 200ms up to timeout (from interactionHint, default 5000ms)
+- Returns `ok: true` with page model when text is found, `ok: false` with `failureClass: "interaction_failed"` on timeout
+- Invalidates CDP context after wait (page content may have changed)
+- Summary includes first 60 chars of the search text
+
+**5. browser-runtime/src/BrowserKernel.ts:**
+- Stub returns success with descriptive summary for wait_for_text actions
+
+**Result:** The planner now has 15 tools (was 14). The new `browser_wait_for_text` tool lets the planner wait for specific text to appear on the page instead of guessing with fixed-duration waits. This is essential for search results loading after typing, form submission responses, SPA navigation transitions, and any dynamic content loading. The timeout is configurable (default 5s) and the tool returns as soon as the text appears.
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `wait_for_text` to BrowserActionType
+- `packages/planner/src/toolMapping.ts` — Added `browser_wait_for_text` tool def + mapping case, `timeout` to ToolInput
+- `packages/planner/src/buildPlannerPrompt.ts` — Added browser guideline for wait_for_text usage
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Handle `wait_for_text` via CDP polling
+- `packages/browser-runtime/src/BrowserKernel.ts` — Stub support for wait_for_text
+- `tests/toolMapping.test.mjs` — Updated tool count (15), expected names, +4 new tests (mapping, custom timeout, default desc, missing text), cross-cutting reasoning updated
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 59/59 pass (was 55, +4 new)
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (unchanged)
+- `node --test tests/*.test.mjs` — 1022/1022 pass (was 1018, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 15 tools: navigate, click, type, select, scroll, hover, press_key, wait, screenshot, go_back, read_text, **wait_for_text**, task_complete, task_failed, ask_user.
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate. T9 should test wait_for_text with dynamic content (e.g., search results appearing after typing a query).
+- Next potential features: step budget increase (35 → 50 for complex workflows), `browser_wait_for_navigation` (wait for URL change after click), or `browser_clear_field` (explicit field clearing).
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 105)*
 
 *Session log entry written: 2026-03-16 (Session 104)*
