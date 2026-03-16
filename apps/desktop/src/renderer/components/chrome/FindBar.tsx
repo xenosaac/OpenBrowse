@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from "react";
-import { colors, radii, glass } from "../../styles/tokens";
+import React, { useEffect, useRef, useState } from "react";
+import { colors, radii, glass, transitions } from "../../styles/tokens";
 
 interface FindBarProps {
   onFind: (text: string, options?: { forward?: boolean; findNext?: boolean }) => void;
@@ -12,6 +12,7 @@ interface FindBarProps {
 export function FindBar({ onFind, onStopFind, onClose, activeMatchOrdinal, totalMatches }: FindBarProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const textRef = useRef("");
+  const [hoveredBtn, setHoveredBtn] = useState<string | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -74,13 +75,34 @@ export function FindBar({ onFind, onStopFind, onClose, activeMatchOrdinal, total
             {totalMatches > 0 ? `${activeMatchOrdinal} / ${totalMatches}` : "0 matches"}
           </span>
         )}
-        <button className="ob-btn" style={styles.navButton} onClick={handlePrev} title="Previous match (Shift+Enter)">
+        <button
+          className="ob-btn"
+          style={hoveredBtn === "prev" ? { ...styles.navButton, ...styles.btnHover } : styles.navButton}
+          onClick={handlePrev}
+          onMouseEnter={() => setHoveredBtn("prev")}
+          onMouseLeave={() => setHoveredBtn(null)}
+          title="Previous match (Shift+Enter)"
+        >
           ▲
         </button>
-        <button className="ob-btn" style={styles.navButton} onClick={handleNext} title="Next match (Enter)">
+        <button
+          className="ob-btn"
+          style={hoveredBtn === "next" ? { ...styles.navButton, ...styles.btnHover } : styles.navButton}
+          onClick={handleNext}
+          onMouseEnter={() => setHoveredBtn("next")}
+          onMouseLeave={() => setHoveredBtn(null)}
+          title="Next match (Enter)"
+        >
           ▼
         </button>
-        <button className="ob-btn" style={styles.closeButton} onClick={onClose} title="Close (Esc)">
+        <button
+          className="ob-btn"
+          style={hoveredBtn === "close" ? { ...styles.closeButton, ...styles.btnHover } : styles.closeButton}
+          onClick={onClose}
+          onMouseEnter={() => setHoveredBtn("close")}
+          onMouseLeave={() => setHoveredBtn(null)}
+          title="Close (Esc)"
+        >
           ✕
         </button>
       </div>
@@ -127,11 +149,12 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     fontSize: "0.68rem",
     padding: "2px 4px",
-    borderRadius: radii.xs,
+    borderRadius: radii.md,
     minWidth: 20,
     height: 20,
     display: "grid",
     placeItems: "center",
+    transition: `background ${transitions.fast}, color ${transitions.fast}`,
   },
   closeButton: {
     background: "transparent",
@@ -140,10 +163,15 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     fontSize: "0.72rem",
     padding: "2px 4px",
-    borderRadius: radii.xs,
+    borderRadius: radii.md,
     minWidth: 20,
     height: 20,
     display: "grid",
     placeItems: "center",
+    transition: `background ${transitions.fast}, color ${transitions.fast}`,
+  },
+  btnHover: {
+    background: "rgba(255,255,255,0.08)",
+    color: colors.textPrimary,
   },
 };
