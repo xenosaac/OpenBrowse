@@ -1,0 +1,230 @@
+<h2>Button & Interactive Element Design</h2>
+<p class="subtitle">How should buttons and interactive elements feel? Try hovering and clicking the demos below.</p>
+
+<div class="section">
+  <h3>Navigation Buttons (Back, Forward, Reload, Home)</h3>
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-top:12px;">
+
+    <div style="background:#0e0e14;border-radius:12px;padding:20px;flex:1;min-width:280px;">
+      <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Style A: Emerald Glow on Hover</div>
+      <div style="display:flex;gap:4px;">
+        <style>
+          .btn-glow {
+            width:32px;height:32px;border-radius:8px;
+            background:rgba(255,255,255,0.03);
+            border:1px solid rgba(255,255,255,0.06);
+            display:grid;place-items:center;
+            color:#6b7280;font-size:14px;
+            cursor:pointer;
+            transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+          }
+          .btn-glow:hover {
+            background:rgba(16,185,129,0.08);
+            border-color:rgba(16,185,129,0.2);
+            box-shadow: 0 0 16px rgba(16,185,129,0.1), inset 0 0 8px rgba(16,185,129,0.05);
+            color:#10b981;
+          }
+          .btn-glow:active {
+            transform:scale(0.94);
+            background:rgba(16,185,129,0.12);
+            box-shadow: 0 0 8px rgba(16,185,129,0.15), inset 0 1px 3px rgba(0,0,0,0.3);
+          }
+        </style>
+        <button class="btn-glow">←</button>
+        <button class="btn-glow">→</button>
+        <button class="btn-glow">↻</button>
+        <button class="btn-glow">⌂</button>
+      </div>
+      <div style="color:#6b7280;font-size:11px;margin-top:8px;">Hover: emerald glow halo + border tint. Press: scale down + deeper shadow.</div>
+    </div>
+
+    <div style="background:#0e0e14;border-radius:12px;padding:20px;flex:1;min-width:280px;">
+      <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Style B: Glass Reveal on Hover</div>
+      <div style="display:flex;gap:4px;">
+        <style>
+          .btn-glass {
+            width:32px;height:32px;border-radius:8px;
+            background:transparent;
+            border:1px solid transparent;
+            display:grid;place-items:center;
+            color:#525252;font-size:14px;
+            cursor:pointer;
+            transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(0px);
+          }
+          .btn-glass:hover {
+            background:rgba(255,255,255,0.05);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-color:rgba(255,255,255,0.08);
+            color:#d1d5db;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          }
+          .btn-glass:active {
+            transform:scale(0.92);
+            background:rgba(255,255,255,0.08);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+          }
+        </style>
+        <button class="btn-glass">←</button>
+        <button class="btn-glass">→</button>
+        <button class="btn-glass">↻</button>
+        <button class="btn-glass">⌂</button>
+      </div>
+      <div style="color:#6b7280;font-size:11px;margin-top:8px;">Invisible at rest. Hover: glass panel materializes. Press: depress effect. Minimal until interaction.</div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Primary Action Buttons (Send, Submit, CTA)</h3>
+  <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-top:12px;">
+
+    <div style="background:#0e0e14;border-radius:12px;padding:20px;flex:1;min-width:280px;">
+      <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Style A: Solid Emerald + Press Depth</div>
+      <style>
+        .btn-solid-em {
+          padding:8px 20px;border-radius:8px;
+          background:#10b981;
+          border:1px solid #059669;
+          color:#022c22;font-size:13px;font-weight:600;
+          cursor:pointer;
+          transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 0 0 0 rgba(16,185,129,0);
+        }
+        .btn-solid-em:hover {
+          background:#34d399;
+          box-shadow: 0 2px 8px rgba(16,185,129,0.3), 0 0 20px rgba(16,185,129,0.15);
+          transform:translateY(-1px);
+        }
+        .btn-solid-em:active {
+          transform:translateY(1px);
+          background:#059669;
+          box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+        }
+      </style>
+      <button class="btn-solid-em">Send Message</button>
+      <div style="color:#6b7280;font-size:11px;margin-top:8px;">Solid fill. Hover: lift + glow spread. Press: push in with inset shadow. Feels physical.</div>
+    </div>
+
+    <div style="background:#0e0e14;border-radius:12px;padding:20px;flex:1;min-width:280px;">
+      <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Style B: Glass Emerald + Shimmer</div>
+      <style>
+        .btn-glass-em {
+          padding:8px 20px;border-radius:8px;
+          background:rgba(16,185,129,0.12);
+          backdrop-filter: blur(8px);
+          border:1px solid rgba(16,185,129,0.25);
+          color:#10b981;font-size:13px;font-weight:600;
+          cursor:pointer;
+          transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+          position:relative;
+          overflow:hidden;
+        }
+        .btn-glass-em::before {
+          content:'';
+          position:absolute;
+          top:0;left:-100%;
+          width:100%;height:100%;
+          background:linear-gradient(90deg, transparent, rgba(16,185,129,0.1), transparent);
+          transition: left 600ms ease;
+        }
+        .btn-glass-em:hover {
+          background:rgba(16,185,129,0.18);
+          border-color:rgba(16,185,129,0.4);
+          box-shadow: 0 0 24px rgba(16,185,129,0.12);
+        }
+        .btn-glass-em:hover::before {
+          left:100%;
+        }
+        .btn-glass-em:active {
+          transform:scale(0.97);
+          background:rgba(16,185,129,0.25);
+        }
+      </style>
+      <button class="btn-glass-em">Send Message</button>
+      <div style="color:#6b7280;font-size:11px;margin-top:8px;">Glass fill with emerald tint. Hover: shimmer sweep + glow. Press: scale compress. Feels ethereal.</div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Tab Interaction</h3>
+  <div style="background:#0e0e14;border-radius:12px;padding:20px;">
+    <div style="color:#10b981;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;">Active Tab = Glass Pill, Inactive = Invisible</div>
+    <style>
+      .tab-demo {
+        display:flex;gap:4px;background:#0a0a10;border-radius:10px;padding:6px;
+      }
+      .tab-item-demo {
+        padding:7px 16px;border-radius:7px;
+        background:transparent;border:1px solid transparent;
+        color:#525252;font-size:12px;cursor:pointer;
+        transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .tab-item-demo:hover {
+        background:rgba(255,255,255,0.04);
+        color:#9ca3af;
+      }
+      .tab-item-demo.active-tab {
+        background:rgba(16,185,129,0.08);
+        backdrop-filter:blur(8px);
+        border-color:rgba(16,185,129,0.15);
+        color:#d1fae5;
+        box-shadow: 0 0 12px rgba(16,185,129,0.06);
+      }
+      .tab-close-demo {
+        opacity:0;margin-left:6px;color:#6b7280;font-size:10px;
+        transition:opacity 150ms;cursor:pointer;
+        background:none;border:none;
+      }
+      .tab-item-demo:hover .tab-close-demo,
+      .tab-item-demo.active-tab .tab-close-demo {
+        opacity:1;
+      }
+      .tab-close-demo:hover {
+        color:#ef4444;
+      }
+    </style>
+    <div class="tab-demo">
+      <div class="tab-item-demo active-tab">
+        <span style="color:#10b981;margin-right:6px;font-size:8px;">●</span>
+        Google
+        <button class="tab-close-demo">✕</button>
+      </div>
+      <div class="tab-item-demo">
+        GitHub
+        <button class="tab-close-demo">✕</button>
+      </div>
+      <div class="tab-item-demo">
+        Stack Overflow
+        <button class="tab-close-demo">✕</button>
+      </div>
+    </div>
+    <div style="color:#6b7280;font-size:11px;margin-top:8px;">Active tab is a glass pill with emerald tint. Close button reveals on hover. Inactive tabs are nearly invisible until hovered.</div>
+  </div>
+</div>
+
+<div class="options" style="margin-top:24px;">
+  <div class="option" data-choice="glow-interactions" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Emerald Glow + Solid CTA</h3>
+      <p>Nav buttons get emerald glow halo on hover, CTA buttons are solid emerald with press depth. More vibrant.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="glass-interactions" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Glass Reveal + Shimmer CTA</h3>
+      <p>Nav buttons materialize from invisible, CTA buttons are glass-emerald with shimmer sweep. More ethereal.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="mix-interactions" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Mix: Glass Nav + Solid CTA</h3>
+      <p>Nav buttons use glass reveal (subtle), but primary actions use solid emerald (prominent). Hierarchy through material.</p>
+    </div>
+  </div>
+</div>
