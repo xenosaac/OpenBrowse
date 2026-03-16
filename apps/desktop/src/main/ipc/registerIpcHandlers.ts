@@ -329,6 +329,18 @@ export function registerIpcHandlers(
     return browserShell.getNavState(sessionId);
   });
 
+  register("browser:zoom-in", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.zoomIn(sessionId) };
+  });
+
+  register("browser:zoom-out", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.zoomOut(sessionId) };
+  });
+
+  register("browser:zoom-reset", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.resetZoom(sessionId) };
+  });
+
   register("browser:find-in-page", async (_event, data: { sessionId: string; text: string; forward?: boolean; findNext?: boolean }) => {
     browserShell.findInPage(data.sessionId, data.text, { forward: data.forward, findNext: data.findNext });
     return { ok: true };

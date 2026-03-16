@@ -127,6 +127,31 @@ export class BrowserViewManager {
     }
   }
 
+  zoomIn(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    const current = managed.view.webContents.getZoomLevel();
+    const next = Math.min(current + 0.5, 5);
+    managed.view.webContents.setZoomLevel(next);
+    return next;
+  }
+
+  zoomOut(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    const current = managed.view.webContents.getZoomLevel();
+    const next = Math.max(current - 0.5, -3);
+    managed.view.webContents.setZoomLevel(next);
+    return next;
+  }
+
+  resetZoom(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    managed.view.webContents.setZoomLevel(0);
+    return 0;
+  }
+
   navigate(sessionId: string, url: string): void {
     const managed = this.views.get(sessionId);
     if (managed) {

@@ -96,6 +96,10 @@ declare global {
       // Find in page
       findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<unknown>;
       stopFindInPage: (sessionId: string) => Promise<unknown>;
+      // Zoom
+      browserZoomIn: (sessionId: string) => Promise<{ zoomLevel: number }>;
+      browserZoomOut: (sessionId: string) => Promise<{ zoomLevel: number }>;
+      browserZoomReset: (sessionId: string) => Promise<{ zoomLevel: number }>;
       // DevTools / Print / PDF
       openDevTools: (sessionId: string) => Promise<unknown>;
       printPage: (sessionId: string) => Promise<unknown>;
@@ -646,7 +650,10 @@ export function App() {
         setFindBarOpen(true);
         setFindResult({ activeMatchOrdinal: 0, matches: 0 });
       }
-    }
+    },
+    onZoomIn: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomIn(selection.activeBrowserTab.id); },
+    onZoomOut: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomOut(selection.activeBrowserTab.id); },
+    onZoomReset: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomReset(selection.activeBrowserTab.id); }
   });
 
   const handleFindInPage = useCallback((text: string, options?: { forward?: boolean; findNext?: boolean }) => {
