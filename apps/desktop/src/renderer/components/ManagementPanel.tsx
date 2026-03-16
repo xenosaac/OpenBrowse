@@ -359,6 +359,10 @@ const styles: Record<string, React.CSSProperties> = {
   runtimeValue: {
     fontSize: "0.84rem",
     color: "#e5e7eb",
-    fontWeight: 600
+    fontWeight: 600,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0
   }
 };

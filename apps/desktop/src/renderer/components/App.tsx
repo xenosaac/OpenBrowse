@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -139,6 +140,7 @@ export function App() {
   const addressBar = useAddressBar(selection.activeBrowserTab, selection.mainPanel);
   const layout = useUILayout();
   const addressBarRef = useRef<HTMLInputElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // ---- Step 1.3: Sync selectedRunId → inspectedRunId, foregroundRunId ----
   useEffect(() => {
@@ -589,9 +591,15 @@ export function App() {
     onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); }
   });
 
-  // ---- Hamburger dropdown menu content (passed to NavBar) ----
-  const menuContent = (
-    <div style={styles.dropdownMenu} onClick={() => layout.setMenuOpen(false)}>
+  // ---- Hamburger dropdown menu content (rendered via portal) ----
+  const menuRect = menuButtonRef.current?.getBoundingClientRect();
+  const menuContent = layout.menuOpen && menuRect ? createPortal(
+    <div style={{
+      ...styles.dropdownMenu,
+      position: "fixed",
+      top: menuRect.bottom + 4,
+      right: window.innerWidth - menuRect.right,
+    }} onClick={() => layout.setMenuOpen(false)}>
       <button
         className="ob-dropdown-item"
         style={styles.dropdownItem}
@@ -652,8 +660,9 @@ export function App() {
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("bookmarks")}>Bookmarks</button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("cookies")}>Cookies</button>
-    </div>
-  );
+    </div>,
+    document.body
+  ) : null;
 
   // ---- Step 1.8: JSX with extracted components ----
   return (
@@ -721,7 +730,6 @@ export function App() {
           displayUrl={displayUrl}
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
-          menuOpen={layout.menuOpen}
           isBookmarked={isBookmarked}
           onToggleBookmark={() => void handleToggleBookmark()}
           onAddressChange={addressBar.setAddressInput}
@@ -749,7 +757,7 @@ export function App() {
           onOpenManagement={layout.openManagement}
           onToggleMenu={(e) => { e.stopPropagation(); layout.toggleMenu(); }}
           addressBarRef={addressBarRef}
-          menuContent={menuContent}
+          menuButtonRef={menuButtonRef}
         />
 
         {/* Loading indicator */}
@@ -817,6 +825,9 @@ export function App() {
             onClose={layout.closeManagement}
           />
         )}
+
+        {/* Hamburger dropdown menu — rendered via portal to escape NavBar stacking context */}
+        {menuContent}
       </section>
     </div>
   );
@@ -864,17 +875,13 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden"
   },
   dropdownMenu: {
-    position: "absolute",
-    top: "100%",
-    right: 0,
-    marginTop: 4,
     ...glass.panel,
     border: `1px solid ${colors.borderGlass}`,
     borderRadius: 10,
     padding: "6px 0",
     minWidth: 180,
     boxShadow: shadows.glassElevated,
-    zIndex: 2000
+    zIndex: 9999
   } as React.CSSProperties,
   dropdownItem: {
     display: "block",

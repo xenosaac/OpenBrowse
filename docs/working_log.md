@@ -2014,13 +2014,13 @@ This section tracks planned features, prioritized for iterative implementation.
 
 Fixed by including `description` in cycle keys (differentiates clicks on different buttons) and requiring 4 full repetitions for 2-step cycles (was 3). Also extended cycle detection to 2–5 step patterns (was 2–3).
 
-**12. Hamburger menu dropdown clipped by browser tabs (z-index)** — OPEN (reported 2026-03-16)
+**~~12. Hamburger menu dropdown clipped by browser tabs (z-index)~~** — RESOLVED (Session 90, 2026-03-16)
 
-The hamburger menu (☰) dropdown renders behind browser tab elements. When one or more tabs are open, the tab bar overlaps and fully obscures the middle portion of the dropdown (around "DevTools" and "Print Page" items). Root cause is likely a `z-index` stacking issue — the dropdown's z-index is lower than the tab bar's, or the dropdown is rendered inside a stacking context that cannot escape the tab bar layer. Fix requires ensuring the hamburger dropdown has a higher z-index than the tab bar, or rendering the dropdown in a portal above all chrome layers.
+Fixed by rendering the dropdown via `ReactDOM.createPortal` to `document.body` with `position: fixed`, breaking out of the NavBar's `backdrop-filter` stacking context. The hamburger button ref provides coordinates for positioning.
 
-**13. Runtime panel text overflow in ManagementPanel** — OPEN (reported 2026-03-16)
+**~~13. Runtime panel text overflow in ManagementPanel~~** — RESOLVED (Session 90, 2026-03-16)
 
-In the ManagementPanel → Runtime tab, the STORAGE card's Detail text overflows its card boundary. The long SQLite path (`/Users/isaaczhang/Library/Application Support/@openbrowse/desktop/openbrowse.db`) is not truncated or wrapped and visually bleeds past the card edge into the adjacent CHAT BRIDGE card. Fix requires adding `overflow: hidden; text-overflow: ellipsis` or `word-break: break-all` to the Detail value in the RuntimePanel card component.
+Fixed by adding `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0` to the `runtimeValue` style in ManagementPanel.tsx.
 
 ### P3 — Future
 
@@ -5103,5 +5103,66 @@ Gap analysis (Session 88 suggestion): Pages with `<iframe>` elements have conten
 - Remaining untested code requires Electron context
 - P3-10 (profile system) remains deferred
 - Consider: element grouping by landmark in prompt, loading/spinner state detection, or aria-errormessage surfacing
+
+*Session log entry written: 2026-03-16 (Session 89)*
+
+---
+
+### Session 90 — 2026-03-16: Fix Hamburger Menu Z-Index (Bug #12) + Runtime Panel Overflow (Bug #13)
+
+#### Mode: repair
+
+PM directive: The page model fidelity phase is declared complete. T1 and T2 are P0 bugs that predate 66 sessions of framework work and must be fixed before new feature work.
+
+#### Context
+
+**Bug #12 (T1):** The hamburger menu dropdown renders behind browser tab elements. The dropdown is positioned `absolute` inside a `position: relative` wrapper in NavBar.tsx, but the NavBar itself has `backdrop-filter` (from `glass.panel`) which creates a new CSS stacking context. The `zIndex: 2000` only applies within that stacking context, not globally, so the dropdown is clipped by the TabBar above it. Fix: render the dropdown via `ReactDOM.createPortal` at the document body level, positioned using the button's bounding rect.
+
+**Bug #13 (T2):** In ManagementPanel → Runtime tab, the Detail value (long SQLite path) overflows the card boundary. The `runtimeValue` style has no overflow handling. Fix: add `overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0` to the value span.
+
+#### Plan
+
+1. Fix T2 (runtime panel overflow) — trivial CSS fix in ManagementPanel.tsx
+2. Fix T1 (hamburger dropdown z-index) — render dropdown via `createPortal` to `document.body`, positioned absolutely using a ref on the hamburger button
+3. Run `pnpm run typecheck`
+4. Update this log and commit
+
+#### Implementation
+
+**Bug #13 (T2) — ManagementPanel.tsx:**
+- Added `overflow: hidden`, `textOverflow: ellipsis`, `whiteSpace: nowrap`, `minWidth: 0` to `runtimeValue` style
+- Long SQLite paths are now truncated with ellipsis instead of bleeding past card boundaries
+
+**Bug #12 (T1) — NavBar.tsx + App.tsx:**
+
+Root cause: The NavBar has `backdrop-filter` from `glass.panel`, which creates a CSS stacking context. The dropdown's `z-index: 2000` only applied within that stacking context, so it couldn't escape above other elements outside the NavBar.
+
+Fix: Render the dropdown via `ReactDOM.createPortal` to `document.body`:
+- NavBar no longer renders the dropdown or receives `menuContent` prop
+- NavBar now receives a `menuButtonRef` prop, attached to the hamburger button
+- App.tsx creates the menu content via `createPortal(dropdown, document.body)` when `menuOpen` is true
+- The dropdown uses `position: fixed` with coordinates computed from `menuButtonRef.current.getBoundingClientRect()`
+- z-index set to 9999 to ensure it renders above all shell layers including tab bar
+
+Files changed:
+- `apps/desktop/src/renderer/components/chrome/NavBar.tsx` — removed `menuOpen`, `menuContent` props; added `menuButtonRef` prop; removed dropdown rendering from NavBar
+- `apps/desktop/src/renderer/components/App.tsx` — added `createPortal` import; added `menuButtonRef`; changed menuContent to render via portal with fixed positioning; updated NavBar props; removed static positioning from `dropdownMenu` style
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — added overflow handling to `runtimeValue` style
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 996/996 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Bug #12 and Bug #13 are now resolved — mark them as DONE in the Feature Backlog
+- PM priority T3 (planner prompt token budget audit) is next
+- PM priority T4 (real-task smoke test) requires running the Electron app
+- Then design system work: D1 (atmospheric background), T5 (sidebar glass), T6 (home page)
+
+*Session log entry written: 2026-03-16 (Session 90)*
 
 *Session log entry written: 2026-03-16 (Session 89)*
