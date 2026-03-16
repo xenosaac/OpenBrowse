@@ -4979,3 +4979,66 @@ Gap analysis: Elements with `aria-keyshortcuts` (e.g., `aria-keyshortcuts="Alt+S
 - Consider: shadow DOM penetration, iframe content extraction, or element grouping by landmark
 
 *Session log entry written: 2026-03-16 (Session 87)*
+
+---
+
+### Session 88 — 2026-03-16: Penetrate Open Shadow DOM in Element Enumeration
+
+#### Context
+
+Gap analysis (Session 87 suggestion): `document.querySelectorAll()` in element enumeration does not penetrate shadow DOM boundaries. Web Components with open shadow roots (custom elements, many modern UI frameworks, CMPs like OneTrust) have their interactive elements completely invisible to the planner. This is a significant interaction gap — the planner literally cannot see or click elements inside shadow roots.
+
+#### Plan
+
+1. Add `querySelectorAllDeep()` helper function in `extractPageModel.ts` that recursively traverses open shadow roots
+2. Replace `document.querySelectorAll()` call in element enumeration with the deep query
+3. Ensure `getContainingLandmark()` traverses through shadow boundaries via `getRootNode().host`
+4. Add `inShadowDom?: boolean` field to `PageElementModel` to mark elements found inside shadow DOM
+5. Surface `(shadow)` annotation in `buildPlannerPrompt.ts`
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `querySelectorAllDeep(root, selector)` recursive function that queries elements from a root node and then recurses into all open shadow roots found under that root
+- Added `isInShadowDom(el)` helper that walks up via `getRootNode()` to detect if an element is inside any shadow root
+- Replaced `document.querySelectorAll(...)` in element enumeration with `querySelectorAllDeep(document, INTERACTIVE_SELECTOR)` — now finds interactive elements inside open shadow DOM
+- Updated `getContainingLandmark(el)` to cross shadow boundaries: when `parentElement` is null, follows `getRootNode().host` to continue the landmark search through the shadow host chain
+- Added `inShadowDom: isInShadowDom(el) || undefined` to each element's output
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `inShadowDom?: boolean` optional field to `PageElementModel` interface
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(shadow)` annotation for elements inside shadow DOM
+- Placed after options and before `(off-screen)` annotation
+
+**Impact:** The planner can now:
+- See and interact with elements inside open shadow DOM (Web Components, custom elements)
+- Understand which elements are inside shadow roots via the `(shadow)` annotation
+- Navigate landmark structure across shadow boundaries
+This covers many modern UI frameworks and CMP tools that use Web Components with shadow DOM.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- inShadowDom renders (shadow) annotation for element in shadow DOM
+- inShadowDom absent when undefined
+- inShadowDom renders after options and before off-screen (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 158/158 pass (was 155, +3 new)
+- `node --test tests/*.test.mjs` — 993/993 pass (was 990, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (993 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, element grouping by landmark in prompt, or closed shadow DOM handling (not possible without `mode: "open"`)
+
+*Session log entry written: 2026-03-16 (Session 88)*

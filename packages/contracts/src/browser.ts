@@ -86,6 +86,7 @@ export interface PageElementModel {
   options?: Array<{ value: string; label: string }>;
   keyShortcuts?: string;
   landmark?: string;
+  inShadowDom?: boolean;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }

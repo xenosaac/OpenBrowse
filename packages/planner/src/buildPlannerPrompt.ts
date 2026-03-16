@@ -127,6 +127,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.options && el.options.length > 0) {
         line += ` options=[${el.options.map(o => `"${o.value}"${o.label !== o.value ? ` (${o.label})` : ""}`).join(", ")}]`;
       }
+      if (el.inShadowDom) line += " (shadow)";
       if (!el.boundingVisible && el.isActionable) line += " (off-screen)";
       if (el.isActionable) line += " *";
       return line;

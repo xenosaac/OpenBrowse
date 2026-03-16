@@ -435,23 +435,64 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
 
   function getContainingLandmark(el) {
     var node = el.parentElement;
-    while (node && node !== document.body && node !== document.documentElement) {
-      var r = (node.getAttribute('role') || '').toLowerCase();
-      if (landmarkRolesSet.has(r)) return r;
-      var implicitRole = tagToLandmarkRole[node.tagName];
-      if (implicitRole && !node.getAttribute('role')) return implicitRole;
+    while (node) {
+      if (node === document.body || node === document.documentElement) break;
+      if (node.getAttribute) {
+        var r = (node.getAttribute('role') || '').toLowerCase();
+        if (landmarkRolesSet.has(r)) return r;
+        if (node.tagName) {
+          var implicitRole = tagToLandmarkRole[node.tagName];
+          if (implicitRole && !node.getAttribute('role')) return implicitRole;
+        }
+      }
+      // Cross shadow boundary: if parent is null, check for shadow host
+      if (!node.parentElement) {
+        var root = node.getRootNode ? node.getRootNode() : null;
+        if (root && root instanceof ShadowRoot && root.host) {
+          node = root.host;
+          continue;
+        }
+        break;
+      }
       node = node.parentElement;
     }
     return undefined;
+  }
+
+  // --- Deep query that penetrates open shadow DOM ---
+  var INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role], [tabindex], [contenteditable], summary, details, [onclick]';
+
+  function querySelectorAllDeep(root, selector) {
+    var result = [];
+    // Collect from this root
+    var found = root.querySelectorAll(selector);
+    for (var qi = 0; qi < found.length; qi++) result.push(found[qi]);
+    // Recurse into open shadow roots
+    var allEls = root.querySelectorAll('*');
+    for (var si = 0; si < allEls.length; si++) {
+      if (allEls[si].shadowRoot) {
+        var shadowFound = querySelectorAllDeep(allEls[si].shadowRoot, selector);
+        for (var sfi = 0; sfi < shadowFound.length; sfi++) result.push(shadowFound[sfi]);
+      }
+    }
+    return result;
+  }
+
+  function isInShadowDom(el) {
+    var node = el;
+    while (node) {
+      var root = node.getRootNode ? node.getRootNode() : document;
+      if (root instanceof ShadowRoot) return true;
+      node = root.host || null;
+    }
+    return false;
   }
 
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
 
-  var allElements = document.querySelectorAll(
-    'a, button, input, select, textarea, [role], [tabindex], [contenteditable], summary, details, [onclick]'
-  );
+  var allElements = querySelectorAllDeep(document, INTERACTIVE_SELECTOR);
 
   for (var j = 0; j < allElements.length; j++) {
     allElements[j].removeAttribute(targetAttr);
@@ -581,6 +622,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       })(),
       keyShortcuts: elKeyShortcuts,
       landmark: getContainingLandmark(el),
+      inShadowDom: isInShadowDom(el) || undefined,
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });
