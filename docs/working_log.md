@@ -1407,6 +1407,78 @@ The cycle key format `type:targetId:targetUrl` treated clicks on different butto
 
 ---
 
+### Session 22 — 2026-03-16: P0-1 Audit + P0-2 Agent Context-Awareness on New Task
+
+#### P0-1 Audit
+
+Inspected the layout code. The ManagementPanel renders inside `<section style={styles.main}>` which has `position: "relative"`. The ManagementPanel backdrop uses `position: "absolute"; inset: 0`, so it only covers the main section — the sidebar `<aside>` is a sibling outside this section and is always visible and functional. P0-1 appears already resolved by Session 11's fix (changed from `position: fixed` to `position: absolute` scoped to section). Marking as DONE.
+
+#### P0-2 Plan: Agent Context-Awareness
+
+The agent should observe the currently active page before deciding whether to navigate elsewhere. Currently `initializeTask()` always creates a new browser session/tab.
+
+**Implementation plan:**
+1. Add `activeSessionId?: string` to `TaskIntent` (contracts)
+2. In renderer: when submitting a task, pass the active standalone tab's sessionId if one exists
+3. In `OpenBrowseRuntime.initializeTask()`: if `intent.activeSessionId` is set, reuse that session instead of creating a new one — capture its page model and pass it as initial context to the planner
+4. Planner sees the current page and decides whether to reuse it or navigate elsewhere
+
+#### Verification
+
+All four steps confirmed implemented:
+1. `activeSessionId?: string` exists in `TaskIntent` (contracts/src/tasks.ts:79)
+2. Renderer passes `selection.activeBrowserTab.id` as `activeSessionId` (App.tsx:292)
+3. `initializeTask()` calls `getSession(activeSessionId)` and reuses the session (OpenBrowseRuntime.ts:371-379)
+4. `plannerLoop` naturally captures the reused session's page model on its first iteration via `capturePageModel(session)` (RunExecutor.ts:69)
+
+`pnpm run typecheck` passes clean.
+
+#### Status: DONE
+
+---
+
+### Session 23 — 2026-03-16: P1-6 Cookie Management UI
+
+#### Context
+
+All P0 items are done. P1 items 3, 4, 5 are done. Next P1 item is **P1-6: Cookie management UI** — view and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel.
+
+#### Plan
+
+1. Add a `CookiePanel` component (renderer) with: list cookies for the active tab's partition, search/filter, delete individual or clear all
+2. Wire it into ManagementPanel as a new tab
+3. Add hamburger menu item to open it
+4. Add IPC handlers for cookie operations (list, remove, removeAll) using Electron's `session.cookies` API
+5. Typecheck
+
+#### Implementation Notes
+
+- Cookie IPC handlers will use `browserShell.viewManager` to get the active tab's `webContents.session.cookies`
+- Pass `sessionId` from renderer to identify which browser tab's cookies to query
+- CookiePanel follows HistoryPanel pattern: list, search/filter, delete individual, clear all
+- No new store needed — Electron's `session.cookies` API is the source of truth
+
+#### Implementation
+
+1. **AppBrowserShell** — added `getCookies()`, `removeCookie()`, `removeAllCookies()` methods using Electron's `session.cookies` API via the managed view's webContents
+2. **IPC handlers** — registered `cookies:list`, `cookies:remove`, `cookies:remove-all` in `registerIpcHandlers.ts`
+3. **Preload API** — exposed `listCookies`, `removeCookie`, `removeAllCookies` and added global type declarations
+4. **CookiePanel component** — new component with filter/search, delete individual, clear all (with confirm), refresh, cookie count, Secure/HttpOnly badges
+5. **ManagementPanel** — added `"cookies"` tab, wired CookiePanel with `activeSessionId` prop
+6. **Hamburger menu** — added "Cookies" item opening the management panel to the cookies tab
+
+#### Verification
+
+`pnpm run typecheck` passes clean.
+
+#### Status: DONE
+
+#### Next Steps
+
+- All P1 items complete (3–6). Next is P3-10 (Profile system / Google login) or code review/gap analysis.
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
@@ -1415,13 +1487,9 @@ This section tracks planned features, prioritized for iterative implementation.
 
 ### P0 — Critical UX
 
-**1. Chat interface consistency across tabs**
+**~~1. Chat interface consistency across tabs~~** — DONE (Session 11 + Session 22 audit confirmed)
 
-The chat sidebar must remain visible and functional regardless of which browser tab is active or whether the ManagementPanel is open. Currently the ManagementPanel overlays the full view, hiding the chat. The sidebar should always be rendered; the ManagementPanel should only overlay the browser area (center panel).
-
-**2. Agent context-awareness on new task**
-
-When the user submits a new task, the agent should first observe the page currently open in the active tab — extract its page model, check if it's relevant to the task — before deciding whether to navigate elsewhere or open a new tab. Currently `initializeTask()` always creates a new browser session/tab. The fix: if a standalone tab is active, extract its page model first, pass it as `currentPageContext` to the planner, and let the planner decide whether to reuse that tab or open a new one. Requires extending `TaskIntent` with `activeSessionId`.
+**~~2. Agent context-awareness on new task~~** — DONE (Session 22, verified all 4 implementation steps complete)
 
 ### P1 — Core Browser Features
 
@@ -1431,9 +1499,7 @@ When the user submits a new task, the agent should first observe the page curren
 
 **~~5. Browsing history viewer~~** — DONE (Session 20, 2026-03-16). HistoryPanel with date grouping, search, clear all. Auto-recording on navigation. Hamburger + ManagementPanel tab.
 
-**6. Cookie management UI**
-
-View and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel. Note: cookies already persist automatically via `persist:` partitions — this is purely a management/inspection UI.
+**~~6. Cookie management UI~~** — DONE (Session 23, 2026-03-16). CookiePanel with filter, delete, clear all. IPC via session.cookies API. ManagementPanel tab + hamburger menu item.
 
 ### P2 — Enhancement Features
 

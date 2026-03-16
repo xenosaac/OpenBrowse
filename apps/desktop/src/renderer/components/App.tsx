@@ -113,6 +113,11 @@ declare global {
       listHistory: (limit?: number) => Promise<unknown[]>;
       searchHistory: (query: string) => Promise<unknown[]>;
       clearHistory: () => Promise<void>;
+
+      // Cookie management
+      listCookies: (sessionId: string) => Promise<unknown[]>;
+      removeCookie: (sessionId: string, url: string, name: string) => Promise<void>;
+      removeAllCookies: (sessionId: string) => Promise<void>;
     };
   }
 }
@@ -646,6 +651,7 @@ export function App() {
         Save as PDF
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("bookmarks")}>Bookmarks</button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("cookies")}>Cookies</button>
     </div>
   );
 
@@ -791,6 +797,7 @@ export function App() {
             replaySteps={agentRuns.replaySteps}
             profiles={agentRuns.profiles}
             selectedRunId={selection.selectedRunId}
+            activeSessionId={selection.activeBrowserTab?.id ?? null}
             initialTab={layout.managementTab}
             onSaved={async () => {
               await agentRuns.refresh();
