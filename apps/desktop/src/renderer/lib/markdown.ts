@@ -27,12 +27,13 @@ export function renderMarkdownHtml(md: string): string {
         continue;
       }
       if (!inTable) {
-        out.push('<table style="width:100%;border-collapse:collapse;margin:6px 0;font-size:13px">');
+        out.push('<table style="width:100%;border-collapse:collapse;margin:6px 0;font-size:0.82rem">');
         inTable = true;
         headerDone = false;
       }
       const tag = !headerDone ? "th" : "td";
-      const cellStyle = 'style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left"';
+      const thExtra = !headerDone ? "font-weight:600;" : "";
+      const cellStyle = `style="${thExtra}padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.10);text-align:left"`;
       out.push("<tr>" + cells.map((c) => `<${tag} ${cellStyle}>${inline(escape(c))}</${tag}>`).join("") + "</tr>");
       if (!headerDone) headerDone = true;
       continue;

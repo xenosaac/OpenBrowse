@@ -75,11 +75,9 @@ const styles: Record<string, React.CSSProperties> = {
   chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
   chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
   chatBubbleAction: {
-    background: "rgba(17,17,24,0.4)", border: "none",
-    backdropFilter: "blur(8px) saturate(150%)",
-    WebkitBackdropFilter: "blur(8px) saturate(150%)",
-    borderLeft: "2px solid " + colors.emerald, borderRadius: 0,
-    padding: "4px 10px", fontSize: "0.78rem", color: "#9090a8"
+    background: "transparent", border: "none",
+    borderLeft: "2px solid " + colors.emerald, borderRadius: 6,
+    padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
   } as React.CSSProperties,
   chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" }
 };

@@ -6746,3 +6746,52 @@ Rationale: PM directive says T12 is next after T11 (done). T12 adds concise erro
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 112)*
+
+---
+
+### Session 113 — 2026-03-16: D8 — Codify Chat Action Bubble and Markdown Table Styling
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8, T10-T12) are complete. T9 requires user action. Feature backlog P0-P2 done, P3 deferred. D8 is the next specified task from the UI designer — fixes an Interior Component Rule violation (action bubbles use blur inside sidebar) and aligns markdown table styles with design tokens. Well-scoped, one iteration.
+
+#### Plan
+
+1. **`ChatMessageItem.tsx`**: Fix `chatBubbleAction` style — remove `backdropFilter`/`WebkitBackdropFilter`, set `background: 'transparent'`, set `borderRadius: 6`, use `colors.textSecondary` token instead of raw hex.
+2. **`lib/markdown.ts`**: Align table styles — `font-size:0.82rem` instead of `13px`, `border-bottom` to match `borderDefault` (0.10), add `font-weight:600` to `<th>` cells.
+3. Run typecheck.
+
+#### Implementation
+
+**1. `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — `chatBubbleAction` style:
+- Removed `backdropFilter` and `WebkitBackdropFilter` (Interior Component Rule — no blur inside Tier 1 sidebar)
+- Changed `background` from `rgba(17,17,24,0.4)` to `transparent` (inherit parent glass)
+- Changed `borderRadius` from `0` to `6` (rounded geometry principle)
+- Changed `color` from raw `"#9090a8"` to `colors.textSecondary` (token reference)
+- Kept `borderLeft: '2px solid ' + colors.emerald` (left-accent inline-log pattern)
+- Kept `padding: '4px 10px'`, `fontSize: '0.78rem'`
+
+**2. `apps/desktop/src/renderer/lib/markdown.ts`** — table rendering:
+- Changed `font-size:13px` to `font-size:0.82rem` (rem-based, matches system sizing)
+- Changed `border-bottom:1px solid rgba(255,255,255,0.1)` to `rgba(255,255,255,0.10)` (matches `borderDefault` token value exactly)
+- Added `font-weight:600` to `<th>` cells only (headers visually distinct from data rows)
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx` — Action bubble: removed blur, transparent bg, rounded radius, token color
+- `apps/desktop/src/renderer/lib/markdown.ts` — Table: rem font-size, borderDefault-aligned border, bold headers
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1059/1059 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D9 (status tone border tokens + raw hex cleanup) is the next UI design task.
+- All PM tasks (T1-T8, T10-T12) complete. T9 (manual end-to-end testing) remains the sole product validation gate.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 113)*
