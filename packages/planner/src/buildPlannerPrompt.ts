@@ -257,6 +257,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - Prefer elements marked with * (actionable)
 - If the current page is about:blank or empty: navigate to a relevant URL immediately
 - Ask for clarification only when genuinely ambiguous
+- When completing a task that involved searching, extracting, or looking up information, include the results as extracted_data in task_complete (array of {label, value} pairs) so the user receives structured findings
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 

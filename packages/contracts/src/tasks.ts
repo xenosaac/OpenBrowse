@@ -12,6 +12,12 @@ export type RiskClassPolicy = "always_ask" | "auto_approve" | "default";
 /** Map of risk class → approval policy. Missing keys default to "default". */
 export type RiskClassPolicies = Partial<Record<RiskClass, RiskClassPolicy>>;
 
+/** A labeled data item extracted by the planner during task execution. */
+export interface ExtractedDataItem {
+  label: string;
+  value: string;
+}
+
 /** A compact record of a single browser action taken during a run. Stored in RunCheckpoint.actionHistory. */
 export interface RunActionRecord {
   step: number;
@@ -48,6 +54,7 @@ export interface RunHandoffArtifact {
   suspensionQuestion?: string;
   notes: string[];
   outcome?: string;
+  extractedData?: ExtractedDataItem[];
   pageModelSnapshot?: PageModel;
   screenshotBase64?: string;
 }
@@ -140,6 +147,7 @@ export interface RunSuspension {
 export interface RunOutcome {
   status: Extract<TaskStatus, "completed" | "failed" | "cancelled">;
   summary: string;
+  extractedData?: ExtractedDataItem[];
   finishedAt: string;
 }
 
@@ -197,5 +205,6 @@ export interface PlannerDecision<TAction = unknown> {
   clarificationRequest?: ClarificationRequest;
   approvalRequest?: ApprovalRequest;
   completionSummary?: string;
+  extractedData?: ExtractedDataItem[];
   failureSummary?: string;
 }

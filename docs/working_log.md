@@ -6011,4 +6011,77 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) are complete. Border
 - Next potential features: `browser_go_forward` (lower value — agents rarely need it), structured data output in task_complete, or Telegram bridge validation.
 - P3-10 (profile system) remains deferred.
 
+---
+
+### Session 102 — 2026-03-16: Add `extractedData` to `task_complete` — Structured Result Output
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. The PM capability mapping (Program E) identified "no structured data output" as a key product gap: the `extract` action returns raw page model, not user-friendly structured data. For search+extract (user job #1) and data collection (job #5), the planner needs a way to return labeled results. Currently `task_complete` only takes a `summary` string — the planner cannot return structured findings even when it has them.
+
+#### Plan
+
+1. **contracts/src/tasks.ts**: Add `ExtractedDataItem` interface (`{label, value}`). Add optional `extractedData` to `PlannerDecision`, `RunOutcome`, and `RunHandoffArtifact`.
+2. **planner/src/toolMapping.ts**: Add `extracted_data` parameter (optional array) to `task_complete` tool definition. Map it in the `task_complete` case handler.
+3. **planner/src/buildPlannerPrompt.ts**: Add planner guidance on when to populate extracted_data.
+4. **orchestrator/src/TaskOrchestrator.ts**: Thread `extractedData` from decision through to outcome.
+5. **observability/src/RunHandoff.ts**: Include `extractedData` in artifact builder and render it in handoff markdown.
+6. **tests**: Update toolMapping tests for new parameter. Add handoff rendering test for extracted data.
+7. Run typecheck and tests.
+
+#### Implementation
+
+**1. contracts/src/tasks.ts:**
+- Added `ExtractedDataItem` interface: `{ label: string; value: string }` — the canonical type for labeled extracted results
+- Added optional `extractedData?: ExtractedDataItem[]` to `PlannerDecision`, `RunOutcome`, and `RunHandoffArtifact`
+- Type is re-exported from `@openbrowse/contracts` via barrel export
+
+**2. planner/src/toolMapping.ts:**
+- Expanded `task_complete` tool description to instruct the planner to include results in `extracted_data` when the task involved finding/extracting information
+- Added `extracted_data` parameter: optional array of `{label, value}` objects
+- Added `extracted_data` to `ToolInput` interface
+- `task_complete` case handler filters and validates items (rejects non-string label/value), maps to `extractedData` on the decision. Empty arrays become `undefined`.
+
+**3. planner/src/buildPlannerPrompt.ts:**
+- Added browser guideline: "When completing a task that involved searching, extracting, or looking up information, include the results as extracted_data in task_complete"
+
+**4. orchestrator/src/TaskOrchestrator.ts:**
+- Threads `decision.extractedData` into `outcome.extractedData` on task_complete
+
+**5. observability/src/RunHandoff.ts:**
+- `buildHandoffArtifact` maps `run.outcome?.extractedData` into the artifact
+- `renderHandoffMarkdown` renders an "## Extracted Data" section as a markdown table (Label | Value) with pipe-character escaping
+
+**Result:** The planner can now return structured results when completing information-finding tasks. The data flows through: planner tool call → PlannerDecision → RunOutcome → RunHandoffArtifact → handoff markdown → Telegram notification. This directly addresses the PM-identified gap: "Extract returns page model, not structured output."
+
+#### Files Changed
+
+- `packages/contracts/src/tasks.ts` — Added `ExtractedDataItem` type, added `extractedData` to `PlannerDecision`, `RunOutcome`, `RunHandoffArtifact`
+- `packages/planner/src/toolMapping.ts` — Added `extracted_data` param to tool, `extracted_data` to `ToolInput`, mapping logic in `task_complete` case
+- `packages/planner/src/buildPlannerPrompt.ts` — Added extracted_data guidance to browser guidelines
+- `packages/orchestrator/src/TaskOrchestrator.ts` — Thread extractedData from decision to outcome
+- `packages/observability/src/RunHandoff.ts` — Map extractedData in artifact builder, render in handoff markdown
+- `tests/toolMapping.test.mjs` — +4 tests (extractedData mapping, empty array, malformed items, non-array)
+- `tests/runHandoff.test.mjs` — +5 tests (artifact mapping, undefined case, markdown rendering, empty case, pipe escaping)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 52/52 pass (was 48, +4 new)
+- `node --test tests/runHandoff.test.mjs` — 31/31 pass (was 26, +5 new)
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (unchanged)
+- `node --test tests/*.test.mjs` — 1015/1015 pass (was 1006, +9 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now supports structured data output via `task_complete(summary, extracted_data)`. This directly addresses user job #1 (search+extract) and #5 (data collection).
+- Extracted data flows through to Telegram notifications and handoff markdown. The renderer chat does not yet format extractedData specially — it will appear in the completion summary only. A future iteration could render a formatted data table in the chat UI.
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate.
+- Next potential features: renderer display of extracted data, `browser_go_forward`, Telegram bridge validation, or step budget increase for complex workflows.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 102)*
+
 *Session log entry written: 2026-03-16 (Session 101)*

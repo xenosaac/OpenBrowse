@@ -180,6 +180,7 @@ export class TaskOrchestrator {
         outcome: {
           status: "completed",
           summary: completionSummary,
+          extractedData: decision.extractedData,
           finishedAt: updatedAt
         },
         suspension: undefined

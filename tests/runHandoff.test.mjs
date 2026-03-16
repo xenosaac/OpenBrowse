@@ -298,3 +298,63 @@ test("renderHandoffMarkdown: action history shows dash when no target or text", 
   // The target column should have "—"
   assert.ok(md.includes("—"));
 });
+
+// --- extractedData ---
+
+test("buildHandoffArtifact: maps extractedData from outcome", () => {
+  const run = makeRun({
+    outcome: {
+      status: "completed",
+      summary: "Found results",
+      extractedData: [
+        { label: "Result 1", value: "Sony WH-1000XM6" },
+        { label: "Result 2", value: "Bose QC Ultra" },
+      ],
+      finishedAt: "2026-03-16T10:05:00Z",
+    },
+  });
+  const artifact = buildHandoffArtifact(run);
+  assert.ok(Array.isArray(artifact.extractedData));
+  assert.equal(artifact.extractedData.length, 2);
+  assert.equal(artifact.extractedData[0].label, "Result 1");
+  assert.equal(artifact.extractedData[0].value, "Sony WH-1000XM6");
+});
+
+test("buildHandoffArtifact: extractedData is undefined when outcome has none", () => {
+  const run = makeRun();
+  const artifact = buildHandoffArtifact(run);
+  assert.equal(artifact.extractedData, undefined);
+});
+
+test("renderHandoffMarkdown: includes Extracted Data section", () => {
+  const artifact = {
+    ...buildHandoffArtifact(makeRun()),
+    extractedData: [
+      { label: "Top result", value: "Sony WH-1000XM6" },
+      { label: "Price", value: "$348" },
+    ],
+  };
+  const md = renderHandoffMarkdown(artifact);
+  assert.ok(md.includes("## Extracted Data"));
+  assert.ok(md.includes("| Label | Value |"));
+  assert.ok(md.includes("| Top result | Sony WH-1000XM6 |"));
+  assert.ok(md.includes("| Price | $348 |"));
+});
+
+test("renderHandoffMarkdown: omits Extracted Data section when empty", () => {
+  const artifact = buildHandoffArtifact(makeRun());
+  const md = renderHandoffMarkdown(artifact);
+  assert.ok(!md.includes("## Extracted Data"));
+});
+
+test("renderHandoffMarkdown: escapes pipe characters in extracted data", () => {
+  const artifact = {
+    ...buildHandoffArtifact(makeRun()),
+    extractedData: [
+      { label: "Col A | Col B", value: "val | val2" },
+    ],
+  };
+  const md = renderHandoffMarkdown(artifact);
+  assert.ok(md.includes("Col A \\| Col B"));
+  assert.ok(md.includes("val \\| val2"));
+});

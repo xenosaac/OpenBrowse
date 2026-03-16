@@ -28,6 +28,7 @@ export function buildHandoffArtifact(run: TaskRun, pageModelSnapshot?: PageModel
     suspensionQuestion: suspension?.question,
     notes: checkpoint.notes,
     outcome: run.outcome?.summary,
+    extractedData: run.outcome?.extractedData,
     pageModelSnapshot: pageModelSnapshot
   };
 }
@@ -147,6 +148,19 @@ export function renderHandoffMarkdown(artifact: RunHandoffArtifact): string {
   if (artifact.outcome) {
     lines.push("## Outcome");
     lines.push(artifact.outcome);
+    lines.push("");
+  }
+
+  if (artifact.extractedData && artifact.extractedData.length > 0) {
+    lines.push("## Extracted Data");
+    lines.push("");
+    lines.push("| Label | Value |");
+    lines.push("|-------|-------|");
+    for (const item of artifact.extractedData) {
+      const label = item.label.replace(/\|/g, "\\|");
+      const value = item.value.replace(/\|/g, "\\|").replace(/\n/g, " ");
+      lines.push(`| ${label} | ${value} |`);
+    }
     lines.push("");
   }
 
