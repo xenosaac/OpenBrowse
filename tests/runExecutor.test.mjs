@@ -1078,3 +1078,180 @@ test("plannerLoop continues on network_error soft failure", async () => {
 
   assert.equal(result.status, "completed");
 });
+
+// --- plannerLoop: save_note interception (T16) ---
+
+test("plannerLoop save_note stores note in plannerNotes on checkpoint", async () => {
+  const { services, savedRuns, appendedEvents } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save flight price",
+        action: { type: "save_note", interactionHint: "flight_price", value: "$299", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  // Track executeAction calls — save_note should NOT hit the kernel
+  let executeActionCalled = false;
+  services.browserKernel.executeAction = async () => {
+    executeActionCalled = true;
+    return { ok: true, summary: "Should not be called" };
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(executeActionCalled, false, "save_note should not call browserKernel.executeAction");
+
+  // Verify plannerNotes was saved to checkpoint
+  const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  assert.ok(runWithNotes, "Should have a saved run with plannerNotes");
+  assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "flight_price", value: "$299" }]);
+
+  // Verify event was logged
+  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed" && e.summary.includes("flight_price")));
+});
+
+test("plannerLoop save_note upserts — same key replaces existing value", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save price",
+        action: { type: "save_note", interactionHint: "price", value: "$100", description: "Save note" },
+      },
+      {
+        type: "browser_action",
+        reasoning: "Update price",
+        action: { type: "save_note", interactionHint: "price", value: "$89", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Find the run saved after the second save_note — it should have the updated value
+  const runsWithNotes = savedRuns.filter(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  // The last save with notes should have the upserted value
+  const finalNotesRun = runsWithNotes[runsWithNotes.length - 1];
+  assert.ok(finalNotesRun, "Should have saved runs with plannerNotes");
+  assert.equal(finalNotesRun.checkpoint.plannerNotes.length, 1, "Upsert should not create duplicate keys");
+  assert.deepStrictEqual(finalNotesRun.checkpoint.plannerNotes[0], { key: "price", value: "$89" });
+});
+
+test("plannerLoop save_note caps at 20 notes — 21st evicts oldest", async () => {
+  // Pre-populate 20 notes on the checkpoint, then add a 21st via save_note
+  const existingNotes = Array.from({ length: 20 }, (_, i) => ({
+    key: `note_${i}`,
+    value: `Value ${i}`,
+  }));
+
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Add 21st note",
+        action: { type: "save_note", interactionHint: "note_20", value: "Value 20", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const run = makeRun({ checkpoint: { plannerNotes: existingNotes } });
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Find the saved run after the 21st note was added
+  const runsWithNotes = savedRuns.filter(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  const finalNotesRun = runsWithNotes[runsWithNotes.length - 1];
+  assert.ok(finalNotesRun, "Should have saved runs with plannerNotes");
+  assert.equal(finalNotesRun.checkpoint.plannerNotes.length, 20, "Should be capped at 20 notes");
+  // The first note (note_0) should have been evicted
+  assert.ok(
+    !finalNotesRun.checkpoint.plannerNotes.some(n => n.key === "note_0"),
+    "Oldest note (note_0) should have been evicted"
+  );
+  // The new 21st note should be present
+  assert.ok(
+    finalNotesRun.checkpoint.plannerNotes.some(n => n.key === "note_20" && n.value === "Value 20"),
+    "New note (note_20) should be present"
+  );
+});
+
+test("plannerLoop save_note persists across steps — notes survive into next planner iteration", async () => {
+  // Step 1: save_note. Step 2: browser action. Step 3: task_complete.
+  // After step 1, plannerNotes should still be in the checkpoint when step 2 runs.
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save title",
+        action: { type: "save_note", interactionHint: "title", value: "Hacker News", description: "Save note" },
+      },
+      {
+        type: "browser_action",
+        reasoning: "Click next",
+        action: { type: "click", targetId: "btn_next", description: "Click next page" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+    executeResults: [{ ok: true, summary: "Clicked next" }],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // The final saved runs should still have plannerNotes from the save_note step
+  const finalRun = savedRuns[savedRuns.length - 1];
+  assert.ok(finalRun.checkpoint.plannerNotes, "plannerNotes should persist across steps");
+  assert.ok(
+    finalRun.checkpoint.plannerNotes.some(n => n.key === "title" && n.value === "Hacker News"),
+    "plannerNotes should contain the note saved in step 1"
+  );
+});
+
+test("plannerLoop save_note handles missing key and value gracefully", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save with defaults",
+        action: { type: "save_note", description: "Save note" },
+        // interactionHint and value are both missing
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Should have used defaults: key="note", value=""
+  const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  assert.ok(runWithNotes, "Should have saved a note with default key");
+  assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "note", value: "" }]);
+});
