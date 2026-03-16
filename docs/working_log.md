@@ -4418,3 +4418,61 @@ Gap analysis (Session 75 suggestion): `aria-multiselectable` is used on `listbox
 - Consider table column/row span awareness for complex tables
 
 *Session log entry written: 2026-03-16 (Session 76)*
+
+---
+
+### Session 77 — 2026-03-16: Fix Hard Failure on Pending Action Soft Failure in continueResume
+
+#### Context
+
+Code review found a bug in `RunExecutor.continueResume()` (lines 351-368). When a `pendingAction` (from an approval resume) fails, the run is immediately terminated via `failRun()` regardless of failure type. In contrast, `plannerLoop` (lines 198-234) treats `element_not_found` and `network_error` as soft failures that allow the planner to retry with a different approach.
+
+This matters because on resume, the page DOM has changed (new browser session, re-navigation to `lastKnownUrl`). The pending action's `targetId` may no longer exist because:
+1. The page was re-rendered and element IDs were reassigned
+2. Dynamic content changed between suspension and resume
+3. The page structure shifted after re-navigation
+
+Expected behavior: soft failure classes should be recoverable — skip the pending action and enter the planner loop, which will see the current page state and decide what to do.
+
+#### Plan
+
+1. In `continueResume`, check `result.failureClass` before calling `failRun`
+2. Treat `element_not_found` and `network_error` as soft failures → record result but continue to planner loop
+3. Only call `failRun` for hard failures (other failure classes)
+4. Add tests for both soft and hard failure paths
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed `packages/runtime-core/src/RunExecutor.ts` — `continueResume()` pending action failure handling:**
+- Before: ALL pending action failures → `failRun()` → run terminates
+- After: `element_not_found` and `network_error` failures → add note to `checkpoint.notes` → continue to planner loop
+- Hard failures (interaction_failed, validation_error, etc.) → still call `failRun()` as before
+- The note informs the planner that the pending action failed and the page state may have changed
+
+**Impact:** On approval resume, when the page DOM has changed and the approved action's target element no longer exists, the run recovers gracefully instead of terminating. The planner sees the current page state and can retry with a different approach.
+
+**Updated `tests/runExecutor.test.mjs` — 2 new tests, 1 updated (28 → 30):**
+- Renamed "continueResume fails if pending action fails" → "continueResume fails if pending action has hard failure" — now explicitly uses `failureClass: "interaction_failed"`
+- Added "continueResume recovers from pending action element_not_found (soft failure)" — verifies run completes, note added to checkpoint
+- Added "continueResume recovers from pending action network_error (soft failure)" — verifies run continues to planner loop
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 30/30 pass (was 28, +2 new)
+- `node --test tests/*.test.mjs` — 958/958 pass (was 956, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (958 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider similar soft-failure recovery for other resume paths
+- Consider surfacing `aria-required` for form elements in element list
+
+*Session log entry written: 2026-03-16 (Session 77)*

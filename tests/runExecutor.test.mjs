@@ -560,12 +560,12 @@ test("continueResume executes pending action before plannerLoop", async () => {
   assert.equal(result.status, "completed");
 });
 
-test("continueResume fails if pending action fails", async () => {
+test("continueResume fails if pending action has hard failure", async () => {
   const { services } = makeServices({
     decisions: [],
     executeResults: [
       { ok: true, summary: "Navigated" },
-      { ok: false, summary: "Click failed" },
+      { ok: false, summary: "Click failed", failureClass: "interaction_failed" },
     ],
   });
   const cancellation = makeCancellation();
@@ -577,6 +577,46 @@ test("continueResume fails if pending action fails", async () => {
 
   assert.equal(result.status, "failed");
   assert.ok(handoff.handoffs.length >= 1);
+});
+
+test("continueResume recovers from pending action element_not_found (soft failure)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after recovery" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Element not found after resume", failureClass: "element_not_found" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "click", targetId: "btn_gone", description: "Click vanished button" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  // Should NOT fail — soft failure continues to planner loop
+  assert.equal(result.status, "completed");
+  // The note about the soft failure should be in the checkpoint
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("element_not_found")));
+  assert.ok(runWithNote, "Should have a note about the soft failure");
+});
+
+test("continueResume recovers from pending action network_error (soft failure)", async () => {
+  const { services } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Network timeout", failureClass: "network_error" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "click", targetId: "btn_net", description: "Click with network issue" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  assert.equal(result.status, "completed");
 });
 
 test("continueResume injects recovery context", async () => {
