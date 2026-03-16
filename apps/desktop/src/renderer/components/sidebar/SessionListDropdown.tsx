@@ -1,6 +1,6 @@
 import React from "react";
 import type { ChatSession } from "../../types/chat";
-import { colors, glass, shadows } from "../../styles/tokens";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   sessions: ChatSession[];
@@ -46,12 +46,11 @@ export function SessionListDropdown({ sessions, activeSessionId, onSwitch, onDel
 
 const styles: Record<string, React.CSSProperties> = {
   sessionList: {
-    ...glass.panel,
-    border: `1px solid ${colors.borderGlass}`,
-    boxShadow: shadows.glassElevated,
-    borderBottom: "1px solid " + colors.borderGlass,
+    background: "rgba(255,255,255,0.02)",
+    border: `1px solid ${colors.borderSubtle}`,
+    borderBottom: "1px solid " + colors.borderSubtle,
     padding: "6px 8px", maxHeight: 220, overflowY: "auto" as const, flexShrink: 0
-  } as React.CSSProperties,
+  },
   sessionListHeader: { padding: "4px 6px 6px", display: "flex", alignItems: "center" },
   sessionListTitle: {
     fontSize: "0.7rem", color: "#9090a8",
@@ -62,7 +61,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sessionItem: {
     flex: 1, display: "block", background: "none",
-    border: `1px solid ${colors.borderGlass}`, borderRadius: 8,
+    border: `1px solid ${colors.borderDefault}`, borderRadius: 8,
     padding: "6px 8px", textAlign: "left" as const,
     cursor: "pointer", color: "#e5e7eb", minWidth: 0
   },

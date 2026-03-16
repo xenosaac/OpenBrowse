@@ -1,5 +1,5 @@
 import React from "react";
-import { colors, glass, shadows } from "../../styles/tokens";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   value: string;
@@ -44,16 +44,16 @@ export function ChatComposer({ value, busy, plannerMode, runtimeReady, onChange,
 
 const styles: Record<string, React.CSSProperties> = {
   composer: {
-    padding: "10px 14px 12px", borderTop: "1px solid " + colors.borderGlass,
-    ...glass.panel,
-    border: `1px solid ${colors.borderGlass}`,
+    padding: "10px 14px 12px",
+    background: "transparent",
+    borderTop: "1px solid " + colors.borderSubtle,
     flexShrink: 0
-  } as React.CSSProperties,
+  },
   composerRow: { display: "flex", gap: 8 },
   composerInput: {
     flex: 1, color: colors.textPrimary,
     ...glass.input,
-    border: "1px solid " + colors.borderGlass, borderRadius: 12,
+    border: "1px solid " + colors.borderDefault, borderRadius: 12,
     padding: "10px 12px", fontSize: "0.88rem"
   } as React.CSSProperties,
   composerButton: {
