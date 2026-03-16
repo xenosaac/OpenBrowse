@@ -440,7 +440,7 @@ export function App() {
         transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
       }
       .ob-card:hover {
-        border-color: rgba(255,255,255,0.22) !important;
+        border-color: rgba(255,255,255,0.14) !important;
         box-shadow: 0 4px 20px rgba(0,0,0,0.2), 0 0 12px rgba(16,185,129,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
         transform: translateY(-1px);
       }

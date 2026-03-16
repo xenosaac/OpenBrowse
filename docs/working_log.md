@@ -5473,3 +5473,90 @@ Applied the chrome band unification per the D2 spec across three files:
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 94)*
+
+---
+
+### Session 95 — 2026-03-16: T8/D4 — Reduce Tier 2 Card Border Opacity
+
+#### Mode: feature
+
+Rationale: T6/D2 (chrome band unification) is complete. Per PM and UI Designer, T7/D3 (home page) and T8/D4 (card borders) can run in parallel after T6. Choosing T8/D4 as the smallest useful increment — a mechanical border token change across Tier 2 card components.
+
+#### Context
+
+All Tier 2 content cards currently use `colors.borderGlass` (`rgba(255,255,255,0.18)`) — the same border weight as Tier 1 structural surfaces. This flattens the visual hierarchy. Cards should be visibly lighter than the shell chrome.
+
+D4 spec: change all Tier 2 card borders from `borderGlass` (0.18) to `borderSubtle` (0.08). Hover brightens to `rgba(255,255,255,0.14)`.
+
+#### Plan
+
+1. Change `borderGlass` → `borderSubtle` on all Tier 2 content card surfaces:
+   - RunContextCard, HomePage (emptyHint + recentCard), ManagementPanel (runtimeCard)
+   - HistoryPanel (row), CookiePanel (row), BookmarkPanel (row)
+   - WorkflowLog (replayPanel), LiveTasks (card), DemoPanel (card)
+   - RemoteQuestions (card), ManagedProfiles (card)
+2. Update `.ob-card:hover` border-color from `rgba(255,255,255,0.22)` to `rgba(255,255,255,0.14)` per D4 spec.
+3. Do NOT change: input fields, buttons/controls (D5 scope), sidebar internals (D7 scope), Tier 1/4 structural surfaces.
+4. Run typecheck.
+5. Update log and commit.
+
+#### Implementation
+
+Changed all Tier 2 content card borders from `colors.borderGlass` (0.18) to `colors.borderSubtle` (0.08) across 12 components:
+
+| Component | Style Property | Change |
+|---|---|---|
+| RunContextCard.tsx | card border | borderGlass → borderSubtle |
+| HomePage.tsx | emptyHint border | borderGlass → borderSubtle |
+| HomePage.tsx | recentCard border | borderGlass → borderSubtle |
+| ManagementPanel.tsx | runtimeCard border | borderGlass → borderSubtle |
+| HistoryPanel.tsx | row border | borderGlass → borderSubtle |
+| CookiePanel.tsx | row border | borderGlass → borderSubtle |
+| BookmarkPanel.tsx | row border | borderGlass → borderSubtle |
+| WorkflowLog.tsx | replayPanel border | borderGlass → borderSubtle |
+| LiveTasks.tsx | card border | borderGlass → borderSubtle |
+| DemoPanel.tsx | card border | borderGlass → borderSubtle |
+| RemoteQuestions.tsx | card border | borderGlass → borderSubtle |
+| ManagedProfiles.tsx | card border | borderGlass → borderSubtle |
+
+Also updated the global `.ob-card:hover` border-color in App.tsx from `rgba(255,255,255,0.22)` to `rgba(255,255,255,0.14)` per the D4 hover spec.
+
+**Not changed (correct exclusions):**
+- Input fields (search bars, address bar, interval input) — D5/D6 scope
+- Buttons and controls (clearBtn, refreshBtn, subTabBtn, tab close buttons, nav buttons) — D5 scope
+- Sidebar internals (SidebarHeader, ChatComposer, SessionListDropdown) — D7 scope
+- Tier 1 structural surfaces (sidebar, chrome band, activity bar, ManagementPanel sheet) — correct at borderGlass
+- Tier 4 overlay surfaces — correct at borderGlass
+- ChatMessageItem — already used borderSubtle
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/sidebar/RunContextCard.tsx` — card border → borderSubtle
+- `apps/desktop/src/renderer/components/panels/HomePage.tsx` — emptyHint + recentCard borders → borderSubtle
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — runtimeCard border → borderSubtle
+- `apps/desktop/src/renderer/components/HistoryPanel.tsx` — history row border → borderSubtle
+- `apps/desktop/src/renderer/components/CookiePanel.tsx` — cookie row border → borderSubtle
+- `apps/desktop/src/renderer/components/BookmarkPanel.tsx` — bookmark row border → borderSubtle
+- `apps/desktop/src/renderer/components/WorkflowLog.tsx` — replayPanel border → borderSubtle
+- `apps/desktop/src/renderer/components/LiveTasks.tsx` — task card border → borderSubtle
+- `apps/desktop/src/renderer/components/DemoPanel.tsx` — demo card border → borderSubtle
+- `apps/desktop/src/renderer/components/RemoteQuestions.tsx` — question card border → borderSubtle
+- `apps/desktop/src/renderer/components/ManagedProfiles.tsx` — profile card border → borderSubtle
+- `apps/desktop/src/renderer/components/App.tsx` — .ob-card:hover border-color 0.22 → 0.14
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T8/D4 is complete. Tier 2 cards now have visibly lighter borders (0.08) than Tier 1 structural surfaces (0.18).
+- Next design task: T7/D3 (home page brand surface).
+- After T7: D5 (glass.control token), D6 (border token values), D7 (sidebar glass-on-glass).
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 95)*

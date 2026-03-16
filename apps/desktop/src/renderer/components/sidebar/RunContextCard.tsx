@@ -59,7 +59,7 @@ export function RunContextCard({ run, recentActions }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   card: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 12, padding: "10px 12px", marginBottom: 4
   } as React.CSSProperties,
   header: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },

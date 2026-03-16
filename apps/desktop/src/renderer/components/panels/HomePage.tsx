@@ -61,7 +61,7 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14
   },
   emptyHint: {
-    ...glass.card, border: "1px solid " + colors.borderGlass,
+    ...glass.card, border: "1px solid " + colors.borderSubtle,
     borderRadius: 14, padding: "18px 20px", color: colors.textSecondary, fontSize: "0.9rem"
   } as React.CSSProperties,
   recentGrid: {
@@ -69,7 +69,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   recentCard: {
     ...glass.card, display: "flex", alignItems: "center", gap: 12,
-    border: "1px solid " + colors.borderGlass, boxShadow: shadows.glassSubtle,
+    border: "1px solid " + colors.borderSubtle, boxShadow: shadows.glassSubtle,
     borderRadius: 14, padding: "12px 16px", cursor: "pointer",
     textAlign: "left", color: colors.textPrimary
   } as React.CSSProperties,

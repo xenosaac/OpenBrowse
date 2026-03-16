@@ -34,7 +34,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
-    border: "1px solid " + colors.borderGlass
+    border: "1px solid " + colors.borderSubtle
   } as React.CSSProperties,
   row: {
     display: "flex",
