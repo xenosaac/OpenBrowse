@@ -135,6 +135,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? `\nScroll position: Y=${pageModel.scrollY}px`
     : "";
 
+  // --- Focused element context ---
+  const focusedSection = pageModel.focusedElementId
+    ? `\nFocused element: [${pageModel.focusedElementId}] — this element currently has keyboard focus`
+    : "";
+
   // --- Last action result (explicit feedback to planner) ---
   const lastAction = actionHistory.length > 0 ? actionHistory[actionHistory.length - 1] : null;
   const lastActionSection = lastAction
@@ -234,7 +239,7 @@ Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistor
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${scrollSection}${captchaHint}${alertsSection}${formsSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${alertsSection}${formsSection}
 
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}

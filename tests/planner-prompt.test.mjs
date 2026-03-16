@@ -437,6 +437,26 @@ test("scrollSection absent when scrollY undefined", () => {
   assert.doesNotMatch(user, /Scroll position:/);
 });
 
+test("focusedSection shows focused element", () => {
+  const pm = makePageModel({ focusedElementId: "el_7" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Focused element: \[el_7\]/);
+  assert.match(user, /keyboard focus/);
+});
+
+test("focusedSection absent when no focused element", () => {
+  const pm = makePageModel();
+  delete pm.focusedElementId;
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Focused element:/);
+});
+
+test("focusedSection absent when focusedElementId is empty string", () => {
+  const pm = makePageModel({ focusedElementId: "" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Focused element:/);
+});
+
 test("lastActionSection shows success result", () => {
   const run = makeRun({
     checkpoint: {
