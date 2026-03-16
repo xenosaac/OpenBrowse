@@ -103,6 +103,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       }
       if (el.text) line += ` text="${el.text}"`;
       if (el.description) line += ` desc="${el.description}"`;
+      if (el.keyShortcuts) line += ` keys="${el.keyShortcuts}"`;
       if (el.href) line += ` href="${el.href}"`;
       if (el.inputType && el.inputType !== "text") line += ` type="${el.inputType}"`;
       if (el.value) line += ` value="${el.value}"`;

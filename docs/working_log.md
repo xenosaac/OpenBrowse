@@ -4932,3 +4932,50 @@ Gap analysis: The planner system prompt instructs "For cookie consent banners: d
 - Consider: shadow DOM penetration, iframe content extraction, or aria-keyshortcuts surfacing
 
 *Session log entry written: 2026-03-16 (Session 86)*
+
+---
+
+### Session 87 — 2026-03-16: Surface aria-keyshortcuts in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis: Elements with `aria-keyshortcuts` (e.g., `aria-keyshortcuts="Alt+S"`) expose keyboard shortcuts to assistive technology. The planner currently has no visibility into these shortcuts, so it cannot suggest using keyboard shortcuts as an alternative to clicking — which can be faster and more reliable for certain interactions.
+
+#### Plan
+
+1. Add `keyShortcuts?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, read `aria-keyshortcuts` attribute for each element
+3. In `buildPlannerPrompt.ts`, render `keys="..."` for elements with keyShortcuts
+4. Add 3 planner-prompt tests: keyShortcuts renders, absent when undefined, renders alongside other attrs
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `keyShortcuts?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added extraction of `aria-keyshortcuts` attribute for each element. Reads the attribute, trims and caps at 60 chars, stores as `keyShortcuts` in the element output.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Renders `keys="<shortcut>"` after `desc=` and before `href=` for elements that have keyShortcuts. Example: `[el_0] button "Save" keys="Alt+S" *`
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (152 → 155):
+- keyShortcuts renders `keys="Alt+S"` for elements with the attribute
+- keyShortcuts absent when element has no keyShortcuts
+- keyShortcuts renders alongside other attributes (landmark, level)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 155/155 pass (was 152, +3 new)
+- `node --test tests/*.test.mjs` — 990/990 pass (was 987, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (990 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: shadow DOM penetration, iframe content extraction, or element grouping by landmark
+
+*Session log entry written: 2026-03-16 (Session 87)*
