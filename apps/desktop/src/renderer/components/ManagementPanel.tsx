@@ -248,7 +248,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 16,
     padding: "14px 20px 0",
-    borderBottom: "1px solid " + colors.borderDefault,
+    borderBottom: "1px solid " + colors.borderSubtle,
     flexShrink: 0
   },
   headerLeft: {
