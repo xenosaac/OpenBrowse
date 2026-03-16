@@ -151,7 +151,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   replayPanel: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 10,
     padding: 12
   } as React.CSSProperties,

@@ -333,7 +333,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   runtimeCard: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 14,
     padding: "14px 16px",
     display: "flex",

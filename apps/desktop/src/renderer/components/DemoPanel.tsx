@@ -191,7 +191,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     padding: "12px 16px",
     marginBottom: 8,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     boxShadow: shadows.glassSubtle
   } as React.CSSProperties,
   row: {

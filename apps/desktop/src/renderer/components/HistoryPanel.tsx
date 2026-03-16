@@ -136,7 +136,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "7px 10px",
     borderRadius: 10,
     ...glass.card,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderSubtle}`,
   } as React.CSSProperties,
   time: { fontSize: "0.72rem", color: colors.textMuted, flexShrink: 0, width: 48 },
   info: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 },
