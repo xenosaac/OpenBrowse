@@ -2983,3 +2983,64 @@ Duplicates identified:
 - Consider integration testing under Electron test harness for SQLite stores and browser kernel
 
 *Session log entry written: 2026-03-16 (Session 52)*
+
+---
+
+### Session 53 — 2026-03-16: Extract classifyFailure + parseKeyboardShortcut from ElectronBrowserKernel + Tests
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (792 tests). `ElectronBrowserKernel.ts` contains two pure functions embedded in Electron-dependent code:
+
+1. `classifyFailure(message)` — maps error messages to `BrowserActionFailureClass` values. Important for stuck detection and planner feedback.
+2. `dispatchKeyboardShortcut` contains modifier+key parsing logic that's pure.
+
+Same extraction pattern as Sessions 36–37.
+
+#### Plan
+
+1. Extract `classifyFailure` from `ElectronBrowserKernel.ts` into `validation.ts` (no Electron deps)
+2. Extract keyboard shortcut modifier/key parsing into a pure `parseKeyboardShortcut` function in `validation.ts`
+3. Update imports in `ElectronBrowserKernel.ts`
+4. Re-export from `index.ts`
+5. Run typecheck + build
+6. Write comprehensive tests for both functions
+7. Run tests
+8. Commit
+
+#### Implementation
+
+**Extracted into `packages/browser-runtime/src/validation.ts`:**
+- `classifyFailure(message: string): BrowserActionFailureClass` — maps error messages to failure class enum. Checks in priority order: element_not_found > navigation_timeout > validation_error > network_error > interaction_failed (default).
+- `parseKeyboardShortcut(shortcut: string): ParsedKeyboardShortcut` — parses shortcut strings like "Ctrl+Shift+Enter" into CDP-compatible `{ modifiers, key }`. Supports all modifier keys (Ctrl, Shift, Alt, Meta, Cmd) and named keys (Enter→Return, Space→" ", arrow keys, etc.).
+- Added `ParsedKeyboardShortcut` interface export.
+- Added `import type { BrowserActionFailureClass }` from contracts.
+
+**Updated `ElectronBrowserKernel.ts`:**
+- Removed inline `classifyFailure` function (was lines 42–51)
+- Removed inline `MODIFIER_BITS`, `KEY_NAMES` constants and parsing logic from `dispatchKeyboardShortcut`
+- Now imports `classifyFailure` and `parseKeyboardShortcut` from `./validation.js`
+- Removed unused `BrowserActionFailureClass` import from contracts
+- `dispatchKeyboardShortcut` reduced from 20 lines to 4 lines
+
+**Tests added to `tests/validation.test.mjs` — +32 tests:**
+- `classifyFailure` (17 tests): all 5 failure classes, all network error patterns, priority when multiple keywords match, empty string, unknown error
+- `parseKeyboardShortcut` (15 tests): single key, each modifier, combined modifiers, named key resolution (Enter, Space, arrow keys, Delete, Tab, Backspace, Escape), Cmd→Meta mapping, whitespace handling, unknown key passthrough
+
+#### Verification
+
+- `pnpm --filter @openbrowse/browser-runtime build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/validation.test.mjs` — 58/58 pass (was 26, +32 new)
+- `node --test tests/*.test.mjs` — 824/824 pass (was 792, +32 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (824 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 53)*
