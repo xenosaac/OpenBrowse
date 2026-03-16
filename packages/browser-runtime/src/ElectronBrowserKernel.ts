@@ -256,7 +256,18 @@ export class ElectronBrowserKernel implements BrowserKernel {
       }>;
       alerts?: string[];
       captchaDetected?: boolean;
+      cookieBannerDetected?: boolean;
       scrollY?: number;
+      activeDialog?: { label: string };
+      tables?: Array<{
+        caption?: string;
+        headers: string[];
+        rowCount: number;
+        sampleRows?: string[][];
+      }>;
+      landmarks?: Array<{ role: string; label: string }>;
+      iframeCount?: number;
+      iframeSources?: string[];
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
 
     return {
@@ -271,7 +282,13 @@ export class ElectronBrowserKernel implements BrowserKernel {
       forms: raw.forms,
       alerts: raw.alerts,
       captchaDetected: raw.captchaDetected,
+      cookieBannerDetected: raw.cookieBannerDetected,
       scrollY: raw.scrollY,
+      activeDialog: raw.activeDialog,
+      tables: raw.tables,
+      landmarks: raw.landmarks,
+      iframeCount: raw.iframeCount,
+      iframeSources: raw.iframeSources,
       createdAt: new Date().toISOString()
     };
   }
