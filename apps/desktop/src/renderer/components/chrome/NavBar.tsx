@@ -147,14 +147,14 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", gap: 3, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    background: colors.buttonBg, color: colors.textSecondary, border: `1px solid ${colors.borderGlass}`,
+    ...glass.control, color: colors.textSecondary, border: `1px solid rgba(255,255,255,0.08)`,
     borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
-  },
+  } as React.CSSProperties,
   addressBarWrap: {
     flex: 1, display: "flex", alignItems: "center", gap: 7, minWidth: 0,
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`, borderRadius: radii.md,
+    border: `1px solid ${colors.borderDefault}`, borderRadius: radii.md,
     padding: "0 10px", height: 30, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   addressLock: { fontSize: "0.68rem", flexShrink: 0 },
@@ -170,9 +170,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", gap: 5, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   headerPill: {
-    background: colors.buttonBg, color: colors.textPrimary, border: `1px solid ${colors.borderGlass}`,
+    ...glass.control, color: colors.textPrimary, border: `1px solid rgba(255,255,255,0.08)`,
     borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontSize: "0.8rem"
-  },
+  } as React.CSSProperties,
   waitingPip: {
     display: "flex", alignItems: "center", gap: 5,
     background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",

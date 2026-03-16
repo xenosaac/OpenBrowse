@@ -130,14 +130,14 @@ const styles: Record<string, React.CSSProperties> = {
     overflowX: "auto", flex: 1, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    background: colors.buttonBg, color: colors.textSecondary, border: `1px solid ${colors.borderGlass}`,
+    ...glass.control, color: colors.textSecondary, border: `1px solid rgba(255,255,255,0.08)`,
     borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
-  },
+  } as React.CSSProperties,
   headerTabWrap: {
     display: "flex", alignItems: "center", minWidth: 100, maxWidth: 200,
-    borderRadius: radii.md, background: "transparent",
-    border: "1px solid transparent", color: colors.textSecondary
+    borderRadius: radii.md, background: "rgba(255,255,255,0.03)",
+    border: "1px solid rgba(255,255,255,0.06)", color: colors.textSecondary
   },
   headerTabWrapActive: {
     ...glass.emerald,
@@ -160,8 +160,8 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer", fontSize: "0.72rem", display: "grid", placeItems: "center"
   },
   addTabButton: {
-    width: 28, height: 28, borderRadius: 7,
-    background: colors.buttonBg, border: `1px solid ${colors.borderGlass}`,
+    ...glass.control, width: 28, height: 28, borderRadius: 7,
+    border: `1px solid rgba(255,255,255,0.08)`,
     color: colors.textSecondary, cursor: "pointer", fontSize: "1rem"
-  }
+  } as React.CSSProperties
 };
