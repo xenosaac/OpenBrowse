@@ -5,7 +5,7 @@ export interface PlannerPrompt {
   user: string;
 }
 
-export const MAX_PLANNER_STEPS = 35;
+export const MAX_PLANNER_STEPS = 50;
 
 export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerPrompt {
   // --- Harness context ---
@@ -289,7 +289,7 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan effi
       if (Object.values(typeCounts).some(c => c >= 3)) return true;
     }
     // Trigger 2: Step count >= 15 (halfway progress check)
-    if (stepCount >= 15) return true;
+    if (stepCount >= 25) return true;
     // Trigger 3: Any URL visited 4+ times
     const urlCounts = run.checkpoint.urlVisitCounts ?? {};
     if (Object.values(urlCounts).some(c => c >= 4)) return true;

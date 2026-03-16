@@ -346,15 +346,15 @@ test("plannerLoop returns early when cancellation is set before first step", asy
 // --- plannerLoop: MAX_LOOP_STEPS exceeded ---
 
 test("plannerLoop fails after exceeding max steps", async () => {
-  // Create 36 browser_action decisions (max is 35) — unique targetIds/descriptions/urls to avoid stuck detection
-  const decisions = Array.from({ length: 36 }, (_, i) => ({
+  // Create 51 browser_action decisions (max is 50) — unique targetIds/descriptions/urls to avoid stuck detection
+  const decisions = Array.from({ length: 51 }, (_, i) => ({
     type: "browser_action",
     reasoning: `Step ${i}`,
     action: { type: "click", targetId: `btn_${i}`, description: `Click button ${i}` },
   }));
-  const executeResults = Array.from({ length: 36 }, (_, i) => ({ ok: true, summary: `ok ${i}`, targetId: `btn_${i}`, url: `https://example.com/page${i}` }));
+  const executeResults = Array.from({ length: 51 }, (_, i) => ({ ok: true, summary: `ok ${i}`, targetId: `btn_${i}`, url: `https://example.com/page${i}` }));
   // Unique page models per step to avoid URL visit count stuck detection
-  const capturePageModels = Array.from({ length: 36 }, (_, i) =>
+  const capturePageModels = Array.from({ length: 51 }, (_, i) =>
     makePageModel({ url: `https://example.com/page${i}`, title: `Page ${i}` })
   );
 
