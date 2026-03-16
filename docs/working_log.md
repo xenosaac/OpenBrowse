@@ -1369,6 +1369,44 @@ Investigation confirmed Electron's `persist:` partition prefix automatically per
 
 ---
 
+### Session 21 — 2026-03-16: Fix False-Positive Cycle Detection (Known Bug #11)
+
+#### Scope
+
+Fix the cycle detector that falsely flags distinct, purposeful actions (e.g., clicking Play then closing a modal in Wordle) as stuck loops.
+
+#### Plan
+
+1. **Include targetId in cycle keys** — Current `detectCycle` uses `type:targetId:targetUrl` but the `actionKey` for consecutive-identical check uses `type:targetId:url`. The real problem is that `detectCycle` builds keys from `actionHistory` records where `targetId` may be undefined for both clicks, making `click::url` identical for different buttons. Add `description` (which contains the element label/text) to the cycle key to differentiate clicks on different elements.
+2. **Extend detectCycle to support 2–5 step patterns** — Comment says 2–5 but code only checks 2–3. Fix the loop range.
+3. **Require more repetitions for short cycles** — 3 reps of a 2-step pattern (6 actions total) is too aggressive. Require 4 reps for len=2 (8 actions), keep 3 reps for len≥3.
+4. **Include description in consecutive-identical actionKey** — So clicking different buttons on the same page isn't flagged as identical.
+5. **Update tests** to match new behavior.
+
+#### What Changed
+
+| File | Change |
+|---|---|
+| `packages/runtime-core/src/RunExecutor.ts` | `detectCycle` now checks 2–5 step patterns (was 2–3); len=2 requires 4 reps (was 3); len≥3 requires 3 reps. Cycle key includes `description` field for element differentiation. Consecutive-identical `actionKey` includes `description` to distinguish clicks on different buttons at the same URL. |
+
+#### Root Cause
+
+The cycle key format `type:targetId:targetUrl` treated clicks on different buttons as identical when `targetId` was undefined (common when the planner uses element refs that don't persist into the action record consistently). Two clicks — "click Play" and "click Close modal" — both became `click::https://nytimes.com/wordle`, triggering a false 2-step cycle after only 6 actions (3×2). Adding `description` to the key differentiates them: `click::Click Play button:url` vs `click::Close how-to-play modal:url`.
+
+#### Validation
+
+- `pnpm run typecheck` — clean
+- `pnpm test` — 147/147 pass
+
+#### Next Steps
+
+- P0-1: Chat interface consistency across tabs (ManagementPanel overlays sidebar)
+- P0-2: Agent context-awareness on new task
+
+*Session log entry written: 2026-03-16*
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
@@ -1407,17 +1445,9 @@ View and clear cookies per browser profile. Electron's `session.cookies` API pro
 
 ### Known Bugs
 
-**11. False-positive cycle detection on repetitive but valid actions**
+**~~11. False-positive cycle detection on repetitive but valid actions~~** — RESOLVED (Session 21, 2026-03-16)
 
-*Reported: 2026-03-16*
-
-When playing Wordle, the agent correctly navigated to the game, clicked Play, closed the How to Play modal, and was about to start typing letters. The cycle detector flagged it as "Stuck in 2-step cycle" after just 2 click actions (click Play → screenshot → click Close modal → screenshot). These are distinct, purposeful actions on different elements — not a loop. The cycle detector matches action *type* keys too aggressively without considering whether the target element or context changed.
-
-**Root cause (preliminary):** `detectCycle()` in `RunExecutor.ts` compares action keys (likely `"click"`) without factoring in the target element ref or the page URL/state. Two consecutive clicks on *different* buttons look identical to the detector.
-
-**Fix needed:** The cycle key should include the target element ref (e.g., `"click:el_42"` vs `"click:el_17"`) or at minimum the element label/text, so that clicking different buttons is not treated as a repeated action. Also consider requiring a minimum of 3-4 full repetitions before declaring a cycle, not just 2.
-
-**Reproduction:** Ask the agent "look up wordle and do it for me today, use anonymous and don't login". Agent correctly navigates → clicks Play → closes How to Play modal → falsely flagged as stuck.
+Fixed by including `description` in cycle keys (differentiates clicks on different buttons) and requiring 4 full repetitions for 2-step cycles (was 3). Also extended cycle detection to 2–5 step patterns (was 2–3).
 
 ### P3 — Future
 
