@@ -27,6 +27,7 @@ export class BrowserViewManager {
     x: number; y: number; linkURL: string; linkText: string;
     selectionText: string; mediaType: string; srcURL: string; isEditable: boolean;
   }) => void) | null = null;
+  onLoadError: ((sessionId: string, errorCode: number, errorDescription: string, validatedURL: string) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -101,6 +102,12 @@ export class BrowserViewManager {
         srcURL: params.srcURL,
         isEditable: params.isEditable
       });
+    });
+
+    view.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame && errorCode !== -3) {
+        this.onLoadError?.(sessionId, errorCode, errorDescription, validatedURL);
+      }
     });
 
     view.webContents.on("destroyed", () => {

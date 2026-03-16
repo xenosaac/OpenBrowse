@@ -15,7 +15,8 @@ export type RuntimeEvent =
   | { type: "standalone_tab_closed"; tabId?: string }
   | { type: "tab_loading"; sessionId?: string; isLoading?: boolean }
   | { type: "tab_favicon"; sessionId?: string; faviconUrl?: string }
-  | { type: "find_in_page_result"; sessionId?: string; activeMatchOrdinal?: number; matches?: number; finalUpdate?: boolean };
+  | { type: "find_in_page_result"; sessionId?: string; activeMatchOrdinal?: number; matches?: number; finalUpdate?: boolean }
+  | { type: "tab_load_error"; sessionId?: string; errorCode?: number; errorDescription?: string; url?: string };
 
 type Subscriber = (event: RuntimeEvent) => void;
 

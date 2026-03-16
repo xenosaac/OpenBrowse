@@ -154,12 +154,35 @@ export function App() {
   const [findBarOpen, setFindBarOpen] = useState(false);
   const [findResult, setFindResult] = useState({ activeMatchOrdinal: 0, matches: 0 });
 
+  // ---- Tab load error state ----
+  const [tabErrors, setTabErrors] = useState<Record<string, { errorCode: number; errorDescription: string; url: string }>>({});
+
   useEffect(() => {
     return runtimeEventBus.subscribe((event) => {
       if (event.type === "find_in_page_result" && event.finalUpdate) {
         setFindResult({
           activeMatchOrdinal: event.activeMatchOrdinal ?? 0,
           matches: event.matches ?? 0,
+        });
+      }
+      if (event.type === "tab_load_error" && event.sessionId) {
+        const sid = event.sessionId;
+        setTabErrors(prev => ({
+          ...prev,
+          [sid]: {
+            errorCode: event.errorCode ?? 0,
+            errorDescription: event.errorDescription ?? "",
+            url: event.url ?? "",
+          }
+        }));
+      }
+      if (event.type === "tab_navigated" && event.sessionId) {
+        const sid = event.sessionId;
+        setTabErrors(prev => {
+          if (!prev[sid]) return prev;
+          const next = { ...prev };
+          delete next[sid];
+          return next;
         });
       }
     });
@@ -879,6 +902,12 @@ export function App() {
               <BrowserPanel
                 activeTab={selection.activeBrowserTab}
                 covered={layout.managementOpen || layout.menuOpen}
+                loadError={selection.activeBrowserTab ? tabErrors[selection.activeBrowserTab.id] ?? null : null}
+                onReload={() => {
+                  if (selection.activeBrowserTab) {
+                    void window.openbrowse.browserReload(selection.activeBrowserTab.id);
+                  }
+                }}
               />
             </>
           ) : (
