@@ -3316,3 +3316,59 @@ Code review found two issues in the planner loop safety surface:
 - Consider surfacing `focusedElementId` from PageModel in the planner prompt (captured but unused)
 
 *Session log entry written: 2026-03-16 (Session 58)*
+
+---
+
+### Session 59 — 2026-03-16: Surface focusedElementId in Planner Prompt + Tests
+
+#### Context
+
+Gap analysis (Session 58): `focusedElementId` is captured by the CDP extraction script, stored in `PageModel`, mapped through `ElectronBrowserKernel.capturePageModel`, but never surfaced in the planner prompt. This means the planner has no visibility into which element currently has keyboard focus — important context for deciding whether to type, press Enter, or click a different field.
+
+#### Plan
+
+1. Add `focusedElementId` context line to `buildPlannerPrompt` in the user prompt section (near scroll position)
+2. Add tests for presence/absence of focused element context
+3. Run typecheck + tests
+4. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `focusedSection` — renders `Focused element: [el_X] — this element currently has keyboard focus` when `pageModel.focusedElementId` is truthy
+- Placed after scroll position, before CAPTCHA hint in the user prompt
+
+**Impact:** The planner now knows which element has keyboard focus. This helps with:
+- Deciding whether to type (if the right field is already focused, no need to click first)
+- Understanding form state (which input the user was interacting with)
+- Pressing Enter after focus is on a submit button
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- `focusedSection shows focused element` — verifies `[el_7]` and "keyboard focus" in output
+- `focusedSection absent when no focused element` — verifies no "Focused element:" when undefined
+- `focusedSection absent when focusedElementId is empty string` — verifies falsy empty string handled
+
+#### Files Changed
+
+| File | Change |
+|---|---|
+| `packages/planner/src/buildPlannerPrompt.ts` | Added `focusedSection` variable + inserted into user prompt |
+| `tests/planner-prompt.test.mjs` | +3 tests for focusedSection presence/absence |
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 53/53 pass (was 50, +3 new)
+- `node --test tests/*.test.mjs` — 886/886 pass (was 883, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (886 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider adding `ariaSelected`/`ariaChecked`/`ariaExpanded` state to element rendering in prompt (captured by CDP but not surfaced)
+
+*Session log entry written: 2026-03-16 (Session 59)*
