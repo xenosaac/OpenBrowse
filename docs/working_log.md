@@ -7269,3 +7269,54 @@ Rationale: All PM tasks (T1-T15) and design tasks (D1-D9) are complete. D10 is t
 - No remaining directed work. PM guidance: "prefer code review and test coverage analysis over new features."
 
 *Session log entry written: 2026-03-16 (Session 120)*
+
+---
+
+### Session 121 — 2026-03-16: D11 — FindBar Button Hover States and Radius Fix
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T15) and design tasks (D1-D10) are complete. D11 is explicitly listed in `docs/ui_design.md` as the next design task — FindBar embedded buttons (▲/▼/✕) lack hover states (Motion Rules violation) and use `radii.xs` (4px) instead of the spec's `radii.md` (8px) for small icon buttons. Small, concrete design compliance fix.
+
+#### Plan
+
+1. Convert FindBar to use React state for hover tracking on the 3 buttons (prev, next, close).
+2. Fix `borderRadius` from `radii.xs` to `radii.md` on `navButton` and `closeButton`.
+3. Add `onMouseEnter`/`onMouseLeave` handlers that apply:
+   - `background: rgba(255,255,255,0.08)` on hover
+   - `color: colors.textPrimary` on hover (uplift from `textSecondary`)
+   - `transition` using `transitions.fast`
+4. Run `pnpm run typecheck` to verify.
+5. Update working log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/components/chrome/FindBar.tsx`:**
+
+1. **Imports:** Added `useState` from React, `transitions` from tokens.
+2. **Hover state:** Added `hoveredBtn` state (`"prev"` | `"next"` | `"close"` | `null`).
+3. **Button hover handlers:** Each button (▲, ▼, ✕) now has `onMouseEnter` → `setHoveredBtn("id")` and `onMouseLeave` → `setHoveredBtn(null)`.
+4. **Hover style:** New `btnHover` style applies `background: rgba(255,255,255,0.08)` and `color: colors.textPrimary` on hover.
+5. **Border radius fix:** `navButton` and `closeButton` changed from `radii.xs` (4px) to `radii.md` (8px) per Border Radius Specification.
+6. **Transition:** Both button styles now include `transition: background 150ms ..., color 150ms ...` using `transitions.fast`.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/chrome/FindBar.tsx` — hover states + radius fix on 3 embedded buttons
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- No test changes needed — FindBar is a renderer component with no logic tests
+
+#### Status: DONE
+
+#### Next Steps
+
+- D11 is complete. All design tasks (D1-D11) are done.
+- All PM tasks (T1-T15) complete. All design tasks (D1-D11) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- P3-10 (profile system) remains deferred.
+- `docs/ui_design.md` notes: "After D10 + D11, the design system has zero known open tasks."
+
+*Session log entry written: 2026-03-16 (Session 121)*
