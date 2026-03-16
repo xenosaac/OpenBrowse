@@ -1,5 +1,5 @@
 import { ipcMain, type BrowserWindow } from "electron";
-import { RecoveryManager, type RuntimeServices } from "@openbrowse/runtime-core";
+import { RecoveryManager, recoverRun, emitHandoffEvent, type RuntimeServices } from "@openbrowse/runtime-core";
 import type { RecoverySummary } from "@openbrowse/contracts";
 
 /**
@@ -37,7 +37,10 @@ export class RuntimeEventBridge {
 
   /** Run startup recovery and cache the summary for subsequent IPC queries. */
   async runStartupRecovery(): Promise<void> {
-    const manager = new RecoveryManager(this.services);
+    const manager = new RecoveryManager(this.services, {
+      recoverRunFn: recoverRun,
+      emitHandoffFn: emitHandoffEvent
+    });
     const report = await manager.recoverInterruptedRuns();
     const total =
       report.resumed.length + report.awaitingInput.length + report.failed.length + report.skipped.length;

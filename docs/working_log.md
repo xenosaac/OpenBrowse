@@ -2121,3 +2121,57 @@ Gap analysis: all P0–P2 backlog items done. P3 deferred. Session 35 noted `set
 - P3-10 (profile system) remains deferred
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 37 — 2026-03-16: Make RecoveryManager Testable + Test Suite
+
+#### Context
+
+Session 36 noted: "RecoveryManager tests still blocked by Electron — could apply same extraction pattern." `RecoveryManager` imports `recoverRun` and `emitHandoffEvent` from `OpenBrowseRuntime.ts`, which chains to Electron via `browser-runtime` and `chat-bridge` imports. This makes it impossible to test under Node.
+
+#### Plan
+
+1. Make `RecoveryManager` accept `recoverRunFn` and `emitHandoffFn` as constructor-injected dependencies instead of hardcoded imports from `OpenBrowseRuntime.ts`
+2. Remove the direct import of `OpenBrowseRuntime.ts` from `RecoveryManager.ts`
+3. Update the sole consumer (`RuntimeEventBridge.ts`) to pass these functions
+4. Run typecheck
+5. Write comprehensive test suite covering: recovery categorization, strategy filtering, failure handling, metadata extraction, event logging
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Refactored `packages/runtime-core/src/RecoveryManager.ts`:**
+- Removed direct import of `recoverRun` and `emitHandoffEvent` from `OpenBrowseRuntime.ts` (Electron chain breaker)
+- Added `RecoverRunFn` and `EmitHandoffFn` type aliases for the two injectable functions
+- Added `RecoveryManagerOptions` interface: `{ strategy?, recoverRunFn, emitHandoffFn }`
+- Constructor now takes `RecoveryManagerOptions` as second parameter instead of optional `RecoveryStrategy`
+- Extracted `extractRecoveryMetadata` as a standalone exported pure function (was private method)
+
+**Updated `apps/desktop/src/main/RuntimeEventBridge.ts`:**
+- Imports `recoverRun` and `emitHandoffEvent` from `@openbrowse/runtime-core`
+- Passes them as constructor options to `RecoveryManager`
+
+**Created `tests/recoveryManager.test.mjs` — 20 tests:**
+- DefaultRecoveryStrategy (3 tests): shouldRetry for running/non-running, maxRetries value
+- extractRecoveryMetadata (3 tests): full fields, missing optional fields, undefined stepCount default
+- RecoveryManager orchestration (14 tests): empty stores, clarification/approval categorization, recovery_skipped logging, successful recovery, run_recovered logging, failure handling, recovery_failed logging, checkpoint store persistence on failure, custom strategy skipping, strategy-skipped logging, mixed success/failure, combined categories, non-Error throw handling, eventBus publication
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/recoveryManager.test.mjs` — 20/20 pass
+- `node --test tests/*.test.mjs` — 487/487 pass (was 467, +20 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `createPlanner`/`createChatBridge` factory tests — these import non-Electron packages but need mocking
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
