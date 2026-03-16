@@ -5759,3 +5759,71 @@ Added `glass.control` token and applied it across all Tier 3 control surfaces, r
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 98)*
+
+---
+
+### Session 99 — 2026-03-16: D7 — Fix All Sidebar Glass-on-Glass Nesting
+
+#### Mode: feature
+
+Rationale: D5 (glass.control token) and D6 (border token fix) are both complete. Per UI designer guidance, D7 is next — fixes three interior components inside the sidebar `<aside>` that each apply their own glass preset, creating illegal blur-on-blur stacking. The sidebar already applies `glass.panel` (Tier 1); interior children must not apply their own glass.
+
+#### Plan
+
+1. **SidebarHeader.tsx**: Remove `...glass.card` from `sidebarHeader` style. Replace with `background: 'transparent'`. Remove full border, keep only `borderBottom` as separator using `borderSubtle` (0.06). Remove unused `shadows` import.
+2. **ChatComposer.tsx**: Remove `...glass.panel` from `composer` style. Replace with `background: 'transparent'`. Remove full border, keep only `borderTop` as separator using `borderSubtle` (0.06). Change `composerInput` border from `borderGlass` (0.18) to `borderDefault` (0.10). Remove unused `shadows` import.
+3. **SessionListDropdown.tsx**: Remove `...glass.panel` from `sessionList` style. Replace with `background: 'rgba(255,255,255,0.02)'` (flat tint). Remove `boxShadow: shadows.glassElevated`. Change container border from `borderGlass` to `borderSubtle` (0.06). Change `sessionItem` border from `borderGlass` to `borderDefault` (0.10). Remove unused `shadows` import.
+4. Run typecheck.
+5. Update log and commit.
+
+#### Implementation
+
+Applied the Interior Component Rule to all three violating sidebar components:
+
+**A. SidebarHeader.tsx:**
+- Removed `...glass.card` spread (was creating Tier 2 glass inside Tier 1 sidebar)
+- Removed full `border: borderGlass` (all four sides)
+- Replaced with `background: 'transparent'` + `borderBottom: borderSubtle` (0.06) as section separator
+- Removed unused `shadows` import
+- Button borders already correct from D5 (sessionListToggle uses glass.control + 0.08, newSessionButton uses 0.08)
+
+**B. ChatComposer.tsx:**
+- Removed `...glass.panel` spread (was creating Tier 1 glass inside Tier 1 sidebar — doubled blur/saturation)
+- Removed full `border: borderGlass`
+- Replaced with `background: 'transparent'` + `borderTop: borderSubtle` (0.06) as section separator
+- Changed `composerInput` border from `borderGlass` (0.18) to `borderDefault` (0.10) — input-appropriate weight
+- Input field keeps `glass.input` (legitimate distinct interactive surface per Interior Component Rule exception)
+- Removed unused `shadows` import
+
+**C. SessionListDropdown.tsx:**
+- Removed `...glass.panel` spread (was creating Tier 1 glass inside Tier 1 sidebar)
+- Removed `boxShadow: shadows.glassElevated`
+- Replaced with `background: 'rgba(255,255,255,0.02)'` (flat tint for subtle differentiation)
+- Container border changed from `borderGlass` (0.18) to `borderSubtle` (0.06)
+- Session item borders changed from `borderGlass` (0.18) to `borderDefault` (0.10)
+- Removed unused `shadows` import
+
+**Result:** The sidebar now reads as one unified Tier 1 glass surface with internal sections separated by subtle borders. No interior component applies its own glass preset or backdropFilter. The material hierarchy violation is eliminated.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` — removed glass.card, full border; transparent bg + borderBottom separator
+- `apps/desktop/src/renderer/components/sidebar/ChatComposer.tsx` — removed glass.panel, full border; transparent bg + borderTop separator; input border 0.18→0.10
+- `apps/desktop/src/renderer/components/sidebar/SessionListDropdown.tsx` — removed glass.panel, shadow; flat tint bg; container border 0.18→0.06; item borders 0.18→0.10
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D7 is complete. All three sidebar interior components now inherit the parent's Tier 1 glass surface instead of applying their own glass presets.
+- The full border hierarchy is now expressed: panels (0.18) > controls (0.10) > cards (0.06). No surface below Tier 1 uses `borderGlass`.
+- Next: audit renderer against the Border Weight Discipline table to confirm no remaining violations. Check RunContextCard per UI designer note.
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 99)*

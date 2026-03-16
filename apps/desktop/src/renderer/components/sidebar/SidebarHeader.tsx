@@ -1,5 +1,5 @@
 import React from "react";
-import { colors, glass, shadows } from "../../styles/tokens";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   runningCount: number;
@@ -45,11 +45,10 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "flex-start",
     gap: 10,
-    ...glass.card,
-    border: "1px solid " + colors.borderGlass,
-    borderBottom: "1px solid " + colors.borderGlass,
+    background: "transparent",
+    borderBottom: "1px solid " + colors.borderSubtle,
     flexShrink: 0
-  } as React.CSSProperties,
+  },
   brandMark: {
     width: 32, height: 32, borderRadius: 10,
     display: "grid", placeItems: "center",
