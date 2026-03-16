@@ -1786,3 +1786,40 @@ test("cookie banner hint absent when cookieBannerDetected is undefined", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.doesNotMatch(user, /COOKIE BANNER/);
 });
+
+// --- Shadow DOM annotation ---
+
+test("inShadowDom renders (shadow) annotation for element in shadow DOM", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, inShadowDom: true, boundingVisible: true }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(shadow\)/);
+  assert.match(user, /\[el_0\] button "Accept".*\(shadow\)/);
+});
+
+test("inShadowDom absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, boundingVisible: true }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(shadow\)/);
+});
+
+test("inShadowDom renders after options and before off-screen", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, inShadowDom: true, boundingVisible: false }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  // (shadow) should appear before (off-screen)
+  const line = user.split("\n").find(l => l.includes("[el_0]"));
+  const shadowIdx = line.indexOf("(shadow)");
+  const offscreenIdx = line.indexOf("(off-screen)");
+  assert.ok(shadowIdx < offscreenIdx, "(shadow) should appear before (off-screen)");
+});
