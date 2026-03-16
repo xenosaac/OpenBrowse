@@ -3430,3 +3430,62 @@ Gap analysis (Session 59): suggested surfacing `ariaSelected`/`ariaChecked`/`ari
 - Consider surfacing `aria-label` override in element rendering when it differs from visible text
 
 *Session log entry written: 2026-03-16 (Session 60)*
+
+---
+
+### Session 61 — 2026-03-16: Surface Select Option Values in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis: `<select>` elements appear in the page model as role "combobox" with their current `value`, but the **available options** are not captured. The `browser_select` tool expects an option `value` parameter, but the planner has no visibility into what options exist. This forces the planner to guess, leading to validation errors or incorrect selections.
+
+#### Plan
+
+1. Add `options?: Array<{ value: string; label: string }>` to `PageElementModel` in `contracts/browser.ts`
+2. Capture `<option>` elements for `<select>` in `extractPageModel.ts` (cap at 20 options per select)
+3. Surface options in `buildPlannerPrompt.ts` element rendering
+4. Add tests for options rendering in `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `options?: Array<{ value: string; label: string }>` to `PageElementModel`
+- Only populated for `<select>` elements — dropdown option values the planner needs for `browser_select`
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- For `<select>` elements, captures up to 20 non-disabled `<option>` children
+- Each option: `{ value, label }` (label capped at 60 chars)
+- Returns `undefined` when no options exist (keeps payload clean for non-select elements)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `options=["val" (Label), ...]` for elements with options
+- Omits label parenthetical when label equals value (avoids redundancy like `"Small" (Small)`)
+- This gives the planner the exact values to pass to `browser_select`
+
+**Impact:** The planner can now use `browser_select` accurately by seeing available option values in the prompt, instead of guessing.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- Options rendered with value+label parenthetical
+- Label parenthetical omitted when label equals value
+- Options absent when undefined
+- Options absent when empty array
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 65/65 pass (was 61, +4 new)
+- `node --test tests/*.test.mjs` — 898/898 pass (was 894, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (898 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider similar option extraction for `<datalist>` elements (HTML5 autocomplete suggestions)
+
+*Session log entry written: 2026-03-16 (Session 61)*

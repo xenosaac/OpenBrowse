@@ -823,3 +823,54 @@ test("multiple ARIA state attributes render together", () => {
   assert.match(user, /\(selected\)/);
   assert.match(user, /\(expanded\)/);
 });
+
+// --- Select options rendering ---
+
+test("select options rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "combobox", label: "Country", isActionable: true,
+      options: [
+        { value: "us", label: "United States" },
+        { value: "uk", label: "United Kingdom" },
+        { value: "jp", label: "Japan" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\[/);
+  assert.match(user, /"us" \(United States\)/);
+  assert.match(user, /"uk" \(United Kingdom\)/);
+  assert.match(user, /"jp" \(Japan\)/);
+});
+
+test("select options omit label parenthetical when label equals value", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "combobox", label: "Size", isActionable: true,
+      options: [
+        { value: "Small", label: "Small" },
+        { value: "Large", label: "Large" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["Small", "Large"\]/);
+  assert.doesNotMatch(user, /\(Small\)/);
+});
+
+test("select options absent when options undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /options=\[/);
+});
+
+test("select options absent when options empty", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", isActionable: true, options: [] }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /options=\[/);
+});
