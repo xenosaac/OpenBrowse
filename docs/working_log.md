@@ -6692,3 +6692,57 @@ Rationale: PM directive says T11 is next after T10 (done). T11 prevents the Sess
 *Session log entry written: 2026-03-16 (Session 111)*
 
 *Session log entry written: 2026-03-16 (Session 110)*
+
+---
+
+### Session 112 — 2026-03-16: T12 — Planner Error Recovery Guidance
+
+#### Mode: feature
+
+Rationale: PM directive says T12 is next after T11 (done). T12 adds concise error recovery strategies to the planner system prompt so the agent handles common browser action failures gracefully — waiting and retrying when appropriate, dismissing overlays, or asking the user when truly stuck — instead of failing immediately or looping. This is P3 planner quality work, pure prompt engineering.
+
+#### Plan
+
+1. **`buildPlannerPrompt.ts`**: Add a "## Error Recovery" section to the system prompt with 5 recovery strategies (element not found, click obscured, navigation timeout, type failed, 2 consecutive failures → ask_user). Keep under 200 words.
+2. **Tests**: Add test asserting the error recovery section appears in the system prompt. Update any token budget assertions if needed.
+3. Run typecheck and tests.
+
+#### Implementation
+
+**1. `packages/planner/src/buildPlannerPrompt.ts`**:
+- Added "## Error Recovery" section to the system prompt between "## Browser Guidelines" and the step budget line
+- 5 recovery strategies covering common failure modes:
+  1. Element not found → wait for expected text, then retry
+  2. Click intercepted/obscured → check for overlays (dialog, cookie banner), dismiss first
+  3. Navigation timeout → wait briefly, retry once, then escalate to ask_user
+  4. Type action failed → click the input field first to focus it
+  5. 2 consecutive failures → stop retrying, try different approach or ask_user
+- Section is 141 words (under the 200-word acceptance criterion)
+- Does NOT encourage infinite retry loops — explicitly says "Stop retrying" and "Do not loop on the same failing action"
+
+**2. `tests/planner-prompt.test.mjs`** (+2 tests):
+- "system prompt includes error recovery strategies" — asserts section header and all 5 strategy keywords present, plus ask_user escalation
+- "error recovery section does not encourage infinite retries" — asserts "Stop retrying" and "different approach" are present
+
+#### Files Changed
+
+- `packages/planner/src/buildPlannerPrompt.ts` — Added error recovery strategies section to system prompt
+- `tests/planner-prompt.test.mjs` — 2 new tests for error recovery content
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 175/175 pass (was 173, +2 new)
+- `node --test tests/*.test.mjs` — 1059/1059 pass (was 1057, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T12 is complete. The planner now has explicit recovery strategies for common browser action failures.
+- All PM tasks (T1-T8, T10-T12) are complete. T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- The planner has 17 tools, 50-step budget, error recovery guidance, and a scratchpad for multi-page context.
+- Next potential work: D8/D9 (UI token hygiene from design doc), `browser_clear_field` tool, or other feature work.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 112)*

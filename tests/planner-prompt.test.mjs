@@ -2629,6 +2629,24 @@ test("system prompt mentions browser_save_note usage guidance", () => {
   assert.match(system, /multi-page/i);
 });
 
+test("system prompt includes error recovery strategies", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.match(system, /Error Recovery/, "error recovery section header present");
+  assert.match(system, /Element not found/, "element not found strategy present");
+  assert.match(system, /Click intercepted/, "click intercepted strategy present");
+  assert.match(system, /Navigation timeout/, "navigation timeout strategy present");
+  assert.match(system, /Type action failed/, "type action failed strategy present");
+  assert.match(system, /2 consecutive failures/, "consecutive failure limit present");
+  assert.match(system, /ask_user/, "escalation to ask_user mentioned");
+});
+
+test("error recovery section does not encourage infinite retries", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  // Should mention stopping/escalating, not just "retry forever"
+  assert.match(system, /Stop retrying/, "tells planner to stop retrying after repeated failures");
+  assert.match(system, /different approach/, "suggests alternative approach");
+});
+
 test("T4: all three realistic page models produce prompts under 30k chars", () => {
   const scenarios = [
     { name: "Google SERP", pm: makeGoogleSERPPageModel(), goal: "Search for OpenAI" },
