@@ -7406,3 +7406,58 @@ This fix directly addresses a real-world reliability problem discovered from the
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 122)*
+
+---
+
+### Session 123 — 2026-03-16: T16 — Test save_note upsert and cap enforcement in RunExecutor
+
+#### Mode: framework
+
+Rationale: PM ordering says T16 is next. The `browser_save_note` tool's execution-level logic in RunExecutor (lines ~158-189) has zero test coverage — upsert semantics, 20-note cap, and cross-step persistence of `plannerNotes` are all untested. This is a critical data collection feature path (same class of gap as the Session 108 kernel field dropout).
+
+#### Plan
+
+1. Add tests to `tests/runExecutor.test.mjs` covering:
+   - Basic save_note stores a note in `plannerNotes` on the checkpoint
+   - Upsert: a second save_note with the same key replaces the value
+   - Cap enforcement: the 21st note evicts the oldest note (FIFO via `slice(-20)`)
+   - Cross-step persistence: `plannerNotes` survive across planner steps
+   - Missing key/value handled gracefully (defaults used, no crash)
+2. Use existing test harness (makeServices, makeRun, etc.) — save_note is intercepted before the browser kernel, so `executeAction` is not called.
+3. Run `node --test tests/runExecutor.test.mjs` and `pnpm run typecheck`.
+4. Update this log and commit.
+
+#### Implementation
+
+**`tests/runExecutor.test.mjs`** — 5 new tests (40 total, was 35):
+
+1. **"save_note stores note in plannerNotes on checkpoint"** — Verifies basic save: a `save_note` action with `interactionHint: "flight_price"` and `value: "$299"` stores `[{ key: "flight_price", value: "$299" }]` in `checkpoint.plannerNotes`. Also asserts `executeAction` was NOT called (save_note is kernel-bypassed) and the event was logged.
+
+2. **"save_note upserts — same key replaces existing value"** — Two consecutive `save_note` actions with the same key ("price") but different values ("$100" then "$89"). After both, `plannerNotes` contains exactly 1 entry with value "$89".
+
+3. **"save_note caps at 20 notes — 21st evicts oldest"** — Pre-populates 20 notes (`note_0` through `note_19`) on the checkpoint, then adds `note_20`. After the cap (`slice(-20)`), `note_0` is evicted and `note_20` is present. Total remains 20.
+
+4. **"save_note persists across steps — notes survive into next planner iteration"** — Step 1 saves a note, step 2 executes a click, step 3 completes. The final checkpoint still contains the note from step 1 — proving `plannerNotes` survives across planner iterations.
+
+5. **"save_note handles missing key and value gracefully"** — Action has no `interactionHint` or `value`. Uses defaults: `key: "note"`, `value: ""`. No crash.
+
+#### Files Changed
+
+- `tests/runExecutor.test.mjs` — 5 new tests for save_note interception path (40 total)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 40/40 pass (was 35, +5 new)
+- `node --test tests/*.test.mjs` — 1078/1078 pass (was 1073, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T16 is complete. The save_note execution path in RunExecutor now has full coverage: basic save, upsert, cap enforcement, cross-step persistence, and graceful defaults.
+- PM ordering: T17 (CdpClient tests) is next.
+- All PM tasks (T1-T15) complete. All design tasks (D1-D11) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 123)*
