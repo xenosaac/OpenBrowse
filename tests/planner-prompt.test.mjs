@@ -1734,6 +1734,38 @@ test("landmark annotation renders before other attributes like level", () => {
   assert.match(user, /\[el_0\] heading "Section Title" in=main level=2/);
 });
 
+// --- aria-keyshortcuts surfacing ---
+
+test("keyShortcuts renders keys attribute for elements with aria-keyshortcuts", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Save", isActionable: true, keyShortcuts: "Alt+S", boundingVisible: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] button "Save" keys="Alt\+S" \*/);
+});
+
+test("keyShortcuts absent when element has no keyShortcuts", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Save", isActionable: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /keys=/);
+});
+
+test("keyShortcuts renders alongside other attributes like landmark and level", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "heading", label: "Dashboard", isActionable: false, landmark: "main", level: 1, keyShortcuts: "Alt+D" },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] heading "Dashboard" in=main level=1 keys="Alt\+D"/);
+});
+
 // --- Cookie banner detection hint ---
 
 test("cookie banner hint appears when cookieBannerDetected is true", () => {

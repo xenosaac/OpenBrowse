@@ -523,6 +523,9 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     if (elValueMax !== undefined && isNaN(elValueMax)) elValueMax = undefined;
     var elValueText = (el.getAttribute('aria-valuetext') || '').trim().slice(0, 60) || undefined;
 
+    // aria-keyshortcuts: keyboard shortcut assigned to this element
+    var elKeyShortcuts = (el.getAttribute('aria-keyshortcuts') || '').trim().slice(0, 60) || undefined;
+
     elements.push({
       id: targetId,
       role: role,
@@ -576,6 +579,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
         }
         return result.length > 0 ? result : undefined;
       })(),
+      keyShortcuts: elKeyShortcuts,
       landmark: getContainingLandmark(el),
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
