@@ -1657,6 +1657,50 @@ Added two test files:
 
 ---
 
+### Session 28 — 2026-03-16: Gap Analysis — ClarificationPolicy + workflowEvents Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two pure-function modules have zero test coverage:
+
+1. `ClarificationPolicy` (orchestrator) — `DefaultClarificationPolicy.shouldSuspend()` and `formatClarificationSummary()`. Pure functions, no I/O. Controls whether the agent suspends for user clarification.
+2. `workflowEvents` (runtime-core) — `createWorkflowEventId()`, `createWorkflowEvent()`, and `appendWorkflowEvent()`. Pure/light functions that construct and persist workflow events.
+
+#### Plan
+
+1. Add `tests/clarificationPolicy.test.mjs` — test shouldSuspend (running + clarification = true, all other combos = false), formatClarificationSummary (no options, single option, multiple options, empty question)
+2. Add `tests/workflowEvents.test.mjs` — test createWorkflowEventId format, createWorkflowEvent field population, appendWorkflowEvent (calls store + eventBus)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/clarificationPolicy.test.mjs`** — 14 tests:
+- `DefaultClarificationPolicy.shouldSuspend` (10 tests): true only for running + clarification_request; false for all other status/decision combinations (running + browser_action/task_complete/task_failed/approval_request, suspended/completed/failed/cancelled/queued + clarification_request)
+- `formatClarificationSummary` (4 tests): no options (fallback message), single option, multiple options (pipe-delimited), whitespace trimming
+
+**`tests/workflowEvents.test.mjs`** — 11 tests:
+- `createWorkflowEventId` (3 tests): prefix format, uniqueness, runId inclusion
+- `createWorkflowEvent` (5 tests): correct structure, unique IDs, empty payload, ISO date, all event types
+- `appendWorkflowEvent` (3 tests): calls both store and eventBus, ordering (store before bus), error propagation from store
+
+#### Verification
+
+- `node --test tests/clarificationPolicy.test.mjs tests/workflowEvents.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 305/305 pass (was 280, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `CancellationController` (requires mocking RuntimeServices, SessionManager, HandoffManager)
+- Consider tests for `RecoveryManager` or `SessionManager` (require more complex mocking)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
