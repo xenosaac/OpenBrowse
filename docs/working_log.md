@@ -7320,3 +7320,89 @@ Rationale: All PM tasks (T1-T15) and design tasks (D1-D10) are complete. D11 is 
 - `docs/ui_design.md` notes: "After D10 + D11, the design system has zero known open tasks."
 
 *Session log entry written: 2026-03-16 (Session 121)*
+
+---
+
+### Session 122 — 2026-03-16: Fix overly aggressive hard failure classification — allow planner error recovery
+
+#### Mode: repair
+
+Rationale: Database evidence from real user runs shows `interaction_failed` and `navigation_timeout` immediately killing runs, preventing the planner from using its T12 error recovery strategies. Out of 61 total runs, 31 failed and only 7 completed (~11.5% success rate). At least 3 failures were caused by recoverable failure classes being treated as hard failures. This is a correctness bug that directly undermines task completion reliability.
+
+#### Evidence from database
+
+- 61 runs created, 7 completed, 31 failed, 17 cancelled
+- `interaction_failed` caused 2 immediate run terminations (wordle, other tasks)
+- `navigation_timeout` caused 1 immediate run termination
+- Wordle run: after approval resume, a click failed with `interaction_failed` → run immediately terminated at step 12 of 50. The planner never got a chance to retry.
+- T12 (error recovery guidance) teaches the planner: "click obscured → check overlays", "navigation timeout → retry once", "type failed → click first", "2 consecutive failures → stop retrying + ask_user" — but the RunExecutor kills the run before the planner sees the failure.
+
+#### The bug
+
+`RunExecutor.plannerLoop()` line 233 and `continueResume()` line 398 only treat `element_not_found` and `network_error` as soft (recoverable) failures. All other failure classes — including `interaction_failed` and `navigation_timeout` — are hard failures that immediately terminate the run.
+
+But `interaction_failed` is commonly caused by stale element references, obscured elements, or timing issues — all recoverable. `navigation_timeout` is commonly caused by slow page loads — also recoverable with a retry.
+
+Existing safety nets prevent infinite loops on truly stuck failures:
+- `MAX_CONSECUTIVE_SOFT_FAILURES = 5` — 5 soft failures in a row → fail
+- `MAX_TOTAL_SOFT_FAILURES = 8` — 8 total soft failures across run → fail
+- `MAX_PLANNER_STEPS = 50` — step budget limit
+
+#### Plan
+
+1. Change the soft failure condition to include `interaction_failed` and `navigation_timeout` alongside `element_not_found` and `network_error`.
+2. Extract the soft failure check into a constant or helper for clarity.
+3. Apply the same fix in `continueResume` for pending action handling.
+4. Update tests that assert hard failure for `interaction_failed`.
+5. Run typecheck and tests.
+
+#### Implementation
+
+**`packages/runtime-core/src/RunExecutor.ts`:**
+
+1. Added import for `BrowserActionFailureClass` from contracts.
+2. Extracted `SOFT_FAILURE_CLASSES` as a `ReadonlySet<BrowserActionFailureClass>` containing: `element_not_found`, `network_error`, `interaction_failed`, `navigation_timeout`.
+3. **`plannerLoop`**: Changed hard failure check from `failureClass !== "element_not_found" && failureClass !== "network_error"` to `!SOFT_FAILURE_CLASSES.has(fc)`. Now `interaction_failed` and `navigation_timeout` are soft failures that let the planner retry.
+4. **`continueResume`**: Same change — `interaction_failed` and `navigation_timeout` on resume now add a recovery note and continue to the planner loop instead of immediately failing.
+5. Only `validation_error` and `unknown` remain as hard (immediate termination) failure classes.
+
+**`tests/runExecutor.test.mjs` — 5 new tests, 1 updated:**
+
+- Updated: "continueResume fails if pending action has hard failure" → now uses `validation_error` (was `interaction_failed`)
+- New: "plannerLoop continues on interaction_failed soft failure" — verifies planner gets retry on obscured/stale elements
+- New: "plannerLoop continues on navigation_timeout soft failure" — verifies planner gets retry on slow pages
+- New: "plannerLoop fails immediately on validation_error" — confirms hard failure class still terminates
+- New: "continueResume recovers from pending action interaction_failed (soft failure)"
+- New: "continueResume recovers from pending action navigation_timeout (soft failure)"
+
+#### Files Changed
+
+- `packages/runtime-core/src/RunExecutor.ts` — SOFT_FAILURE_CLASSES constant, widened soft failure condition in plannerLoop and continueResume
+- `tests/runExecutor.test.mjs` — 5 new tests, 1 updated (35 total, was 30)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 35/35 pass
+- `node --test tests/*.test.mjs` — 1073/1073 pass (was 1068, +5 new)
+
+#### Status: DONE
+
+#### Impact
+
+This fix directly addresses a real-world reliability problem discovered from the app database:
+- **Before**: `interaction_failed` (stale elements, obscured clicks, timing issues) and `navigation_timeout` (slow pages) immediately killed runs. The planner's T12 error recovery strategies ("click obscured → check overlays", "navigation timeout → retry once") were unreachable because the executor terminated first.
+- **After**: These failure classes are treated as soft failures. The planner gets another iteration to try a different approach. Safety nets (max 5 consecutive / 8 total soft failures) prevent infinite loops.
+- **Expected improvement**: Runs that previously died on the first `interaction_failed` or `navigation_timeout` now have up to 5 retries. The wordle run (12 steps, then died on post-approval `interaction_failed`) would have continued.
+
+#### Next Steps
+
+- Additional database evidence patterns worth investigating:
+  - 5 "Session not found" errors from post-cancellation race condition (planner decision arrives after session cleanup)
+  - 6 planner_request_failed events at `about:blank` — early runs from March 15, likely resolved by API fix
+  - Overall success rate (7/61 = 11.5%) still very low — needs T9 manual testing to understand remaining failure patterns
+- All PM tasks (T1-T15) complete. All design tasks (D1-D11) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 122)*
