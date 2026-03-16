@@ -1,10 +1,21 @@
-import { WebContentsView, session, type BrowserWindow } from "electron";
+import { WebContentsView, session, app, type BrowserWindow } from "electron";
+import path from "node:path";
 
 export interface ManagedBrowserView {
   id: string;
   profileId: string;
   view: WebContentsView;
   createdAt: string;
+}
+
+export interface DownloadInfo {
+  id: string;
+  filename: string;
+  url: string;
+  savePath: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
 }
 
 interface ViewportBounds {
@@ -16,6 +27,7 @@ interface ViewportBounds {
 
 export class BrowserViewManager {
   private readonly views = new Map<string, ManagedBrowserView>();
+  private readonly downloadSessions = new Set<string>();
   private activeViewId: string | null = null;
   private hostWindow: BrowserWindow;
   private viewportBounds: ViewportBounds | null = null;
@@ -28,6 +40,7 @@ export class BrowserViewManager {
     selectionText: string; mediaType: string; srcURL: string; isEditable: boolean;
   }) => void) | null = null;
   onLoadError: ((sessionId: string, errorCode: number, errorDescription: string, validatedURL: string) => void) | null = null;
+  onDownloadUpdated: ((info: DownloadInfo) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -109,6 +122,41 @@ export class BrowserViewManager {
         this.onLoadError?.(sessionId, errorCode, errorDescription, validatedURL);
       }
     });
+
+    // Attach download handler once per partition to avoid duplicate listeners
+    const partitionKey = partition;
+    if (!this.downloadSessions.has(partitionKey)) {
+      this.downloadSessions.add(partitionKey);
+      ses.on("will-download", (_event, item) => {
+        const downloadId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const filename = item.getFilename() || "download";
+        const downloadsDir = app.getPath("downloads");
+        const savePath = path.join(downloadsDir, filename);
+        item.setSavePath(savePath);
+
+        const emitUpdate = (state: DownloadInfo["state"]) => {
+          this.onDownloadUpdated?.({
+            id: downloadId,
+            filename,
+            url: item.getURL(),
+            savePath,
+            totalBytes: item.getTotalBytes(),
+            receivedBytes: item.getReceivedBytes(),
+            state,
+          });
+        };
+
+        emitUpdate("progressing");
+
+        item.on("updated", (_ev, state) => {
+          emitUpdate(state === "progressing" ? "progressing" : "interrupted");
+        });
+
+        item.once("done", (_ev, state) => {
+          emitUpdate(state === "completed" ? "completed" : "cancelled");
+        });
+      });
+    }
 
     view.webContents.on("destroyed", () => {
       this.views.delete(sessionId);

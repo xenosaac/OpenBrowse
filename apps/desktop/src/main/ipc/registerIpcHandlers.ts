@@ -63,6 +63,19 @@ export function registerIpcHandlers(
     });
   });
 
+  browserShell.setDownloadCallback((info) => {
+    mainWindow.webContents.send("runtime:event", {
+      type: "download_updated",
+      id: info.id,
+      filename: info.filename,
+      url: info.url,
+      savePath: info.savePath,
+      totalBytes: info.totalBytes,
+      receivedBytes: info.receivedBytes,
+      state: info.state,
+    });
+  });
+
   browserShell.setContextMenuCallback((sessionId, params) => {
     const navState = browserShell.getNavState(sessionId);
     const template: Electron.MenuItemConstructorOptions[] = [];

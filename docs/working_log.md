@@ -7764,3 +7764,85 @@ Key design decisions:
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 127)*
+
+---
+
+### Session 128 — 2026-03-16: T22 — Download Handling
+
+#### Mode: feature
+
+Rationale: All PM tasks T16-T20 are complete. D12/D13 are cosmetic token cleanup — lower value than a real feature. The PM explicitly identified download handling as a gap (section 7: "Download handling — NOT STARTED (T22). The browser cannot handle file downloads at all."). This is a fundamental browser feature: without it, clicking any download link does nothing or produces undefined behavior. Feature mode is appropriate because the framework maturity checklist is satisfied and the last several sessions include real features (T18-T20).
+
+#### Plan
+
+1. **`BrowserViewManager.ts`**: Add download handling via `session.on('will-download')` in `create()`. Track which partitions already have listeners to avoid duplicates. Auto-save to the user's Downloads directory. Add `onDownloadStarted`, `onDownloadProgress`, `onDownloadComplete` callbacks.
+2. **`AppBrowserShell.ts`**: Add `setDownloadCallback(cb)` proxy method.
+3. **`registerIpcHandlers.ts`**: Wire download callbacks to send `download_started`, `download_progress`, `download_complete` events via `runtime:event`.
+4. **`eventBus.ts`**: Add download event types to `RuntimeEvent`.
+5. **`App.tsx`**: Track active downloads state. Pass to BrowserPanel.
+6. **`BrowserPanel.tsx`**: Show a download bar at the bottom of the viewport following the Compact Chrome Widget pattern from `docs/ui_design.md`.
+7. Run `pnpm run typecheck`.
+8. Update this log and commit.
+
+#### Implementation
+
+**`BrowserViewManager.ts`** — Added download handling via `session.on('will-download')`:
+- Tracks which partitions already have listeners via `downloadSessions` Set to avoid duplicates (multiple views can share the same partition/session)
+- On `will-download`: auto-sets save path to `app.getPath('downloads')` + original filename
+- Emits `onDownloadUpdated` callback with download progress info (id, filename, url, savePath, totalBytes, receivedBytes, state)
+- Tracks `updated` event for progress and `done` event for completion/cancellation
+- Added `DownloadInfo` interface export for type sharing
+
+**`AppBrowserShell.ts`** — Added `setDownloadCallback(cb)` proxy method that wires the BrowserViewManager's `onDownloadUpdated` callback.
+
+**`registerIpcHandlers.ts`** — Added download callback wiring:
+- Sends `download_updated` event via `runtime:event` channel with full download info
+
+**`eventBus.ts`** — Added `download_updated` to the `RuntimeEvent` discriminated union type with all download fields.
+
+**`App.tsx`** — Added download state management:
+- `downloads` state: array of `DownloadEntry` objects (id, filename, savePath, totalBytes, receivedBytes, state)
+- Subscribes to `download_updated` events — upserts into the array by download id
+- Passes `downloads` and `onDismissDownload` props to BrowserPanel
+
+**`BrowserPanel.tsx`** — Added download bar UI following the Compact Chrome Widget pattern from `docs/ui_design.md`:
+- Download bar appears at the bottom of the browser viewport area (below the native WebContentsView)
+- Outer container: transparent background, `borderTop: borderSubtle` separator, compact padding
+- Each download item: `glass.control` capsule with `borderDefault` border, `radii.md` radius
+- Shows: download icon (SVG arrow), filename (truncated), progress bar (emerald fill on 4px track), size text, dismiss button
+- Completed downloads show green "Done" text; interrupted show red "Failed" text
+- Auto-dismisses completed/cancelled downloads after 5 seconds
+- `formatBytes()` helper for human-readable file sizes (B/KB/MB/GB)
+- Viewport div wrapped in flex column container with `flex: 1` to accommodate the download bar
+
+Key design decisions:
+- Downloads auto-save to the system Downloads directory without a save dialog. This matches Chrome's default behavior and is simpler for agent-initiated downloads.
+- One listener per partition prevents duplicate download events when multiple views share the same Electron session.
+- Download bar follows the same Compact Chrome Widget pattern as FindBar: transparent outer container, `glass.control` inner capsules, `borderSubtle` separator.
+- The download bar is part of BrowserPanel, not a chrome widget, because it's download-specific and appears at the viewport bottom (standard browser convention).
+
+#### Files Changed
+
+- `apps/desktop/src/main/browser/BrowserViewManager.ts` — download handling via `will-download`, `DownloadInfo` type, `onDownloadUpdated` callback
+- `apps/desktop/src/main/browser/AppBrowserShell.ts` — `setDownloadCallback` proxy method
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — `download_updated` event wiring
+- `apps/desktop/src/renderer/lib/eventBus.ts` — `download_updated` in RuntimeEvent type
+- `apps/desktop/src/renderer/components/App.tsx` — download state management + props to BrowserPanel
+- `apps/desktop/src/renderer/components/BrowserPanel.tsx` — download bar UI + auto-dismiss + formatBytes
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1092/1092 pass (no change — feature is main-process + renderer only)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T22 is complete. The browser now handles file downloads: auto-saves to the Downloads directory with progress tracking, completion notification, and a download bar UI.
+- All PM tasks T16-T20 are complete. T22 (download handling) was self-directed based on PM section 7 gap identification.
+- D12 (sidebar residual token cleanup) is available as a quick design polish task.
+- D13 (management panel token sweep) is available as a larger design task.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 128)*

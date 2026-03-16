@@ -157,6 +157,17 @@ export function App() {
   // ---- Tab load error state ----
   const [tabErrors, setTabErrors] = useState<Record<string, { errorCode: number; errorDescription: string; url: string }>>({});
 
+  // ---- Download state ----
+  interface DownloadEntry {
+    id: string;
+    filename: string;
+    savePath: string;
+    totalBytes: number;
+    receivedBytes: number;
+    state: "progressing" | "completed" | "cancelled" | "interrupted";
+  }
+  const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
+
   useEffect(() => {
     return runtimeEventBus.subscribe((event) => {
       if (event.type === "find_in_page_result" && event.finalUpdate) {
@@ -183,6 +194,25 @@ export function App() {
           const next = { ...prev };
           delete next[sid];
           return next;
+        });
+      }
+      if (event.type === "download_updated" && event.id) {
+        const entry: DownloadEntry = {
+          id: event.id,
+          filename: event.filename ?? "download",
+          savePath: event.savePath ?? "",
+          totalBytes: event.totalBytes ?? 0,
+          receivedBytes: event.receivedBytes ?? 0,
+          state: event.state ?? "progressing",
+        };
+        setDownloads(prev => {
+          const idx = prev.findIndex(d => d.id === entry.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = entry;
+            return next;
+          }
+          return [...prev, entry];
         });
       }
     });
@@ -908,6 +938,8 @@ export function App() {
                     void window.openbrowse.browserReload(selection.activeBrowserTab.id);
                   }
                 }}
+                downloads={downloads}
+                onDismissDownload={(id) => setDownloads(prev => prev.filter(d => d.id !== id))}
               />
             </>
           ) : (
