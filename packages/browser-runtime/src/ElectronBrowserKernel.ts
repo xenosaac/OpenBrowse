@@ -11,6 +11,7 @@ import type {
 } from "@openbrowse/contracts";
 import type { AttachSessionOptions, BrowserKernel } from "./BrowserKernel.js";
 import { CdpClient } from "./cdp/CdpClient.js";
+import { DISMISS_COOKIE_BANNER_SCRIPT } from "./cdp/dismissCookieBanner.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
 import { classifyFailure, parseKeyboardShortcut, validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
 
@@ -47,6 +48,7 @@ function rejectAfterTimeout(ms: number, message: string): Promise<never> {
 export class ElectronBrowserKernel implements BrowserKernel {
   private readonly profiles = new Map<string, BrowserProfile>();
   private readonly sessions = new Map<string, ManagedSession>();
+  private readonly cookieDismissAttempted = new Map<string, Set<string>>();
   private readonly parentWindow: BrowserWindow;
   private readonly profilesDir: string;
   private readonly viewProvider: EmbeddedViewProvider | null;
@@ -269,6 +271,57 @@ export class ElectronBrowserKernel implements BrowserKernel {
       iframeCount?: number;
       iframeSources?: string[];
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
+
+    // Auto-dismiss cookie banner if detected and not yet attempted for this session+hostname
+    if (raw.cookieBannerDetected) {
+      let hostname: string;
+      try { hostname = new URL(raw.url).hostname; } catch { hostname = raw.url; }
+      const attempted = this.cookieDismissAttempted.get(browserSession.id);
+      if (!attempted?.has(hostname)) {
+        // Record that we've attempted for this session+hostname
+        if (!attempted) {
+          this.cookieDismissAttempted.set(browserSession.id, new Set([hostname]));
+        } else {
+          attempted.add(hostname);
+        }
+
+        try {
+          const dismissResult = await managed.cdp.evaluate<{ dismissed: boolean; method?: string; detail?: string }>(
+            DISMISS_COOKIE_BANNER_SCRIPT
+          );
+          if (dismissResult.dismissed) {
+            // Wait for banner dismiss animation
+            await new Promise((r) => setTimeout(r, 500));
+            managed.cdp.invalidateContext();
+            // Re-extract page model with banner dismissed
+            const fresh = await managed.cdp.evaluate<typeof raw>(EXTRACT_PAGE_MODEL_SCRIPT);
+            return {
+              id: `page_${browserSession.id}_${Date.now()}`,
+              url: fresh.url,
+              title: fresh.title,
+              summary: fresh.summary,
+              focusedElementId: fresh.focusedElementId,
+              elements: fresh.elements,
+              visibleText: fresh.visibleText,
+              pageType: (fresh.pageType as PageModel["pageType"]) ?? undefined,
+              forms: fresh.forms,
+              alerts: fresh.alerts,
+              captchaDetected: fresh.captchaDetected,
+              cookieBannerDetected: fresh.cookieBannerDetected,
+              scrollY: fresh.scrollY,
+              activeDialog: fresh.activeDialog,
+              tables: fresh.tables,
+              landmarks: fresh.landmarks,
+              iframeCount: fresh.iframeCount,
+              iframeSources: fresh.iframeSources,
+              createdAt: new Date().toISOString()
+            };
+          }
+        } catch {
+          // Dismiss failed — return original page model with banner still detected
+        }
+      }
+    }
 
     return {
       id: `page_${browserSession.id}_${Date.now()}`,
@@ -660,6 +713,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
     if (!managed) return;
 
     this.sessions.delete(sessionId);
+    this.cookieDismissAttempted.delete(sessionId);
 
     try {
       await managed.cdp.detach();
@@ -679,6 +733,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
     for (const id of ids) {
       await this.destroySession(id);
     }
+    this.cookieDismissAttempted.clear();
   }
 
   async getSession(sessionId: string): Promise<BrowserSession | null> {
