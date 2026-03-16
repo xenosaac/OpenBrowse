@@ -1878,6 +1878,54 @@ Exported `detectCycle` from `RunExecutor.ts` (single keyword change: `function` 
 
 ---
 
+### Session 33 — 2026-03-16: Gap Analysis — TelegramConfig + TelegramStateStore Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two chat-bridge modules have zero test coverage:
+
+1. `TelegramConfig.resolveTelegramConfig()` — pure function resolving config from overrides + env vars. Controls whether Telegram bridge is enabled. Untested = risk of misconfigured bot or silent null return.
+2. `TelegramStateStore` — file-backed state manager for Telegram bridge: chat approval, clarification tracking, run-chat mappings. Untested = risk of state corruption, lost clarifications, or orphaned reply targets.
+
+#### Plan
+
+1. Add `tests/telegramConfig.test.mjs` — test override priority, env var fallback, null when no token, pairing mode defaults, notification level
+2. Add `tests/telegramStateStore.test.mjs` — test load/persist, approveChat, clarification lifecycle (register/resolveByRequestId/resolveByReplyTarget), run-chat mappings, clearClarificationsForRun, missing file fallback
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/telegramConfig.test.mjs`** — 18 tests:
+- `resolveTelegramConfig` (18 tests): null when no botToken (2), override vs env priority for botToken/chatId/statePath/notificationLevel (4 each field), default values (statePath, pairingMode without/with chatId, notificationLevel), non-verbose env defaults to quiet
+
+**`tests/telegramStateStore.test.mjs`** — 21 tests:
+- `load` (4 tests): default state on missing file, load existing state, partial state handling, invalid JSON recovery
+- `approveChat` (5 tests): set primary, no duplicates, keeps first primary, persists to disk, survives reload
+- `clarification lifecycle` (5 tests): register/resolveByRequestId, wrong chatId returns null, unknown requestId, resolveByReplyTarget, unknown target
+- `run-chat mappings` (3 tests): bind/resolve, unknown run, overwrite
+- `clearClarificationsForRun` (3 tests): removes run's clarifications + reply targets + run-chat mapping, empty for unknown, no-op safe
+- `listApprovedChatIds` (1 test): returns defensive copy
+
+Import note: Uses relative path `../packages/chat-bridge/dist/TelegramConfig.js` (not package specifier) to avoid pulling in `TelegramChatBridge` which has network dependencies.
+
+#### Verification
+
+- `node --test tests/telegramConfig.test.mjs tests/telegramStateStore.test.mjs` — 39/39 pass
+- `node --test tests/*.test.mjs` — 447/447 pass (was 408, +39 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
