@@ -16,12 +16,39 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
   const actionHistorySection = actionHistory.length > 0
     ? `\nActions already taken (${actionHistory.length}, most recent last):\n${actionHistory.map((r) => {
         const status = r.ok ? "OK" : `FAILED (${r.failureClass ?? "failed"})`;
-        return `  Step ${r.step}: ${r.type} — "${r.description}" ${status}`;
+        let detail = `  Step ${r.step}: ${r.type} — "${r.description}" ${status}`;
+        if (r.targetUrl) detail += `\n    → URL: ${r.targetUrl}`;
+        if (r.typedText) detail += `\n    → Typed: "${r.typedText}"`;
+        return detail;
       }).join("\n")}`
     : "";
 
+  const failedUrls = actionHistory
+    .filter(r => !r.ok && r.targetUrl)
+    .map(r => r.targetUrl!);
+  const uniqueFailedUrls = [...new Set(failedUrls)];
+  const failedUrlsSection = uniqueFailedUrls.length > 0
+    ? `\n** FAILED URLs — do NOT revisit: ${uniqueFailedUrls.join(", ")}`
+    : "";
+
+  const usedSearchQueries = actionHistory
+    .filter(r => r.type === "type" && r.typedText)
+    .map(r => r.typedText!);
+  const uniqueQueries = [...new Set(usedSearchQueries)];
+  const usedQueriesSection = uniqueQueries.length > 0
+    ? `\n** Search queries already used — use DIFFERENT terms next time: ${uniqueQueries.join("; ")}`
+    : "";
+
   const softFailureWarning = softFailures > 0
-    ? `\n** WARNING: The last ${softFailures} action(s) failed with "element not found". The target may have moved, not loaded yet, or not exist on this page. Try a different approach: scroll to reveal it, navigate directly via its href, or reassess what page you are on.`
+    ? `\n** WARNING: The last ${softFailures} action(s) failed. Review the action history above and try a COMPLETELY DIFFERENT approach: different URL, different search terms, or a different strategy entirely.`
+    : "";
+
+  const lastActions = actionHistory.slice(-3);
+  const repeatedNavs = lastActions.length >= 2
+    && lastActions.every(a => a.type === "navigate" && a.ok)
+    && new Set(lastActions.map(a => a.url)).size === 1;
+  const repeatedNavWarning = repeatedNavs
+    ? `\n** WARNING: You have navigated to the same URL ${lastActions.length} times in a row. The page may be redirecting. Try a completely different approach: use a search engine, try a different URL, or consider that this specific page may not be accessible.`
     : "";
 
   const recoveryContext = run.checkpoint.recoveryContext;
@@ -87,23 +114,44 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     : "";
 
   // --- System prompt ---
-  const system = `You are OpenBrowse, an agentic browser assistant. You help users accomplish web-based tasks by calling browser tools.
+  const system = `You are OpenBrowse, an agentic browser assistant that uses the ReAct (Reasoning + Acting) framework.
 
-You MUST call exactly one tool per turn. Reason briefly in text, then call the appropriate tool.
+## MANDATORY: Think Before You Act
+Before calling any tool, you MUST write your reasoning as a text block. Address:
+1. SITUATION: What page am I on? What does it show?
+2. PROGRESS: What have I accomplished so far? What sub-goals remain?
+3. PLAN: What should I do next and WHY this specific action?
+4. AVOID: What have I already tried that failed? (Check action history below.)
 
-Behavioral guidelines:
-- For links with an href: prefer browser_navigate with the href over browser_click when the destination URL is clear
-- After filling form fields: use browser_press_key with "Enter" to submit, or click the submit button
-- If an element is off-screen: scroll first to reveal it, then interact
-- For cookie consent banners: dismiss them first before proceeding with the task
-- For CAPTCHAs: call ask_user — you cannot solve them yourself
-- Prefer elements marked with * (actionable) — skip elements marked (disabled)
-- If the last action failed with element_not_found: try scrolling, using a different selector, or navigating directly
+Then call exactly one tool. Every response = reasoning text + one tool call.
+
+## Task Decomposition
+- Break complex goals into specific sub-tasks before acting
+- Do NOT paste the user's raw sentence as a search query — reformulate into targeted search terms (3-5 keywords)
+  Bad: "look up hyrax price in california and operational cost"
+  Good: "hyrax exotic pet purchase price USD" then separately "hyrax annual care cost food vet"
+- Address sub-tasks one at a time with focused searches
+
+## Anti-Loop Rules
+- NEVER navigate to a URL that already FAILED in the action history — it will fail again
+- NEVER type the same search query twice — reformulate with different keywords
+- If a website failed to provide needed info after 2 visits, switch to a different source
+- If you find yourself back on a page you already visited, do something DIFFERENT
+- If the page shows "Not Found", "404", or an error, do NOT retry that URL
+
+## Browser Guidelines
+- For links with href: prefer browser_navigate with the href over browser_click
+- After filling form fields: press Enter or click the submit button
+- If an element is off-screen: scroll first to reveal it
+- For cookie consent banners: dismiss them first
+- For CAPTCHAs: call ask_user — you cannot solve them
+- Prefer elements marked with * (actionable)
+- If the current page is about:blank or empty: navigate to a relevant URL immediately
 - Ask for clarification only when genuinely ambiguous
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 
-Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently — do not waste steps.`;
+Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently.`;
 
   // --- User prompt ---
   const notesSection = run.checkpoint.notes.length > 0
@@ -118,7 +166,7 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently 
 
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${softFailureWarning}${recoverySection}${notesSection}${activePageHint}
+Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${repeatedNavWarning}${recoverySection}${notesSection}${activePageHint}
 
 Current page:
 URL: ${pageModel.url}

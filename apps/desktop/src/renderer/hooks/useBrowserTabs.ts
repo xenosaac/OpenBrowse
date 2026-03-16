@@ -1,0 +1,93 @@
+import { useCallback, useEffect, useState } from "react";
+import type { TaskRun } from "@openbrowse/contracts";
+import type { BrowserShellTabDescriptor } from "../../shared/runtime";
+import { runtimeEventBus, type RuntimeEvent } from "../lib/eventBus";
+
+export function useBrowserTabs() {
+  const [shellTabs, setShellTabs] = useState<BrowserShellTabDescriptor[]>([]);
+  const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
+  const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
+
+  const refreshTabs = useCallback(async () => {
+    try {
+      const tabs = await window.openbrowse.listTabs();
+      setShellTabs(tabs);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    const unsub = runtimeEventBus.subscribe((event: RuntimeEvent) => {
+      if (event.type === "run_updated" && event.run?.checkpoint.browserSessionId) {
+        const run = event.run;
+        setShellTabs((current) => {
+          const sessionId = run.checkpoint.browserSessionId!;
+          const next = current.filter((tab) => tab.groupId !== run.id && tab.id !== sessionId);
+          next.push({
+            id: run.checkpoint.browserSessionId!,
+            runId: run.id,
+            groupId: run.id,
+            title: run.goal,
+            url: run.checkpoint.lastKnownUrl || "about:blank",
+            profileId: run.profileId || "managed-default",
+            source: run.source,
+            status: run.status,
+            isBackground: run.source === "scheduler",
+            closable: true
+          });
+          return next;
+        });
+      }
+      if (event.type === "tab_navigated" && event.sessionId) {
+        setShellTabs((current) =>
+          current.map((tab) =>
+            tab.id === event.sessionId
+              ? { ...tab, url: event.url ?? tab.url, title: event.title ?? tab.title }
+              : tab
+          )
+        );
+      }
+      if (event.type === "standalone_tab_created" && event.tab) {
+        setShellTabs((current) => [...current, event.tab!]);
+      }
+      if (event.type === "standalone_tab_closed" && event.tabId) {
+        setShellTabs((current) => current.filter((tab) => tab.id !== event.tabId));
+      }
+      if (event.type === "tab_loading" && event.sessionId != null) {
+        setLoadingTabs((current) => ({ ...current, [event.sessionId!]: !!event.isLoading }));
+      }
+      if (event.type === "tab_favicon" && event.sessionId && event.faviconUrl) {
+        setTabFavicons((current) => ({ ...current, [event.sessionId!]: event.faviconUrl! }));
+      }
+    });
+    return unsub;
+  }, []);
+
+  const newTab = useCallback(async (url?: string) => {
+    return window.openbrowse.browserNewTab(url);
+  }, []);
+
+  const closeTab = useCallback(async (groupId: string) => {
+    return window.openbrowse.closeBrowserGroup(groupId);
+  }, []);
+
+  const navigate = useCallback(async (sessionId: string, url: string) => {
+    await window.openbrowse.browserNavigate(sessionId, url);
+  }, []);
+
+  const goBack = useCallback(async (sessionId: string) => {
+    await window.openbrowse.browserBack(sessionId);
+  }, []);
+
+  const goForward = useCallback(async (sessionId: string) => {
+    await window.openbrowse.browserForward(sessionId);
+  }, []);
+
+  const reload = useCallback(async (sessionId: string) => {
+    await window.openbrowse.browserReload(sessionId);
+  }, []);
+
+  return {
+    shellTabs, loadingTabs, tabFavicons,
+    refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload
+  };
+}

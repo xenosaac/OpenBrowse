@@ -52,6 +52,15 @@ export function registerIpcHandlers(
     const run = await bootstrapRunDetached(services, intent, async (updatedRun) => {
       mainWindow.webContents.send("runtime:event", { type: "run_updated", run: updatedRun });
     });
+    // If the agent reused a standalone tab, release it from standalone tracking
+    // so we don't end up with two tab-bar entries for the same WebContentsView.
+    if (run.checkpoint.browserSessionId && browserShell.isStandaloneTab(run.checkpoint.browserSessionId)) {
+      browserShell.releaseStandaloneTab(run.checkpoint.browserSessionId);
+      mainWindow.webContents.send("runtime:event", {
+        type: "standalone_tab_closed",
+        tabId: run.checkpoint.browserSessionId
+      });
+    }
     mainWindow.webContents.send("runtime:event", { type: "run_updated", run });
     return run;
   });

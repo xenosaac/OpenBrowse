@@ -9,8 +9,16 @@ import type {
   WorkflowEvent
 } from "@openbrowse/contracts";
 import type {
+  BookmarkStore,
+  BrowserProfileStore,
+  BrowsingHistoryStore,
+  ChatBridgeStateStore,
+  ChatSessionStore,
+  CookieContainerStore,
   PreferenceStore,
   RunCheckpointStore,
+  SessionTrackingStore,
+  StandaloneTabStore,
   WorkflowLogStore
 } from "@openbrowse/memory-store";
 import type { EventBus } from "@openbrowse/observability";
@@ -44,4 +52,13 @@ export interface RuntimeServices {
   sqliteDb?: { close(): void };
   telegramStatePath: string;
   workflowLogStore: WorkflowLogStore;
+  // Phase A stores — optional until all consumers migrate
+  sessionTrackingStore?: SessionTrackingStore;
+  chatSessionStore?: ChatSessionStore;
+  bookmarkStore?: BookmarkStore;
+  browsingHistoryStore?: BrowsingHistoryStore;
+  browserProfileStore?: BrowserProfileStore;
+  cookieContainerStore?: CookieContainerStore;
+  standaloneTabStore?: StandaloneTabStore;
+  chatBridgeStateStore?: ChatBridgeStateStore;
 }

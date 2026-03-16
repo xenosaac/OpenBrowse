@@ -4,6 +4,7 @@ import { AppBrowserShell } from "./browser/AppBrowserShell";
 import { createDefaultDemoRegistry, type DemoRegistry } from "@openbrowse/demo-flows";
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
 import { composeRuntime } from "./runtime/composeRuntime";
+import { migrateJsonToSqlite } from "./runtime/migrateJsonToSqlite";
 import {
   hydrateRuntimeSettings,
   markBrowserRuntimeInitFailed,
@@ -31,6 +32,15 @@ export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise
     mainWindow,
     hasDemos: true,
     viewProvider: browserShell
+  });
+
+  await migrateJsonToSqlite(services, {
+    profilesJsonPath: path.join(
+      services.runtimeConfig.managedProfilesPath.replace(/^~/, process.env.HOME ?? ""),
+      "profiles.json"
+    ),
+    standaloneTabsJsonPath: path.join(app.getPath("userData"), "browser-shell", "standalone-tabs.json"),
+    telegramStateJsonPath: services.telegramStatePath
   });
 
   await hydrateRuntimeSettings(services);

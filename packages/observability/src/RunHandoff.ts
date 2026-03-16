@@ -83,20 +83,25 @@ export function renderHandoffMarkdown(artifact: RunHandoffArtifact): string {
   }
 
   if (artifact.actionHistory.length > 0) {
-    lines.push("## Action History (last 10)");
+    lines.push("## Action History (last 15)");
     lines.push("");
-    lines.push("| Step | Action | Description | Result |");
-    lines.push("|------|--------|-------------|--------|");
+    lines.push("| Step | Action | Description | Target | Result |");
+    lines.push("|------|--------|-------------|--------|--------|");
     for (const record of artifact.actionHistory) {
       const result = record.ok
         ? "✓"
         : record.failureClass
           ? `✗ (${record.failureClass})`
           : "✗";
-      const desc = record.description.length > 60
-        ? record.description.slice(0, 57) + "..."
+      const desc = record.description.length > 50
+        ? record.description.slice(0, 47) + "..."
         : record.description;
-      lines.push(`| ${record.step} | ${record.type} | ${desc} | ${result} |`);
+      const target = record.targetUrl
+        ? record.targetUrl.length > 40 ? record.targetUrl.slice(0, 37) + "..." : record.targetUrl
+        : record.typedText
+          ? `"${record.typedText.length > 30 ? record.typedText.slice(0, 27) + "..." : record.typedText}"`
+          : "—";
+      lines.push(`| ${record.step} | ${record.type} | ${desc} | ${target} | ${result} |`);
     }
     lines.push("");
   }

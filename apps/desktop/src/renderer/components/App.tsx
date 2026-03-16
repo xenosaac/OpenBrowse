@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -7,11 +7,24 @@ import type {
   RuntimeDescriptor,
   RuntimeSettings
 } from "../../shared/runtime";
+import { runtimeEventBus } from "../lib/eventBus";
+import { ipc } from "../lib/ipc";
+import { normalizeUrl } from "../lib/url";
+import type { ChatMessage } from "../types/chat";
+import { useAgentRuns } from "../hooks/useAgentRuns";
+import { useBrowserTabs } from "../hooks/useBrowserTabs";
+import { useSelection } from "../hooks/useSelection";
+import { useChatSessions } from "../hooks/useChatSessions";
+import { useAddressBar } from "../hooks/useAddressBar";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useUILayout } from "../hooks/useUILayout";
+import { Sidebar } from "./sidebar/Sidebar";
+import { TabBar } from "./chrome/TabBar";
+import { NavBar } from "./chrome/NavBar";
+import { HomePage } from "./panels/HomePage";
 import { AgentActivityBar } from "./AgentActivityBar";
 import { BrowserPanel } from "./BrowserPanel";
-import { ManagementPanel, type ManagementTab } from "./ManagementPanel";
-import { RemoteQuestions } from "./RemoteQuestions";
-import { useRuntimeStore } from "../store/useRuntimeStore";
+import { ManagementPanel } from "./ManagementPanel";
 
 declare global {
   interface Window {
@@ -75,280 +88,199 @@ declare global {
   }
 }
 
-type MainPanel = "home" | "browser";
-type ChatMessage = {
-  id: string;
-  role: "user" | "agent";
-  content: string;
-  tone?: "normal" | "success" | "warning" | "error" | "action";
-  timestamp: string;
-};
-
-/** Lightweight markdown → HTML for planner outcome summaries. */
-function renderMarkdownHtml(md: string): string {
-  const escape = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  const lines = md.split("\n");
-  const out: string[] = [];
-  let inTable = false;
-  let headerDone = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const trimmed = raw.trim();
-
-    // Table rows
-    if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-      const cells = trimmed.slice(1, -1).split("|").map((c) => c.trim());
-      // Skip separator rows like |---|---|
-      if (cells.every((c) => /^[-:]+$/.test(c))) {
-        headerDone = true;
-        continue;
-      }
-      if (!inTable) {
-        out.push('<table style="width:100%;border-collapse:collapse;margin:6px 0;font-size:13px">');
-        inTable = true;
-        headerDone = false;
-      }
-      const tag = !headerDone ? "th" : "td";
-      const cellStyle = 'style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.1);text-align:left"';
-      out.push("<tr>" + cells.map((c) => `<${tag} ${cellStyle}>${inline(escape(c))}</${tag}>`).join("") + "</tr>");
-      if (!headerDone) headerDone = true;
-      continue;
-    }
-    if (inTable) {
-      out.push("</table>");
-      inTable = false;
-      headerDone = false;
-    }
-
-    if (!trimmed) {
-      out.push("<br/>");
-      continue;
-    }
-    if (trimmed.startsWith("### ")) {
-      out.push(`<div style="font-weight:600;font-size:13px;margin-top:8px;color:#c4b5fd">${inline(escape(trimmed.slice(4)))}</div>`);
-    } else if (trimmed.startsWith("## ")) {
-      out.push(`<div style="font-weight:700;font-size:14px;margin-top:10px;color:#e9e5f5">${inline(escape(trimmed.slice(3)))}</div>`);
-    } else if (/^[-*] /.test(trimmed)) {
-      out.push(`<div style="padding-left:12px;margin:2px 0">• ${inline(escape(trimmed.slice(2)))}</div>`);
-    } else {
-      out.push(`<div style="margin:2px 0">${inline(escape(trimmed))}</div>`);
-    }
-  }
-  if (inTable) out.push("</table>");
-  return out.join("");
-}
-
-/** Inline markdown: **bold**, `code` */
-function inline(s: string): string {
-  return s
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>');
-}
-
-function normalizeUrl(input: string): string {
-  const trimmed = input.trim();
-  if (!trimmed) return "about:blank";
-  if (/^[a-z][a-z\d+\-.]*:\/\//i.test(trimmed)) return trimmed;
-  if (/^about:|^data:|^file:/i.test(trimmed)) return trimmed;
-  if (!trimmed.includes(" ") && (trimmed.includes(".") || trimmed.startsWith("localhost"))) {
-    return `https://${trimmed}`;
-  }
-  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
-}
-
 export function App() {
-  const [mainPanel, setMainPanel] = useState<MainPanel>("home");
-  const [managementOpen, setManagementOpen] = useState(false);
-  const [managementTab, setManagementTab] = useState<ManagementTab>("config");
-  const [chatInput, setChatInput] = useState("");
-  const [activeRunAnswer, setActiveRunAnswer] = useState("");
-  const [activeRunBusy, setActiveRunBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
-  const [sidebarWidth, setSidebarWidth] = useState(320);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
-  const isDraggingRef = useRef(false);
-  const [addressInput, setAddressInput] = useState("");
-  const [addressEditing, setAddressEditing] = useState(false);
-  const [navState, setNavState] = useState<{ canGoBack: boolean; canGoForward: boolean }>({ canGoBack: false, canGoForward: false });
-  const [tabScroll, setTabScroll] = useState<{ canScrollLeft: boolean; canScrollRight: boolean }>({ canScrollLeft: false, canScrollRight: false });
-  const [menuOpen, setMenuOpen] = useState(false);
+  // ---- Step 1.0: Event bus lifecycle ----
+  useEffect(() => {
+    runtimeEventBus.connect();
+    return () => runtimeEventBus.disconnect();
+  }, []);
+
+  // ---- Step 1.1: Core domain hooks (replace useRuntimeStore) ----
+  const agentRuns = useAgentRuns();
+  const browserTabs = useBrowserTabs();
+  const selection = useSelection(agentRuns.runs, browserTabs.shellTabs);
+
+  // ---- Step 1.2: Feature hooks (replace inline state) ----
+  const chat = useChatSessions();
+  const addressBar = useAddressBar(selection.activeBrowserTab, selection.mainPanel);
+  const layout = useUILayout();
   const addressBarRef = useRef<HTMLInputElement | null>(null);
-  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "agent",
-      content: "Hello. I can browse, summarize, and keep long-running tasks alive. Tell me what to do.",
-      timestamp: new Date().toISOString()
-    }
-  ]);
 
-  const {
-    errorNotice,
-    focusRun,
-    foregroundRunEvents,
-    foregroundRunId,
-    loadingTabs,
-    logs,
-    notice,
-    profiles,
-    refresh,
-    replaySteps,
-    runs,
-    runtime,
-    selectedGroupId,
-    selectedRunId,
-    setForegroundRunId,
-    setSelectedGroupId,
-    setSelectedRunId,
-    settings,
-    shellTabs,
-    suspendedRuns,
-    tabFavicons,
-    clearGroupSelection
-  } = useRuntimeStore();
-
-  const activeBrowserTab = useMemo(() => {
-    return (
-      (selectedGroupId ? shellTabs.find((tab) => tab.groupId === selectedGroupId) : null) ??
-      (foregroundRunId ? shellTabs.find((tab) => tab.groupId === foregroundRunId) : null) ??
-      shellTabs[0] ??
-      null
-    );
-  }, [foregroundRunId, selectedGroupId, shellTabs]);
-
-  const activeTabRun = useMemo(
-    () => (activeBrowserTab ? runs.find((r) => r.id === activeBrowserTab.runId) ?? null : null),
-    [activeBrowserTab, runs]
-  );
-
-  const handleCancelRun = useCallback(
-    async (runId: string) => {
-      await window.openbrowse.cancelTask(runId);
-      await refresh();
-    },
-    [refresh]
-  );
-
-  // Keep address bar in sync with active tab URL when not editing.
+  // ---- Step 1.3: Sync selectedRunId → inspectedRunId, foregroundRunId ----
   useEffect(() => {
-    if (!addressEditing) {
-      setAddressInput(mainPanel === "browser" && activeBrowserTab ? activeBrowserTab.url : "");
-    }
-  }, [activeBrowserTab?.url, mainPanel, addressEditing]);
+    agentRuns.setInspectedRunId(selection.selectedRunId);
+  }, [selection.selectedRunId, agentRuns.setInspectedRunId]);
 
-  // Update nav state (canGoBack/canGoForward) whenever the active tab or its URL changes.
   useEffect(() => {
-    if (!activeBrowserTab || mainPanel !== "browser") {
-      setNavState({ canGoBack: false, canGoForward: false });
-      return;
-    }
-    window.openbrowse.browserNavState(activeBrowserTab.id).then((state) => {
-      if (state) setNavState({ canGoBack: state.canGoBack, canGoForward: state.canGoForward });
-    }).catch(() => {});
-  }, [activeBrowserTab?.id, activeBrowserTab?.url, mainPanel]);
+    agentRuns.setForegroundRunId(selection.foregroundRunId);
+  }, [selection.foregroundRunId, agentRuns.setForegroundRunId]);
 
-  // Scroll chat to bottom when messages change.
+  // ---- Step 1.5: Initial tab refresh ----
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, suspendedRuns]);
+    void browserTabs.refreshTabs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Close hamburger menu when clicking outside.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handler = () => setMenuOpen(false);
-    window.addEventListener("click", handler);
-    return () => window.removeEventListener("click", handler);
-  }, [menuOpen]);
+  // ---- Derived values ----
+  const displayUrl = selection.mainPanel === "browser" && selection.activeBrowserTab
+    ? selection.activeBrowserTab.url : "";
+  const isSecure = displayUrl.startsWith("https://");
 
-  // Extract close-tab logic so both the button and Cmd+W can call it.
+  // ---- Step 1.6: Cross-cutting handlers ----
+
+  const handleCancelRun = useCallback(async (runId: string) => {
+    await ipc.tasks.cancel(runId);
+    await agentRuns.refresh();
+  }, [agentRuns.refresh]);
+
   const handleCloseTab = useCallback(async (tab: BrowserShellTabDescriptor) => {
-    const closingActive = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
-    const tabIndex = shellTabs.findIndex((t) => t.groupId === tab.groupId);
-    const remaining = shellTabs.filter((t) => t.groupId !== tab.groupId);
-    const nextTab = remaining.length > 0 ? remaining[Math.min(tabIndex, remaining.length - 1)] : null;
+    const closingActive = selection.mainPanel === "browser" &&
+      selection.activeBrowserTab?.groupId === tab.groupId;
+    const tabIndex = browserTabs.shellTabs.findIndex(t => t.groupId === tab.groupId);
+    const remaining = browserTabs.shellTabs.filter(t => t.groupId !== tab.groupId);
+    const nextTab = remaining.length > 0
+      ? remaining[Math.min(tabIndex, remaining.length - 1)]
+      : null;
 
-    await window.openbrowse.closeBrowserGroup(tab.groupId);
-    await refresh();
-    clearGroupSelection(tab.groupId, selectedRunId);
+    await browserTabs.closeTab(tab.groupId);
+    await agentRuns.refresh();
+    await browserTabs.refreshTabs();
+    selection.clearGroupSelection(tab.groupId);
 
     if (closingActive) {
       if (nextTab) {
-        setSelectedGroupId(nextTab.groupId);
-        setSelectedRunId(nextTab.runId);
-        setForegroundRunId(nextTab.runId);
+        selection.selectGroup(nextTab.groupId);
+        selection.selectRun(nextTab.runId);
+        selection.setForegroundRunId(nextTab.runId);
       } else {
-        setMainPanel("home");
+        selection.setMainPanel("home");
       }
     }
-  }, [activeBrowserTab?.groupId, clearGroupSelection, mainPanel, refresh, selectedRunId, setForegroundRunId, setSelectedGroupId, setSelectedRunId, shellTabs]);
+  }, [
+    selection.mainPanel, selection.activeBrowserTab?.groupId, browserTabs.shellTabs,
+    browserTabs.closeTab, agentRuns.refresh, browserTabs.refreshTabs,
+    selection.clearGroupSelection, selection.selectGroup, selection.selectRun,
+    selection.setForegroundRunId, selection.setMainPanel
+  ]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!e.metaKey) return;
-      switch (e.key) {
-        case "t":
-          e.preventDefault();
-          void handleNewTab();
-          break;
-        case "w":
-          e.preventDefault();
-          if (activeBrowserTab) void handleCloseTab(activeBrowserTab);
-          break;
-        case "l":
-          e.preventDefault();
-          addressBarRef.current?.focus();
-          addressBarRef.current?.select();
-          break;
-        case "r":
-          e.preventDefault();
-          if (activeBrowserTab && mainPanel === "browser") {
-            void window.openbrowse.browserReload(activeBrowserTab.id);
-          }
-          break;
-        case "[":
-          e.preventDefault();
-          if (activeBrowserTab && mainPanel === "browser") {
-            void window.openbrowse.browserBack(activeBrowserTab.id);
-          }
-          break;
-        case "]":
-          e.preventDefault();
-          if (activeBrowserTab && mainPanel === "browser") {
-            void window.openbrowse.browserForward(activeBrowserTab.id);
-          }
-          break;
+  const handleNewTab = useCallback(async (url?: string) => {
+    const tab = await browserTabs.newTab(url);
+    selection.selectGroup(tab.groupId);
+    selection.setForegroundRunId(tab.runId);
+    selection.setMainPanel("browser");
+  }, [browserTabs.newTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
+
+  const handleNavigate = useCallback(async (input: string) => {
+    const url = normalizeUrl(input);
+    if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+      await browserTabs.navigate(selection.activeBrowserTab.id, url);
+    } else {
+      await handleNewTab(url);
+    }
+  }, [selection.activeBrowserTab, selection.mainPanel, browserTabs.navigate, handleNewTab]);
+
+  const openRunInBrowser = useCallback(async (run: TaskRun) => {
+    const next = selection.focusRun(run, { openBrowser: true });
+    if (run.checkpoint.browserSessionId || next.openBrowser) {
+      selection.setMainPanel("browser");
+    }
+  }, [selection.focusRun, selection.setMainPanel]);
+
+  const handleSelectTab = useCallback((tab: BrowserShellTabDescriptor) => {
+    selection.selectGroup(tab.groupId);
+    selection.selectRun(tab.runId);
+    selection.setForegroundRunId(tab.runId);
+    selection.setMainPanel("browser");
+  }, [selection.selectGroup, selection.selectRun, selection.setForegroundRunId, selection.setMainPanel]);
+
+  const submitChatTask = async () => {
+    const goal = chat.chatInput.trim();
+    if (!goal || chat.chatBusy) return;
+
+    chat.setMessages(current => [
+      ...current,
+      {
+        id: `user:${Date.now()}`,
+        role: "user" as const,
+        content: goal,
+        timestamp: new Date().toISOString()
       }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [activeBrowserTab, handleCloseTab, mainPanel]);
+    ]);
+    chat.setChatInput("");
 
-  // Tab scroll overflow detection
-  const updateTabScroll = useCallback(() => {
-    const el = tabsContainerRef.current;
-    if (!el) return;
-    setTabScroll({
-      canScrollLeft: el.scrollLeft > 0,
-      canScrollRight: el.scrollLeft + el.clientWidth < el.scrollWidth - 1
-    });
-  }, []);
+    const CHAT_PATTERNS = /^(hi|hey|hello|yo|sup|thanks|thank you|ok|okay|sure|bye|goodbye|good morning|good night|how are you|what's up|whats up|haha|lol|hmm|hm|yes|no|yep|nope|cool|nice|great|awesome|got it|i see)\b[.!?\s]*$/i;
+    if (CHAT_PATTERNS.test(goal)) {
+      chat.postSystemMessage(
+        "I'm an automation agent — I work best with specific tasks like \"search for flights from SNA to SEA\" or \"fill out the survey on the current page\". What would you like me to do?"
+      );
+      return;
+    }
 
-  useEffect(() => {
-    updateTabScroll();
-  }, [shellTabs.length, updateTabScroll]);
+    chat.renameSession(goal);
 
+    if (!agentRuns.runtime) {
+      chat.postSystemMessage("Runtime is still loading. Wait a second and try again.", "warning");
+      return;
+    }
+
+    if (agentRuns.runtime.planner.mode !== "live") {
+      chat.postSystemMessage(
+        "Freeform tasks need a live planner. Open Settings and add your Anthropic API key first.",
+        "warning"
+      );
+      layout.openManagement("config");
+      return;
+    }
+
+    chat.setChatBusy(true);
+    try {
+      const run = await ipc.tasks.start({
+        id: `task_${Date.now()}`,
+        source: "desktop",
+        goal,
+        constraints: [],
+        metadata: {},
+        ...(selection.activeBrowserTab ? { activeSessionId: selection.activeBrowserTab.id } : {})
+      }) as TaskRun;
+      chat.addRunToSession(run.id);
+      await agentRuns.refresh();
+      await browserTabs.refreshTabs();
+      await openRunInBrowser(run);
+      chat.postSystemMessage(`Started: ${run.goal}`, "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      chat.postSystemMessage(`Failed to start task: ${message}`, "error");
+    } finally {
+      chat.setChatBusy(false);
+    }
+  };
+
+  const handleResumeRun = useCallback(async (run: TaskRun | null) => {
+    await agentRuns.refresh();
+    await browserTabs.refreshTabs();
+    if (!run?.id) return;
+    selection.selectRun(run.id);
+    if (run.checkpoint.browserSessionId) {
+      selection.selectGroup(run.id);
+      selection.setForegroundRunId(run.id);
+      selection.setMainPanel("browser");
+    }
+  }, [
+    agentRuns.refresh, browserTabs.refreshTabs,
+    selection.selectRun, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel
+  ]);
+
+  const handleDismissRun = useCallback(async (runId: string) => {
+    await handleCancelRun(runId);
+  }, [handleCancelRun]);
+
+  // ---- Step 1.7: Bridge effects (cross-domain, stay in App.tsx) ----
+
+  // CSS injection — global one-shot
   useEffect(() => {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
     document.body.style.background = "#0a0a12";
-    // Inject pulse animation for agent tab indicators and activity bar.
     const style = document.createElement("style");
     style.textContent = `
       @keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -358,62 +290,65 @@ export function App() {
     return () => { style.remove(); };
   }, []);
 
+  // Browser hide on non-browser panel
   useEffect(() => {
-    if (mainPanel !== "browser") {
-      void window.openbrowse.hideBrowserSession();
-      void window.openbrowse.clearBrowserViewport();
+    if (selection.mainPanel !== "browser") {
+      void ipc.browser.hideSession();
+      void ipc.browser.clearViewport();
     }
-  }, [mainPanel]);
+  }, [selection.mainPanel]);
 
+  // Notice → chat
   useEffect(() => {
-    if (!notice) return;
-    setMessages((current) =>
-      current.some((m) => m.id === `notice:${notice}`)
+    if (!agentRuns.notice) return;
+    chat.setMessages(current =>
+      current.some(m => m.id === `notice:${agentRuns.notice}`)
         ? current
         : [
             ...current,
             {
-              id: `notice:${notice}`,
-              role: "agent",
-              content: notice,
-              tone: "success",
+              id: `notice:${agentRuns.notice}`,
+              role: "agent" as const,
+              content: agentRuns.notice!,
+              tone: "success" as const,
               timestamp: new Date().toISOString()
             }
           ]
     );
-  }, [notice]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRuns.notice]);
 
+  // Error notice → chat
   useEffect(() => {
-    if (!errorNotice) return;
-    setMessages((current) =>
-      current.some((m) => m.id === `error:${errorNotice}`)
+    if (!agentRuns.errorNotice) return;
+    chat.setMessages(current =>
+      current.some(m => m.id === `error:${agentRuns.errorNotice}`)
         ? current
         : [
             ...current,
             {
-              id: `error:${errorNotice}`,
-              role: "agent",
-              content: errorNotice,
-              tone: "error",
+              id: `error:${agentRuns.errorNotice}`,
+              role: "agent" as const,
+              content: agentRuns.errorNotice!,
+              tone: "error" as const,
               timestamp: new Date().toISOString()
             }
           ]
     );
-  }, [errorNotice]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRuns.errorNotice]);
 
-  // Step 5: Stream agent actions on the active tab to the chat.
+  // Stream agent actions from active session's runs to the chat
   useEffect(() => {
-    if (foregroundRunEvents.length === 0) return;
-    setMessages((current) => {
+    if (agentRuns.globalActionEvents.length === 0) return;
+    chat.setMessages(current => {
       let changed = false;
       let next = current;
-      for (const evt of foregroundRunEvents) {
+      for (const evt of agentRuns.globalActionEvents) {
+        if (!chat.activeSession.runIds.includes(evt.runId)) continue;
         const msgId = `action:${evt.id}`;
-        if (!next.some((m) => m.id === msgId)) {
-          if (!changed) {
-            next = [...next];
-            changed = true;
-          }
+        if (!next.some(m => m.id === msgId)) {
+          if (!changed) { next = [...next]; changed = true; }
           next.push({
             id: msgId,
             role: "agent",
@@ -425,16 +360,16 @@ export function App() {
       }
       return changed ? next : current;
     });
-  }, [foregroundRunEvents]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRuns.globalActionEvents, chat.activeSession.runIds]);
 
-  // Step 6: Surface run outcome (completion/failure summary) to the chat.
+  // Surface run outcomes to chat (completion/failure summaries)
   const postedOutcomesRef = useRef<Set<string>>(new Set());
   const outcomesInitializedRef = useRef(false);
   useEffect(() => {
-    // On first load, seed with all existing outcomes — don't post them to chat.
-    if (!outcomesInitializedRef.current && runs.length > 0) {
+    if (!outcomesInitializedRef.current && agentRuns.runs.length > 0) {
       outcomesInitializedRef.current = true;
-      for (const run of runs) {
+      for (const run of agentRuns.runs) {
         if (run.outcome?.summary) {
           postedOutcomesRef.current.add(run.id);
         }
@@ -442,754 +377,176 @@ export function App() {
       return;
     }
 
-    for (const run of runs) {
+    for (const run of agentRuns.runs) {
       if (!run.outcome?.summary) continue;
       if (postedOutcomesRef.current.has(run.id)) continue;
       postedOutcomesRef.current.add(run.id);
       const tone: ChatMessage["tone"] = run.outcome.status === "completed" ? "success" : "error";
-      setMessages((current) => {
-        const msgId = `outcome:${run.id}`;
-        if (current.some((m) => m.id === msgId)) return current;
-        return [
-          ...current,
-          {
-            id: msgId,
-            role: "agent" as const,
-            content: run.outcome!.summary,
-            tone,
-            timestamp: run.outcome!.finishedAt
+      const msgId = `outcome:${run.id}`;
+      const outcomeMsg: ChatMessage = {
+        id: msgId,
+        role: "agent",
+        content: run.outcome!.summary,
+        tone,
+        timestamp: run.outcome!.finishedAt
+      };
+      chat.postToRunSessions(run.id, outcomeMsg);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentRuns.runs]);
+
+  // Close hamburger menu when clicking outside
+  useEffect(() => {
+    if (!layout.menuOpen) return;
+    const handler = () => layout.setMenuOpen(false);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [layout.menuOpen, layout.setMenuOpen]);
+
+  // ---- Keyboard shortcuts (after handlers are defined) ----
+  useKeyboardShortcuts({
+    activeBrowserTab: selection.activeBrowserTab,
+    mainPanel: selection.mainPanel,
+    addressBarRef,
+    onNewTab: () => void handleNewTab(),
+    onCloseTab: () => { if (selection.activeBrowserTab) void handleCloseTab(selection.activeBrowserTab); },
+    onReload: () => { if (selection.activeBrowserTab) void browserTabs.reload(selection.activeBrowserTab.id); },
+    onBack: () => { if (selection.activeBrowserTab) void browserTabs.goBack(selection.activeBrowserTab.id); },
+    onForward: () => { if (selection.activeBrowserTab) void browserTabs.goForward(selection.activeBrowserTab.id); },
+    onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); }
+  });
+
+  // ---- Hamburger dropdown menu content (passed to NavBar) ----
+  const menuContent = (
+    <div style={styles.dropdownMenu} onClick={() => layout.setMenuOpen(false)}>
+      <button
+        style={styles.dropdownItem}
+        onClick={async () => {
+          const pending = agentRuns.suspendedRuns.filter(
+            r => chat.activeSession.runIds.includes(r.id)
+          );
+          for (const run of pending) {
+            await ipc.tasks.cancel(run.id);
           }
-        ];
-      });
-    }
-  }, [runs]);
-
-  const handleSidebarDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      isDraggingRef.current = true;
-      setIsDragging(true);
-      document.body.style.userSelect = "none";
-      const startX = e.clientX;
-      const startWidth = sidebarWidth;
-      const onMove = (ev: MouseEvent) => {
-        const next = Math.max(240, Math.min(520, startWidth + (ev.clientX - startX)));
-        setSidebarWidth(next);
-      };
-      const onUp = () => {
-        isDraggingRef.current = false;
-        setIsDragging(false);
-        document.body.style.userSelect = "";
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    },
-    [sidebarWidth]
+          await agentRuns.refresh();
+          await browserTabs.refreshTabs();
+          chat.createSession();
+        }}
+      >
+        New Session
+      </button>
+      <button style={styles.dropdownItem} onClick={() => layout.openManagement("sessions")}>
+        History
+      </button>
+      <div style={styles.dropdownSeparator} />
+      <button
+        style={styles.dropdownItem}
+        disabled
+        title="Open Developer Tools (not yet available)"
+      >
+        Developer Tools
+      </button>
+      <div style={styles.dropdownSeparator} />
+      <button style={styles.dropdownItem} disabled>Print Page</button>
+      <button style={styles.dropdownItem} disabled>Save as PDF</button>
+      <button style={styles.dropdownItem} disabled>Bookmarks</button>
+    </div>
   );
 
-  const openRunInBrowser = async (run: TaskRun) => {
-    const next = focusRun(run, { openBrowser: true });
-    if (run.checkpoint.browserSessionId || next.openBrowser) {
-      setMainPanel("browser");
-    }
-  };
-
-  const handleNewTab = async (url?: string) => {
-    const tab = await window.openbrowse.browserNewTab(url);
-    setSelectedGroupId(tab.groupId);
-    setForegroundRunId(tab.runId);
-    setMainPanel("browser");
-  };
-
-  const handleNavigate = async (input: string) => {
-    const url = normalizeUrl(input);
-    if (activeBrowserTab && mainPanel === "browser") {
-      await window.openbrowse.browserNavigate(activeBrowserTab.id, url);
-    } else {
-      await handleNewTab(url);
-    }
-  };
-
-  const submitChatTask = async () => {
-    const goal = chatInput.trim();
-    if (!goal || chatBusy) return;
-
-    setMessages((current) => [
-      ...current,
-      {
-        id: `user:${Date.now()}`,
-        role: "user",
-        content: goal,
-        timestamp: new Date().toISOString()
-      }
-    ]);
-    setChatInput("");
-
-    if (!runtime) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `agent:runtime:${Date.now()}`,
-          role: "agent",
-          content: "Runtime is still loading. Wait a second and try again.",
-          tone: "warning",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-      return;
-    }
-
-    if (runtime.planner.mode !== "live") {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `agent:planner:${Date.now()}`,
-          role: "agent",
-          content: "Freeform tasks need a live planner. Open Settings and add your Anthropic API key first.",
-          tone: "warning",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-      openManagement("config");
-      return;
-    }
-
-    setChatBusy(true);
-    try {
-      const run = (await window.openbrowse.startTask({
-        id: `task_${Date.now()}`,
-        source: "desktop",
-        goal,
-        constraints: [],
-        metadata: {},
-        // Pass the active tab's session so the agent observes the current page first
-        ...(activeBrowserTab ? { activeSessionId: activeBrowserTab.id } : {})
-      })) as TaskRun;
-      await refresh();
-      await openRunInBrowser(run);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `agent:started:${run.id}`,
-          role: "agent",
-          content: `Started: ${run.goal}`,
-          tone: "success",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setMessages((current) => [
-        ...current,
-        {
-          id: `agent:failed:${Date.now()}`,
-          role: "agent",
-          content: `Failed to start task: ${message}`,
-          tone: "error",
-          timestamp: new Date().toISOString()
-        }
-      ]);
-    } finally {
-      setChatBusy(false);
-    }
-  };
-
-  const getTabStatusDot = useCallback(
-    (tab: BrowserShellTabDescriptor): { color: string; animate: boolean; title: string } => {
-      const run = runs.find((r) => r.id === tab.runId);
-      if (!run) return { color: "#8b5cf6", animate: false, title: "Standalone tab" };
-      switch (run.status) {
-        case "running":
-          return { color: "#22c55e", animate: true, title: "Agent running" };
-        case "suspended_for_clarification":
-        case "suspended_for_approval":
-          return { color: "#f59e0b", animate: false, title: "Awaiting input" };
-        case "completed":
-          return { color: "#22c55e", animate: false, title: "Completed" };
-        case "failed":
-        case "cancelled":
-          return { color: "#ef4444", animate: false, title: "Failed" };
-        default:
-          return { color: "#8b5cf6", animate: false, title: run.status };
-      }
-    },
-    [runs]
-  );
-
-  const openManagement = (tab: ManagementTab) => {
-    setManagementTab(tab);
-    setManagementOpen(true);
-  };
-
-  const displayUrl = mainPanel === "browser" && activeBrowserTab ? activeBrowserTab.url : "";
-  const isSecure = displayUrl.startsWith("https://");
-
-  const runningCount = runs.filter((r) => r.status === "running").length;
-  const waitingCount = suspendedRuns.length;
-
+  // ---- Step 1.8: JSX with extracted components ----
   return (
     <div style={styles.app}>
-      {/* Agent workspace sidebar */}
+      {/* Sidebar */}
       <aside
         style={{
           ...styles.sidebar,
-          width: sidebarVisible ? sidebarWidth : 0,
-          minWidth: sidebarVisible ? 240 : 0,
+          width: layout.sidebarVisible ? layout.sidebarWidth : 0,
+          minWidth: layout.sidebarVisible ? 240 : 0,
           overflow: "hidden",
-          transition: isDragging ? "none" : "width 0.18s ease, min-width 0.18s ease"
+          transition: layout.isDragging ? "none" : "width 0.18s ease, min-width 0.18s ease"
         }}
       >
-        {/* Traffic-light / title-bar drag zone.
-            With titleBarStyle:"hiddenInset" + trafficLightPosition:{x:16,y:14} the
-            macOS controls sit at ~(16,14) and span ~70px wide.  This 38px strip
-            gives them a clean, unobstructed target and provides a reliable drag
-            region for the window without needing content in the collision zone. */}
-        <div style={styles.titleBarSpacer as React.CSSProperties} />
-
-        {/* Sidebar header */}
-        <div style={styles.sidebarHeader}>
-          <div style={styles.brandMark}>✦</div>
-          <div style={styles.brandInfo}>
-            <div style={styles.brandName}>Agent Workspace</div>
-            {(runningCount > 0 || waitingCount > 0) && (
-              <div style={styles.statusRow}>
-                {runningCount > 0 && (
-                  <span style={{ ...styles.statusPip, color: "#22c55e" }}>
-                    ● {runningCount} running
-                  </span>
-                )}
-                {waitingCount > 0 && (
-                  <span style={{ ...styles.statusPip, color: "#f59e0b" }}>
-                    ◉ {waitingCount} waiting
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Conversation area — messages + inline pending questions */}
-        <div style={styles.conversationArea}>
-          {/* RunContextCard — shows active tab's agent run context */}
-          {activeTabRun && (
-            <div style={styles.runContextCard}>
-              <div style={styles.runContextHeader}>
-                <span
-                  style={{
-                    ...styles.runContextBadge,
-                    background:
-                      activeTabRun.status === "running"
-                        ? "rgba(34,197,94,0.15)"
-                        : activeTabRun.status === "completed"
-                        ? "rgba(34,197,94,0.15)"
-                        : activeTabRun.status === "suspended_for_clarification" ||
-                          activeTabRun.status === "suspended_for_approval"
-                        ? "rgba(245,158,11,0.15)"
-                        : "rgba(239,68,68,0.15)",
-                    color:
-                      activeTabRun.status === "running" || activeTabRun.status === "completed"
-                        ? "#22c55e"
-                        : activeTabRun.status === "suspended_for_clarification" ||
-                          activeTabRun.status === "suspended_for_approval"
-                        ? "#f59e0b"
-                        : "#ef4444"
-                  }}
-                >
-                  {activeTabRun.status.replace(/_/g, " ")}
-                </span>
-                {activeTabRun.checkpoint.stepCount != null && activeTabRun.checkpoint.stepCount > 0 && (
-                  <span style={styles.runContextStep}>Step {activeTabRun.checkpoint.stepCount}</span>
-                )}
-              </div>
-              <div style={styles.runContextGoal}>
-                {activeTabRun.goal.length > 120
-                  ? activeTabRun.goal.slice(0, 120) + "..."
-                  : activeTabRun.goal}
-              </div>
-              {foregroundRunEvents.length > 0 && (
-                <div style={styles.runContextActions}>
-                  {foregroundRunEvents.slice(-5).map((evt) => (
-                    <div key={evt.id} style={styles.runContextActionItem}>
-                      {evt.summary}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {activeTabRun.suspension && (
-                <div style={styles.inlineSuspension}>
-                  <p style={styles.inlineSuspensionQuestion}>{activeTabRun.suspension.question}</p>
-                  {activeTabRun.suspension.type === "approval" && (
-                    <div style={styles.inlineSuspensionQuickActions}>
-                      <button
-                        onClick={async () => {
-                          setActiveRunBusy(true);
-                          try {
-                            const resumed = await window.openbrowse.resumeTask({
-                              id: `desktop_${Date.now()}`,
-                              channel: "desktop",
-                              runId: activeTabRun.id,
-                              text: "approve",
-                              createdAt: new Date().toISOString()
-                            });
-                            await refresh();
-                          } catch (err) {
-                            console.error("[RunContextCard] Approve failed:", err);
-                          } finally {
-                            setActiveRunBusy(false);
-                          }
-                        }}
-                        disabled={activeRunBusy}
-                        style={styles.inlineApproveButton}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={async () => {
-                          setActiveRunBusy(true);
-                          try {
-                            const resumed = await window.openbrowse.resumeTask({
-                              id: `desktop_${Date.now()}`,
-                              channel: "desktop",
-                              runId: activeTabRun.id,
-                              text: "deny",
-                              createdAt: new Date().toISOString()
-                            });
-                            await refresh();
-                          } catch (err) {
-                            console.error("[RunContextCard] Deny failed:", err);
-                          } finally {
-                            setActiveRunBusy(false);
-                          }
-                        }}
-                        disabled={activeRunBusy}
-                        style={styles.inlineDenyButton}
-                      >
-                        Deny
-                      </button>
-                    </div>
-                  )}
-                  <div style={styles.inlineSuspensionForm}>
-                    <input
-                      type="text"
-                      value={activeRunAnswer}
-                      onChange={(e) => setActiveRunAnswer(e.target.value)}
-                      placeholder={activeTabRun.suspension.type === "approval" ? "Type approve / deny..." : "Type your answer..."}
-                      style={styles.inlineSuspensionInput}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter" && activeRunAnswer.trim()) {
-                          setActiveRunBusy(true);
-                          try {
-                            await window.openbrowse.resumeTask({
-                              id: `desktop_${Date.now()}`,
-                              channel: "desktop",
-                              runId: activeTabRun.id,
-                              text: activeRunAnswer.trim(),
-                              createdAt: new Date().toISOString()
-                            });
-                            setActiveRunAnswer("");
-                            await refresh();
-                          } catch (err) {
-                            console.error("[RunContextCard] Resume failed:", err);
-                          } finally {
-                            setActiveRunBusy(false);
-                          }
-                        }
-                      }}
-                      disabled={activeRunBusy}
-                    />
-                    <div style={styles.inlineSuspensionButtons}>
-                      <button
-                        onClick={async () => {
-                          if (!activeRunAnswer.trim()) return;
-                          setActiveRunBusy(true);
-                          try {
-                            await window.openbrowse.resumeTask({
-                              id: `desktop_${Date.now()}`,
-                              channel: "desktop",
-                              runId: activeTabRun.id,
-                              text: activeRunAnswer.trim(),
-                              createdAt: new Date().toISOString()
-                            });
-                            setActiveRunAnswer("");
-                            await refresh();
-                          } catch (err) {
-                            console.error("[RunContextCard] Resume failed:", err);
-                          } finally {
-                            setActiveRunBusy(false);
-                          }
-                        }}
-                        disabled={activeRunBusy}
-                        style={styles.inlineResumeButton}
-                      >
-                        {activeRunBusy ? "Resuming..." : "Resume"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Chat messages */}
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              style={{
-                ...styles.chatRow,
-                ...(message.role === "user" ? styles.chatRowUser : {}),
-                ...(message.tone === "action" ? styles.chatRowAction : {})
-              }}
-            >
-              {message.role === "agent" && message.tone !== "action" && (
-                <div style={styles.chatAvatar}>✦</div>
-              )}
-              {message.tone === "action" && <div style={styles.chatActionIcon}>⚡</div>}
-              <div
-                style={{
-                  ...styles.chatBubble,
-                  ...(message.role === "user" ? styles.chatBubbleUser : {}),
-                  ...(message.tone === "success" ? styles.chatBubbleSuccess : {}),
-                  ...(message.tone === "warning" ? styles.chatBubbleWarning : {}),
-                  ...(message.tone === "error" ? styles.chatBubbleError : {}),
-                  ...(message.tone === "action" ? styles.chatBubbleAction : {})
-                }}
-              >
-                {message.id.startsWith("outcome:") ? (
-                  <div dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(message.content) }} />
-                ) : (
-                  <div>{message.content}</div>
-                )}
-                <div style={styles.chatTime}>
-                  {new Date(message.timestamp).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit"
-                  })}
-                </div>
-              </div>
-              {message.role === "user" && <div style={styles.chatAvatarUser}>•</div>}
-            </div>
-          ))}
-
-          {/* Inline pending questions — integrated into the conversation workspace.
-              Exclude the active tab's run since its context is shown in RunContextCard above. */}
-          {(() => {
-            const otherSuspended = activeTabRun
-              ? suspendedRuns.filter((r) => r.id !== activeTabRun.id)
-              : suspendedRuns;
-            return otherSuspended.length > 0 ? (
-              <div style={styles.questionsSection}>
-                <div style={styles.questionsDivider}>
-                  <span style={styles.questionsDividerLabel}>Awaiting your input</span>
-                </div>
-                <RemoteQuestions
-                  runs={otherSuspended}
-                  onResume={async (run) => {
-                    await refresh();
-                    if (!run?.id) return;
-                    setSelectedRunId(run.id);
-                    if (run.checkpoint.browserSessionId) {
-                      setSelectedGroupId(run.id);
-                      setForegroundRunId(run.id);
-                      setMainPanel("browser");
-                    }
-                  }}
-                />
-              </div>
-            ) : null;
-          })()}
-
-          <div ref={chatEndRef} />
-        </div>
-
-        {/* Agent task composer */}
-        <div style={styles.composer}>
-          <div style={styles.composerRow}>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void submitChatTask();
-                }
-              }}
-              placeholder="Ask the agent to do something…"
-              style={styles.composerInput}
-            />
-            <button
-              onClick={() => void submitChatTask()}
-              style={styles.composerButton}
-              disabled={chatBusy}
-            >
-              {chatBusy ? "…" : "→"}
-            </button>
-          </div>
-          <div style={styles.composerHint}>
-            {runtime?.planner.mode === "live"
-              ? "Live agent ready"
-              : runtime
-              ? "No API key — settings needed"
-              : "Runtime loading…"}
-          </div>
-        </div>
+        <Sidebar
+          sessions={chat.sessions}
+          activeSession={chat.activeSession}
+          activeSessionId={chat.activeSessionId}
+          sessionListOpen={chat.sessionListOpen}
+          messages={chat.messages}
+          chatInput={chat.chatInput}
+          chatBusy={chat.chatBusy}
+          runs={agentRuns.runs}
+          runtime={agentRuns.runtime}
+          globalActionEvents={agentRuns.globalActionEvents}
+          suspendedRuns={agentRuns.suspendedRuns}
+          onToggleSessionList={() => chat.setSessionListOpen(v => !v)}
+          onNewSession={chat.createSession}
+          onSwitchSession={chat.switchSession}
+          onChatInputChange={chat.setChatInput}
+          onSubmitTask={submitChatTask}
+          onResumeRun={handleResumeRun}
+          onDismissRun={handleDismissRun}
+        />
       </aside>
 
-      {sidebarVisible && (
-        <div onMouseDown={handleSidebarDragStart} style={styles.sidebarDragHandle} />
+      {layout.sidebarVisible && (
+        <div onMouseDown={layout.startSidebarDrag} style={styles.sidebarDragHandle} />
       )}
 
       {/* Main browser area */}
       <section style={styles.main}>
-        {/* Tab bar — window drag region.
-            When the sidebar is hidden the section starts at x=0, which puts the
-            first interactive element under the macOS traffic lights (~x=16–80).
-            Add 82px of left padding in that state to keep all controls clear. */}
-        <div style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
-          <button
-            onClick={() => setSidebarVisible((v) => !v)}
-            style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            title={sidebarVisible ? "Hide sidebar" : "Show sidebar"}
-          >
-            ☰
-          </button>
-          <div
-            ref={tabsContainerRef}
-            onScroll={updateTabScroll}
-            style={{
-              ...styles.headerTabs,
-              ...(tabScroll.canScrollLeft || tabScroll.canScrollRight
-                ? {
-                    maskImage: `linear-gradient(to right, ${tabScroll.canScrollLeft ? "transparent" : "black"}, black 30px, black calc(100% - 30px), ${tabScroll.canScrollRight ? "transparent" : "black"})`,
-                    WebkitMaskImage: `linear-gradient(to right, ${tabScroll.canScrollLeft ? "transparent" : "black"}, black 30px, black calc(100% - 30px), ${tabScroll.canScrollRight ? "transparent" : "black"})`
-                  }
-                : {})
-            } as React.CSSProperties}
-          >
-            {shellTabs.map((tab) => {
-              const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
-              const dot = getTabStatusDot(tab);
-              const favicon = tabFavicons[tab.id];
-              return (
-                <div
-                  key={tab.groupId}
-                  style={{
-                    ...styles.headerTabWrap,
-                    ...(active ? styles.headerTabWrapActive : {})
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      setSelectedGroupId(tab.groupId);
-                      setSelectedRunId(tab.runId);
-                      setForegroundRunId(tab.runId);
-                      setMainPanel("browser");
-                    }}
-                    style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-                  >
-                    {favicon ? (
-                      <img
-                        src={favicon}
-                        alt=""
-                        width={16}
-                        height={16}
-                        style={{ flexShrink: 0, borderRadius: 2 }}
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                      />
-                    ) : (
-                      <span
-                        style={{
-                          ...styles.headerTabDot,
-                          background: dot.color,
-                          ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
-                        }}
-                        title={dot.title}
-                      />
-                    )}
-                    <span style={styles.headerTabTitle}>{tab.title}</span>
-                  </button>
-                  <button
-                    style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-                    onClick={() => void handleCloseTab(tab)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
-            <button
-              style={{ ...styles.addTabButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              onClick={() => void handleNewTab()}
-            >
-              +
-            </button>
-          </div>
-        </div>
+        <TabBar
+          shellTabs={browserTabs.shellTabs}
+          activeBrowserTab={selection.activeBrowserTab}
+          runs={agentRuns.runs}
+          tabFavicons={browserTabs.tabFavicons}
+          sidebarVisible={layout.sidebarVisible}
+          mainPanel={selection.mainPanel}
+          onSelectTab={handleSelectTab}
+          onCloseTab={handleCloseTab}
+          onNewTab={() => void handleNewTab()}
+          onToggleSidebar={layout.toggleSidebar}
+        />
 
-        {/* Nav bar — window drag region */}
-        <div style={styles.navBar}>
-          <div style={styles.navButtons}>
-            <button
-              style={{
-                ...styles.iconButton,
-                WebkitAppRegion: "no-drag",
-                ...(navState.canGoBack ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
-              } as React.CSSProperties}
-              onClick={() => {
-                if (activeBrowserTab && mainPanel === "browser") {
-                  void window.openbrowse.browserBack(activeBrowserTab.id);
-                }
-              }}
-            >
-              ←
-            </button>
-            <button
-              style={{
-                ...styles.iconButton,
-                WebkitAppRegion: "no-drag",
-                ...(navState.canGoForward ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
-              } as React.CSSProperties}
-              onClick={() => {
-                if (activeBrowserTab && mainPanel === "browser") {
-                  void window.openbrowse.browserForward(activeBrowserTab.id);
-                }
-              }}
-            >
-              →
-            </button>
-            <button
-              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              onClick={() => {
-                if (activeBrowserTab && mainPanel === "browser") {
-                  void window.openbrowse.browserReload(activeBrowserTab.id);
-                } else {
-                  void refresh();
-                }
-              }}
-            >
-              ↻
-            </button>
-            <button
-              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              onClick={() => setMainPanel("home")}
-            >
-              ⌂
-            </button>
-          </div>
-
-          <div style={styles.addressBarWrap}>
-            <span style={{ ...styles.addressLock, color: isSecure ? "#22c55e" : "#9090a8" }}>
-              {isSecure ? "🔒" : "●"}
-            </span>
-            <input
-              ref={addressBarRef}
-              type="text"
-              value={addressEditing ? addressInput : displayUrl}
-              placeholder="Search or enter address"
-              onChange={(e) => setAddressInput(e.target.value)}
-              onFocus={() => {
-                setAddressInput(displayUrl);
-                setAddressEditing(true);
-              }}
-              onBlur={() => setAddressEditing(false)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handleNavigate(addressInput);
-                  e.currentTarget.blur();
-                }
-                if (e.key === "Escape") {
-                  setAddressEditing(false);
-                  e.currentTarget.blur();
-                }
-              }}
-              style={{ ...styles.addressInput, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-            />
-          </div>
-
-          <div style={styles.headerActions}>
-            {/* Demos — browser chrome action, opens management panel */}
-            <button
-              style={{ ...styles.headerPill, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              onClick={() => openManagement("demos")}
-            >
-              Demos
-            </button>
-            {/* Waiting-input indicator — quick context clue */}
-            {waitingCount > 0 && (
-              <div style={styles.waitingPip}>
-                <span style={styles.waitingDot} />
-                {waitingCount}
-              </div>
-            )}
-            {/* Settings — opens management panel */}
-            <button
-              onClick={() => openManagement("config")}
-              style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-              title="Settings & Management"
-            >
-              ⚙
-            </button>
-            {/* Hamburger menu — additional actions */}
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-                style={{ ...styles.iconButton, WebkitAppRegion: "no-drag", fontSize: 18 } as React.CSSProperties}
-                title="More actions"
-              >
-                ☰
-              </button>
-              {menuOpen && (
-                <div style={styles.dropdownMenu} onClick={() => setMenuOpen(false)}>
-                  <button
-                    style={styles.dropdownItem}
-                    onClick={() => {
-                      setMessages([{
-                        id: "welcome",
-                        role: "agent",
-                        content: "Hello. I can browse, summarize, and keep long-running tasks alive. Tell me what to do.",
-                        timestamp: new Date().toISOString()
-                      }]);
-                    }}
-                  >
-                    Clear Chat
-                  </button>
-                  <button style={styles.dropdownItem} onClick={() => openManagement("sessions")}>
-                    History
-                  </button>
-                  <div style={styles.dropdownSeparator} />
-                  <button
-                    style={styles.dropdownItem}
-                    onClick={() => {
-                      if (activeBrowserTab) {
-                        void window.openbrowse.showBrowserSession(activeBrowserTab.id);
-                      }
-                    }}
-                    title="Open Developer Tools (not yet available)"
-                    disabled
-                  >
-                    Developer Tools
-                  </button>
-                  <div style={styles.dropdownSeparator} />
-                  <button style={styles.dropdownItem} disabled>
-                    Print Page
-                  </button>
-                  <button style={styles.dropdownItem} disabled>
-                    Save as PDF
-                  </button>
-                  <button style={styles.dropdownItem} disabled>
-                    Bookmarks
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <NavBar
+          activeBrowserTab={selection.activeBrowserTab}
+          mainPanel={selection.mainPanel}
+          addressInput={addressBar.addressInput}
+          addressEditing={addressBar.addressEditing}
+          navState={addressBar.navState}
+          displayUrl={displayUrl}
+          isSecure={isSecure}
+          waitingCount={agentRuns.suspendedRuns.length}
+          menuOpen={layout.menuOpen}
+          onAddressChange={addressBar.setAddressInput}
+          onAddressFocus={addressBar.startEditing}
+          onAddressBlur={addressBar.stopEditing}
+          onNavigate={(input) => void handleNavigate(input)}
+          onBack={() => {
+            if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+              void browserTabs.goBack(selection.activeBrowserTab.id);
+            }
+          }}
+          onForward={() => {
+            if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+              void browserTabs.goForward(selection.activeBrowserTab.id);
+            }
+          }}
+          onReload={() => {
+            if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+              void browserTabs.reload(selection.activeBrowserTab.id);
+            } else {
+              void agentRuns.refresh();
+            }
+          }}
+          onHome={() => selection.setMainPanel("home")}
+          onOpenManagement={layout.openManagement}
+          onToggleMenu={(e) => { e.stopPropagation(); layout.toggleMenu(); }}
+          addressBarRef={addressBarRef}
+          menuContent={menuContent}
+        />
 
         {/* Loading indicator */}
-        {activeBrowserTab && loadingTabs[activeBrowserTab.id] && (
+        {selection.activeBrowserTab && browserTabs.loadingTabs[selection.activeBrowserTab.id] && (
           <div style={{ height: 2, background: "#1a1a26", overflow: "hidden", flexShrink: 0 }}>
             <div style={{
               height: "100%",
@@ -1202,53 +559,54 @@ export function App() {
 
         {/* Main content */}
         <div style={styles.mainBody}>
-          {mainPanel === "browser" ? (
+          {selection.mainPanel === "browser" ? (
             <>
               <AgentActivityBar
-                run={activeTabRun}
-                recentAction={foregroundRunEvents.at(-1) ?? null}
+                run={selection.activeTabRun}
+                recentAction={agentRuns.foregroundRunEvents.at(-1) ?? null}
                 onCancel={(runId) => void handleCancelRun(runId)}
               />
-              <BrowserPanel activeTab={activeBrowserTab} covered={managementOpen} />
+              <BrowserPanel
+                activeTab={selection.activeBrowserTab}
+                covered={layout.managementOpen || layout.menuOpen}
+              />
             </>
           ) : (
             <HomePage
-              shellTabs={shellTabs}
-              tabFavicons={tabFavicons}
-              onOpenTab={(tab) => {
-                setSelectedGroupId(tab.groupId);
-                setSelectedRunId(tab.runId);
-                setForegroundRunId(tab.runId);
-                setMainPanel("browser");
-              }}
+              shellTabs={browserTabs.shellTabs}
+              tabFavicons={browserTabs.tabFavicons}
+              onOpenTab={handleSelectTab}
             />
           )}
         </div>
 
-        {/* Management panel — bottom-sheet modal, scoped to main area only */}
-        {managementOpen && (
+        {/* Management panel */}
+        {layout.managementOpen && (
           <ManagementPanel
-            runtime={runtime}
-            settings={settings}
-            runs={runs}
-            logs={logs}
-            replaySteps={replaySteps}
-            profiles={profiles}
-            selectedRunId={selectedRunId}
-            initialTab={managementTab}
-            onSaved={async (saved) => {
-              await refresh();
-              // Keep the management panel open after saving — the user may want
-              // to review or continue configuring.
+            runtime={agentRuns.runtime}
+            settings={agentRuns.settings}
+            runs={agentRuns.runs}
+            logs={agentRuns.logs}
+            replaySteps={agentRuns.replaySteps}
+            profiles={agentRuns.profiles}
+            selectedRunId={selection.selectedRunId}
+            initialTab={layout.managementTab}
+            onSaved={async () => {
+              await agentRuns.refresh();
+              await browserTabs.refreshTabs();
             }}
-            onSelectRun={setSelectedRunId}
+            onSelectRun={selection.selectRun}
             onCancelRun={(runId) => void handleCancelRun(runId)}
             onStartDemo={async (run) => {
-              setManagementOpen(false);
-              await refresh();
-              if (run) await openRunInBrowser(run);
+              layout.closeManagement();
+              await agentRuns.refresh();
+              await browserTabs.refreshTabs();
+              if (run) {
+                chat.addRunToSession(run.id);
+                await openRunInBrowser(run);
+              }
             }}
-            onClose={() => setManagementOpen(false)}
+            onClose={layout.closeManagement}
           />
         )}
       </section>
@@ -1256,136 +614,7 @@ export function App() {
   );
 }
 
-// ---- Home page ----
-
-function HomePage({
-  shellTabs,
-  tabFavicons,
-  onOpenTab
-}: {
-  shellTabs: BrowserShellTabDescriptor[];
-  tabFavicons: Record<string, string>;
-  onOpenTab: (tab: BrowserShellTabDescriptor) => void;
-}) {
-  const recentTabs = shellTabs
-    .filter((tab) => tab.url && tab.url !== "about:blank")
-    .filter((tab, i, arr) => arr.findIndex((t) => t.url === tab.url) === i);
-
-  return (
-    <div style={homeStyles.page}>
-      <div style={homeStyles.recentSection}>
-        <div style={homeStyles.eyebrow}>Recent</div>
-        {recentTabs.length === 0 ? (
-          <div style={homeStyles.emptyHint}>
-            No browser tabs yet. Press <kbd style={homeStyles.kbd}>+</kbd> or type an address above.
-          </div>
-        ) : (
-          <div style={homeStyles.recentGrid}>
-            {recentTabs.map((tab) => (
-              <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={homeStyles.recentCard}>
-                <div style={homeStyles.recentFavicon}>
-                  {tabFavicons[tab.id] ? (
-                    <img
-                      src={tabFavicons[tab.id]}
-                      alt=""
-                      width={18}
-                      height={18}
-                      style={{ borderRadius: 3 }}
-                      onError={(e) => { (e.target as HTMLImageElement).replaceWith(document.createTextNode("\u2299")); }}
-                    />
-                  ) : "\u2299"}
-                </div>
-                <div style={homeStyles.recentInfo}>
-                  <div style={homeStyles.recentTitle}>{tab.title || "Untitled"}</div>
-                  <div style={homeStyles.recentUrl}>{tab.url}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const homeStyles: Record<string, React.CSSProperties> = {
-  page: {
-    height: "100%",
-    overflow: "auto",
-    padding: "40px 32px 32px",
-    background: "linear-gradient(180deg, #0a0a12 0%, #12121a 100%)"
-  },
-  recentSection: {
-    maxWidth: 860,
-    margin: "0 auto"
-  },
-  eyebrow: {
-    fontSize: "0.78rem",
-    color: "#9090a8",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    marginBottom: 14
-  },
-  emptyHint: {
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 14,
-    padding: "18px 20px",
-    color: "#9090a8",
-    fontSize: "0.9rem"
-  },
-  recentGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-    gap: 10
-  },
-  recentCard: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    background: "#12121a",
-    border: "1px solid #2a2a3e",
-    borderRadius: 14,
-    padding: "12px 16px",
-    cursor: "pointer",
-    textAlign: "left",
-    color: "#e5e7eb"
-  },
-  recentFavicon: {
-    fontSize: "1.1rem",
-    color: "#8b5cf6",
-    flexShrink: 0
-  },
-  recentInfo: {
-    minWidth: 0
-  },
-  recentTitle: {
-    fontSize: "0.9rem",
-    fontWeight: 600,
-    color: "#ffffff",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
-  },
-  recentUrl: {
-    fontSize: "0.78rem",
-    color: "#9090a8",
-    marginTop: 3,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
-  },
-  kbd: {
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
-    borderRadius: 4,
-    padding: "1px 5px",
-    fontSize: "0.82rem",
-    color: "#e5e7eb"
-  }
-};
-
-// ---- Shared styles ----
+// ---- Styles (only what App.tsx owns — components have their own) ----
 
 const styles: Record<string, React.CSSProperties> = {
   app: {
@@ -1396,15 +625,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#e8e8f0",
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
-  // Dedicated drag / traffic-light clearance strip at the top of the sidebar.
-  // Height (38px) matches the tabBar so both sides form one visual chrome row.
-  // Left portion is occupied by macOS window controls; the rest is a drag target.
-  titleBarSpacer: {
-    height: 38,
-    flexShrink: 0,
-    WebkitAppRegion: "drag"
-  } as React.CSSProperties,
-  // Sidebar
   sidebar: {
     display: "flex",
     flexDirection: "column",
@@ -1420,286 +640,6 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 10,
     boxSizing: "border-box" as const
   },
-  sidebarHeader: {
-    padding: "16px 16px 12px",
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 10,
-    borderBottom: "1px solid #2a2a3e",
-    flexShrink: 0
-  },
-  brandMark: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    display: "grid",
-    placeItems: "center",
-    background: "rgba(139,92,246,0.16)",
-    color: "#c4b5fd",
-    fontSize: 16,
-    flexShrink: 0,
-    marginTop: 2
-  },
-  brandInfo: {
-    minWidth: 0
-  },
-  brandName: {
-    fontSize: "0.9rem",
-    fontWeight: 700,
-    color: "#ffffff"
-  },
-  statusRow: {
-    display: "flex",
-    gap: 10,
-    marginTop: 4
-  },
-  statusPip: {
-    fontSize: "0.72rem"
-  },
-  conversationArea: {
-    flex: 1,
-    minHeight: 0,
-    overflow: "auto",
-    padding: "14px 14px 6px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10
-  },
-  chatRow: {
-    display: "flex",
-    alignItems: "flex-end",
-    gap: 8
-  },
-  chatRowUser: {
-    justifyContent: "flex-end"
-  },
-  chatAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    display: "grid",
-    placeItems: "center",
-    background: "rgba(139,92,246,0.14)",
-    color: "#c4b5fd",
-    flexShrink: 0,
-    fontSize: "0.7rem"
-  },
-  chatAvatarUser: {
-    width: 26,
-    height: 26,
-    borderRadius: 999,
-    display: "grid",
-    placeItems: "center",
-    background: "#334155",
-    color: "#e2e8f0",
-    flexShrink: 0,
-    fontSize: "0.7rem"
-  },
-  chatBubble: {
-    maxWidth: "82%",
-    background: "#171726",
-    border: "1px solid #2a2a3e",
-    color: "#e5e7eb",
-    borderRadius: 14,
-    padding: "9px 12px",
-    fontSize: "0.88rem",
-    lineHeight: 1.45
-  },
-  chatBubbleUser: {
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
-    borderColor: "#8b5cf6",
-    color: "#ffffff"
-  },
-  chatBubbleSuccess: { borderColor: "rgba(34,197,94,0.3)" },
-  chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
-  chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
-  chatBubbleAction: {
-    background: "transparent",
-    border: "none",
-    borderLeft: "2px solid #8b5cf6",
-    borderRadius: 0,
-    padding: "4px 10px",
-    fontSize: "0.78rem",
-    color: "#9090a8"
-  },
-  chatRowAction: {
-    gap: 6
-  },
-  chatActionIcon: {
-    width: 18,
-    height: 18,
-    display: "grid",
-    placeItems: "center",
-    color: "#8b5cf6",
-    flexShrink: 0,
-    fontSize: "0.65rem"
-  },
-  // RunContextCard — agent context for the active browser tab
-  runContextCard: {
-    background: "#171726",
-    border: "1px solid #2a2a3e",
-    borderRadius: 12,
-    padding: "10px 12px",
-    marginBottom: 4
-  },
-  runContextHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 6
-  },
-  runContextBadge: {
-    fontSize: "0.68rem",
-    fontWeight: 600,
-    borderRadius: 999,
-    padding: "2px 8px",
-    textTransform: "capitalize"
-  },
-  runContextStep: {
-    fontSize: "0.68rem",
-    color: "#6b6b82"
-  },
-  runContextGoal: {
-    fontSize: "0.82rem",
-    color: "#e5e7eb",
-    lineHeight: 1.4,
-    marginBottom: 6
-  },
-  runContextActions: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 3
-  },
-  runContextActionItem: {
-    fontSize: "0.72rem",
-    color: "#9090a8",
-    paddingLeft: 8,
-    borderLeft: "2px solid rgba(139,92,246,0.3)"
-  },
-  inlineSuspension: {
-    marginTop: 10,
-    borderTop: "1px solid rgba(245,158,11,0.2)",
-    paddingTop: 10
-  },
-  inlineSuspensionQuestion: {
-    color: "#fbbf24",
-    fontSize: "0.88rem",
-    margin: "0 0 8px"
-  },
-  inlineSuspensionQuickActions: {
-    display: "flex",
-    gap: 8,
-    marginBottom: 8
-  },
-  inlineSuspensionForm: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: 6
-  },
-  inlineSuspensionInput: {
-    width: "100%",
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
-    borderRadius: 8,
-    padding: "8px 10px",
-    color: "#f5f5ff",
-    fontSize: "0.85rem",
-    boxSizing: "border-box" as const
-  },
-  inlineSuspensionButtons: {
-    display: "flex",
-    gap: 6
-  },
-  inlineResumeButton: {
-    background: "#7c3aed",
-    color: "#fffdf9",
-    border: "1px solid #8b5cf6",
-    borderRadius: 8,
-    padding: "6px 12px",
-    cursor: "pointer",
-    fontSize: "0.82rem",
-    whiteSpace: "nowrap" as const
-  },
-  inlineApproveButton: {
-    background: "#15803d",
-    color: "#fffdf9",
-    border: "1px solid #22c55e",
-    borderRadius: 8,
-    padding: "6px 12px",
-    cursor: "pointer",
-    fontSize: "0.82rem",
-    whiteSpace: "nowrap" as const
-  },
-  inlineDenyButton: {
-    background: "#b91c1c",
-    color: "#fffdf9",
-    border: "1px solid #ef4444",
-    borderRadius: 8,
-    padding: "6px 12px",
-    cursor: "pointer",
-    fontSize: "0.82rem",
-    whiteSpace: "nowrap" as const
-  },
-  chatTime: {
-    marginTop: 6,
-    color: "rgba(255,255,255,0.42)",
-    fontSize: "0.68rem"
-  },
-  // Pending questions inline section
-  questionsSection: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 6
-  },
-  questionsDivider: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    margin: "6px 0 2px"
-  },
-  questionsDividerLabel: {
-    fontSize: "0.72rem",
-    color: "#f59e0b",
-    textTransform: "uppercase",
-    letterSpacing: "0.06em",
-    fontWeight: 600
-  },
-  // Composer
-  composer: {
-    padding: "10px 14px 12px",
-    borderTop: "1px solid #232335",
-    background: "#0f0f18",
-    flexShrink: 0
-  },
-  composerRow: {
-    display: "flex",
-    gap: 8
-  },
-  composerInput: {
-    flex: 1,
-    background: "#1e1e2e",
-    color: "#f8fafc",
-    border: "1px solid #2a2a3e",
-    borderRadius: 12,
-    padding: "10px 12px",
-    fontSize: "0.88rem"
-  },
-  composerButton: {
-    width: 40,
-    borderRadius: 12,
-    border: "1px solid #8b5cf6",
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
-    color: "#ffffff",
-    cursor: "pointer",
-    fontWeight: 700,
-    fontSize: "1rem"
-  },
-  composerHint: {
-    marginTop: 6,
-    fontSize: "0.7rem",
-    color: "#6b6b82"
-  },
-  // Main area
   main: {
     flex: 1,
     minWidth: 0,
@@ -1708,194 +648,6 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     background: "#0a0a12",
     position: "relative"
-  },
-  tabBar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "10px 10px 0",
-    background: "#0f0f18",
-    WebkitAppRegion: "drag",
-    borderBottom: "1px solid #1f2030"
-  } as React.CSSProperties,
-  headerTabs: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    overflowX: "auto",
-    flex: 1,
-    WebkitAppRegion: "no-drag"
-  } as React.CSSProperties,
-  headerTab: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    minWidth: 100,
-    maxWidth: 200,
-    padding: "8px 12px",
-    borderRadius: "9px 9px 0 0",
-    background: "#0a0a12",
-    color: "#9090a8",
-    border: "1px solid #1f2030",
-    borderBottom: "none",
-    cursor: "pointer",
-    fontSize: "0.82rem"
-  },
-  headerTabWrap: {
-    display: "flex",
-    alignItems: "center",
-    minWidth: 100,
-    maxWidth: 200,
-    borderRadius: "9px 9px 0 0",
-    background: "#0a0a12",
-    border: "1px solid #1f2030",
-    borderBottom: "none",
-    color: "#9090a8"
-  },
-  headerTabWrapActive: {
-    background: "#16162a",
-    borderColor: "#4a4a7a",
-    borderTopColor: "#8b5cf6",
-    color: "#ffffff"
-  },
-  headerTabInner: {
-    flex: 1,
-    minWidth: 0,
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    background: "transparent",
-    border: "none",
-    color: "inherit",
-    padding: "8px 6px 8px 10px",
-    cursor: "pointer",
-    fontSize: "0.82rem"
-  },
-  headerTabActive: {
-    background: "#12121a",
-    color: "#ffffff",
-    borderColor: "#2a2a3e"
-  },
-  headerTabDot: {
-    width: 6,
-    height: 6,
-    borderRadius: "50%",
-    background: "#8b5cf6",
-    flexShrink: 0
-  },
-  headerTabTitle: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap"
-  },
-  headerTabClose: {
-    width: 22,
-    height: 22,
-    marginRight: 5,
-    borderRadius: 5,
-    background: "transparent",
-    border: "none",
-    color: "#9090a8",
-    cursor: "pointer",
-    fontSize: "0.72rem",
-    display: "grid",
-    placeItems: "center"
-  },
-  addTabButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
-    background: "#141422",
-    border: "1px solid #2a2a3e",
-    color: "#cbd5e1",
-    cursor: "pointer",
-    fontSize: "1rem"
-  },
-  navBar: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "7px 10px",
-    background: "#12121a",
-    borderBottom: "1px solid #2a2a3e",
-    WebkitAppRegion: "drag"
-  } as React.CSSProperties,
-  navButtons: {
-    display: "flex",
-    alignItems: "center",
-    gap: 3,
-    WebkitAppRegion: "no-drag"
-  } as React.CSSProperties,
-  iconButton: {
-    background: "#1a1a26",
-    color: "#cbd5e1",
-    border: "1px solid #2a2a3e",
-    borderRadius: 9,
-    minWidth: 30,
-    height: 30,
-    display: "grid",
-    placeItems: "center",
-    cursor: "pointer",
-    fontSize: "0.88rem"
-  },
-  addressBarWrap: {
-    flex: 1,
-    display: "flex",
-    alignItems: "center",
-    gap: 7,
-    minWidth: 0,
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
-    borderRadius: 9,
-    padding: "0 10px",
-    height: 30,
-    WebkitAppRegion: "no-drag"
-  } as React.CSSProperties,
-  addressLock: {
-    fontSize: "0.68rem",
-    flexShrink: 0
-  },
-  addressInput: {
-    flex: 1,
-    background: "transparent",
-    border: "none",
-    outline: "none",
-    color: "#e5e7eb",
-    fontSize: "0.86rem",
-    minWidth: 0
-  },
-  headerActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    WebkitAppRegion: "no-drag"
-  } as React.CSSProperties,
-  headerPill: {
-    background: "#1a1a26",
-    color: "#e5e7eb",
-    border: "1px solid #2a2a3e",
-    borderRadius: 999,
-    padding: "5px 11px",
-    cursor: "pointer",
-    fontSize: "0.8rem"
-  },
-  waitingPip: {
-    display: "flex",
-    alignItems: "center",
-    gap: 5,
-    background: "rgba(245,158,11,0.12)",
-    border: "1px solid rgba(245,158,11,0.3)",
-    borderRadius: 999,
-    padding: "4px 9px",
-    fontSize: "0.78rem",
-    color: "#fbbf24"
-  },
-  waitingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: "50%",
-    background: "#f59e0b",
-    display: "inline-block"
   },
   mainBody: {
     flex: 1,

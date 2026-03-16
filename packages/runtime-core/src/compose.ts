@@ -2,11 +2,27 @@ import type { BrowserKernel } from "@openbrowse/browser-runtime";
 import type { ChatBridge } from "@openbrowse/chat-bridge";
 import type { RuntimeConfig, RuntimeDescriptor, RuntimeSettings, TaskIntent, WorkflowEvent } from "@openbrowse/contracts";
 import {
+  InMemoryBookmarkStore,
+  InMemoryBrowserProfileStore,
+  InMemoryBrowsingHistoryStore,
+  InMemoryChatBridgeStateStore,
+  InMemoryChatSessionStore,
+  InMemoryCookieContainerStore,
   InMemoryPreferenceStore,
   InMemoryRunCheckpointStore,
+  InMemorySessionTrackingStore,
+  InMemoryStandaloneTabStore,
   InMemoryWorkflowLogStore,
+  type BookmarkStore,
+  type BrowserProfileStore,
+  type BrowsingHistoryStore,
+  type ChatBridgeStateStore,
+  type ChatSessionStore,
+  type CookieContainerStore,
   type PreferenceStore,
   type RunCheckpointStore,
+  type SessionTrackingStore,
+  type StandaloneTabStore,
   type WorkflowLogStore
 } from "@openbrowse/memory-store/memory";
 import { EventBus } from "@openbrowse/observability";
@@ -26,6 +42,14 @@ export interface StorageBundle {
   workflowLogStore: WorkflowLogStore;
   runCheckpointStore: RunCheckpointStore;
   preferenceStore: PreferenceStore;
+  sessionTrackingStore: SessionTrackingStore;
+  chatSessionStore: ChatSessionStore;
+  bookmarkStore: BookmarkStore;
+  browsingHistoryStore: BrowsingHistoryStore;
+  browserProfileStore: BrowserProfileStore;
+  cookieContainerStore: CookieContainerStore;
+  standaloneTabStore: StandaloneTabStore;
+  chatBridgeStateStore: ChatBridgeStateStore;
   sqliteDb?: { close(): void };
   storageDescriptor: RuntimeDescriptor["storage"];
 }
@@ -41,7 +65,15 @@ export async function createRuntimeStorage(dbPath?: string): Promise<StorageBund
         SqliteDatabase,
         SqliteWorkflowLogStore,
         SqliteRunCheckpointStore,
-        SqlitePreferenceStore
+        SqlitePreferenceStore,
+        SqliteSessionTrackingStore,
+        SqliteChatSessionStore,
+        SqliteBookmarkStore,
+        SqliteBrowsingHistoryStore,
+        SqliteBrowserProfileStore,
+        SqliteCookieContainerStore,
+        SqliteStandaloneTabStore,
+        SqliteChatBridgeStateStore
       } = await import("@openbrowse/memory-store/sqlite");
 
       const db = new SqliteDatabase(dbPath);
@@ -49,6 +81,14 @@ export async function createRuntimeStorage(dbPath?: string): Promise<StorageBund
         workflowLogStore: new SqliteWorkflowLogStore(db),
         runCheckpointStore: new SqliteRunCheckpointStore(db),
         preferenceStore: new SqlitePreferenceStore(db),
+        sessionTrackingStore: new SqliteSessionTrackingStore(db),
+        chatSessionStore: new SqliteChatSessionStore(db),
+        bookmarkStore: new SqliteBookmarkStore(db),
+        browsingHistoryStore: new SqliteBrowsingHistoryStore(db),
+        browserProfileStore: new SqliteBrowserProfileStore(db),
+        cookieContainerStore: new SqliteCookieContainerStore(db),
+        standaloneTabStore: new SqliteStandaloneTabStore(db),
+        chatBridgeStateStore: new SqliteChatBridgeStateStore(db),
         sqliteDb: db,
         storageDescriptor: {
           mode: "sqlite",
@@ -58,26 +98,31 @@ export async function createRuntimeStorage(dbPath?: string): Promise<StorageBund
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("[runtime] Failed to initialize SQLite store, falling back to memory:", message);
-      return {
-        workflowLogStore: new InMemoryWorkflowLogStore(),
-        runCheckpointStore: new InMemoryRunCheckpointStore(),
-        preferenceStore: new InMemoryPreferenceStore(),
-        storageDescriptor: {
-          mode: "memory",
-          detail: `Falling back to in-memory storage because SQLite failed to initialize: ${message}`
-        }
-      };
+      return createInMemoryBundle(
+        `Falling back to in-memory storage because SQLite failed to initialize: ${message}`
+      );
     }
   }
 
+  return createInMemoryBundle(
+    "Falling back to in-memory storage because no desktop app data path was provided."
+  );
+}
+
+function createInMemoryBundle(detail: string): StorageBundle {
   return {
     workflowLogStore: new InMemoryWorkflowLogStore(),
     runCheckpointStore: new InMemoryRunCheckpointStore(),
     preferenceStore: new InMemoryPreferenceStore(),
-    storageDescriptor: {
-      mode: "memory",
-      detail: "Falling back to in-memory storage because no desktop app data path was provided."
-    }
+    sessionTrackingStore: new InMemorySessionTrackingStore(),
+    chatSessionStore: new InMemoryChatSessionStore(),
+    bookmarkStore: new InMemoryBookmarkStore(),
+    browsingHistoryStore: new InMemoryBrowsingHistoryStore(),
+    browserProfileStore: new InMemoryBrowserProfileStore(),
+    cookieContainerStore: new InMemoryCookieContainerStore(),
+    standaloneTabStore: new InMemoryStandaloneTabStore(),
+    chatBridgeStateStore: new InMemoryChatBridgeStateStore(),
+    storageDescriptor: { mode: "memory", detail }
   };
 }
 
@@ -85,7 +130,7 @@ export async function createRuntimeStorage(dbPath?: string): Promise<StorageBund
 // Service assembly
 // ---------------------------------------------------------------------------
 
-export interface AssembleServicesParams {
+export interface AssembleServicesParams extends StorageBundle {
   runtimeConfig: RuntimeConfig;
   runtimeSettings: RuntimeSettings;
   planner: PlannerGateway;
@@ -96,11 +141,6 @@ export interface AssembleServicesParams {
   browserKernel: BrowserKernel;
   browserKernelInit?: () => Promise<void>;
   browserDescriptor: RuntimeDescriptor["browser"];
-  workflowLogStore: WorkflowLogStore;
-  runCheckpointStore: RunCheckpointStore;
-  preferenceStore: PreferenceStore;
-  sqliteDb?: { close(): void };
-  storageDescriptor: RuntimeDescriptor["storage"];
   hasDemos?: boolean;
   telegramStatePath: string;
 }
@@ -151,7 +191,15 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
     }),
     sqliteDb: params.sqliteDb,
     telegramStatePath: params.telegramStatePath,
-    workflowLogStore: params.workflowLogStore
+    workflowLogStore: params.workflowLogStore,
+    sessionTrackingStore: params.sessionTrackingStore,
+    chatSessionStore: params.chatSessionStore,
+    bookmarkStore: params.bookmarkStore,
+    browsingHistoryStore: params.browsingHistoryStore,
+    browserProfileStore: params.browserProfileStore,
+    cookieContainerStore: params.cookieContainerStore,
+    standaloneTabStore: params.standaloneTabStore,
+    chatBridgeStateStore: params.chatBridgeStateStore
   };
 
   return services;
