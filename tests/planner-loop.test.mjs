@@ -15,7 +15,7 @@ import { DefaultApprovalPolicy } from "../packages/security/dist/index.js";
 
 // ---- Constants (matching OpenBrowseRuntime) ----
 
-const MAX_LOOP_STEPS = 20;
+const MAX_LOOP_STEPS = 35;
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
 
 // ---- Factories ----
@@ -301,12 +301,12 @@ test("hard failure (navigation_timeout) immediately terminates run", async () =>
 });
 
 // ============================================================================
-// Test 4: Max step exhaustion after 20 steps
+// Test 4: Max step exhaustion after 35 steps
 // ============================================================================
 
-test("max step exhaustion: 20+ steps fails with exceeded message", async () => {
-  // 25 browser_action steps — all succeed, but loop should stop at 20
-  const steps = Array.from({ length: 25 }, (_, i) => ({
+test("max step exhaustion: 35+ steps fails with exceeded message", async () => {
+  // 40 browser_action steps — all succeed, but loop should stop at 35
+  const steps = Array.from({ length: 40 }, (_, i) => ({
     decision: {
       type: "browser_action",
       reasoning: `Step ${i + 1}`,
@@ -319,8 +319,8 @@ test("max step exhaustion: 20+ steps fails with exceeded message", async () => {
   const run = await runPlannerLoop(services, makeIntent());
 
   assert.equal(run.status, "failed");
-  assert.match(run.outcome.summary, /exceeded 20 steps/);
-  assert.equal(run.checkpoint.stepCount, 20);
+  assert.match(run.outcome.summary, /exceeded 35 steps/);
+  assert.equal(run.checkpoint.stepCount, 35);
 });
 
 // ============================================================================
@@ -406,11 +406,11 @@ test("recoveryContext cleared after first planner iteration", async () => {
 });
 
 // ============================================================================
-// Test 8: actionHistory accumulates, capped at 10
+// Test 8: actionHistory accumulates, capped at 25
 // ============================================================================
 
-test("actionHistory accumulates and is capped at 10", async () => {
-  const steps = Array.from({ length: 12 }, (_, i) => ({
+test("actionHistory accumulates and is capped at 25", async () => {
+  const steps = Array.from({ length: 27 }, (_, i) => ({
     decision: {
       type: "browser_action",
       reasoning: `Step ${i + 1}`,
@@ -424,7 +424,7 @@ test("actionHistory accumulates and is capped at 10", async () => {
   const run = await runPlannerLoop(services, makeIntent());
 
   assert.equal(run.status, "completed");
-  assert.equal(run.checkpoint.actionHistory.length, 10);
+  assert.equal(run.checkpoint.actionHistory.length, 25);
   // The first 2 actions should have been trimmed — oldest dropped
   assert.ok(run.checkpoint.actionHistory[0].description.includes("element 2"));
 });

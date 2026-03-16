@@ -21,6 +21,7 @@ export interface RunActionRecord {
   failureClass?: string;
   url?: string;
   targetUrl?: string;
+  targetId?: string;
   typedText?: string;
   createdAt: string;
 }
@@ -105,6 +106,10 @@ export interface RunCheckpoint {
   lastFailureClass?: string;
   /** Number of consecutive element_not_found soft failures. */
   consecutiveSoftFailures?: number;
+  /** Total soft failures across the entire run (never resets, unlike consecutiveSoftFailures). */
+  totalSoftFailures?: number;
+  /** How many times each URL has been visited during this run. */
+  urlVisitCounts?: Record<string, number>;
   /** Lightweight snapshot of the last captured page model for recovery context. */
   lastPageModelSnapshot?: {
     title: string;

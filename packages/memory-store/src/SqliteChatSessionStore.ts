@@ -10,6 +10,7 @@ export class SqliteChatSessionStore implements ChatSessionStore {
   private readonly stmtDeleteSession: Database.Statement;
   private readonly stmtAppendMessage: Database.Statement;
   private readonly stmtListMessages: Database.Statement;
+  private readonly stmtClearMessages: Database.Statement;
   private readonly stmtLinkRun: Database.Statement;
   private readonly stmtListRunIds: Database.Statement;
 
@@ -28,6 +29,9 @@ export class SqliteChatSessionStore implements ChatSessionStore {
     );
     this.stmtListMessages = sqlite.db.prepare(
       "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC"
+    );
+    this.stmtClearMessages = sqlite.db.prepare(
+      "DELETE FROM chat_messages WHERE session_id = ?"
     );
     this.stmtLinkRun = sqlite.db.prepare(
       `INSERT OR IGNORE INTO chat_session_runs (session_id, run_id, linked_at) VALUES (?, ?, ?)`
@@ -73,6 +77,10 @@ export class SqliteChatSessionStore implements ChatSessionStore {
 
   async listMessages(sessionId: string): Promise<ChatMessage[]> {
     return (this.stmtListMessages.all(sessionId) as ChatMessageRow[]).map(rowToChatMessage);
+  }
+
+  async clearMessages(sessionId: string): Promise<void> {
+    this.stmtClearMessages.run(sessionId);
   }
 
   async linkRun(sessionId: string, runId: string): Promise<void> {

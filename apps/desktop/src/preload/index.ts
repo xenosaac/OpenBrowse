@@ -58,10 +58,40 @@ const api = {
     sessionId: string
   ): Promise<{ canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null> =>
     ipcRenderer.invoke("browser:nav-state", sessionId),
+  openDevTools: (sessionId: string) => ipcRenderer.invoke("browser:devtools", sessionId),
+  printPage: (sessionId: string) => ipcRenderer.invoke("browser:print", sessionId),
+  saveAsPdf: (sessionId: string): Promise<boolean> => ipcRenderer.invoke("browser:save-pdf", sessionId),
 
   // Run handoff
   getRunHandoff: (runId: string): Promise<{ artifact: RunHandoffArtifact; markdown: string } | null> =>
     ipcRenderer.invoke("run:handoff", runId),
+
+  // Bookmarks
+  listBookmarks: () => ipcRenderer.invoke("bookmarks:list"),
+  getBookmarkByUrl: (url: string) => ipcRenderer.invoke("bookmarks:get-by-url", url),
+  addBookmark: (data: { url: string; title: string; faviconUrl?: string }) =>
+    ipcRenderer.invoke("bookmarks:add", data),
+  deleteBookmark: (id: string) => ipcRenderer.invoke("bookmarks:delete", id),
+  searchBookmarks: (query: string) => ipcRenderer.invoke("bookmarks:search", query),
+
+  // Chat persistence
+  chatListSessions: () => ipcRenderer.invoke("chat:sessions:list"),
+  chatCreateSession: (data: { id: string; title: string; createdAt: string }) =>
+    ipcRenderer.invoke("chat:sessions:create", data),
+  chatDeleteSession: (sessionId: string) => ipcRenderer.invoke("chat:sessions:delete", sessionId),
+  chatUpdateTitle: (sessionId: string, title: string) =>
+    ipcRenderer.invoke("chat:sessions:update-title", { sessionId, title }),
+  chatAppendMessage: (msg: {
+    id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string
+  }) => ipcRenderer.invoke("chat:messages:append", msg),
+  chatClearMessages: (sessionId: string) => ipcRenderer.invoke("chat:messages:clear", sessionId),
+  chatLinkRun: (sessionId: string, runId: string) =>
+    ipcRenderer.invoke("chat:runs:link", { sessionId, runId }),
+
+  // Browsing history
+  listHistory: (limit?: number) => ipcRenderer.invoke("history:list", limit),
+  searchHistory: (query: string) => ipcRenderer.invoke("history:search", query),
+  clearHistory: () => ipcRenderer.invoke("history:clear"),
 
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {

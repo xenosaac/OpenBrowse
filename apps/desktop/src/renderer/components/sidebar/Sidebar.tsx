@@ -28,6 +28,8 @@ interface Props {
   onToggleSessionList: () => void;
   onNewSession: () => void;
   onSwitchSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
+  onClearChat: () => void;
   onChatInputChange: (val: string) => void;
   onSubmitTask: () => void;
   onResumeRun: (run: TaskRun | null) => Promise<void>;
@@ -39,7 +41,7 @@ export function Sidebar(props: Props) {
     sessions, activeSession, activeSessionId, sessionListOpen,
     messages, chatInput, chatBusy,
     runs, runtime, globalActionEvents, suspendedRuns,
-    onToggleSessionList, onNewSession, onSwitchSession,
+    onToggleSessionList, onNewSession, onSwitchSession, onDeleteSession, onClearChat,
     onChatInputChange, onSubmitTask, onResumeRun, onDismissRun
   } = props;
 
@@ -77,12 +79,14 @@ export function Sidebar(props: Props) {
         waitingCount={waitingCount}
         onToggleSessionList={onToggleSessionList}
         onNewSession={onNewSession}
+        onClearChat={onClearChat}
       />
       {sessionListOpen && (
         <SessionListDropdown
           sessions={sessions}
           activeSessionId={activeSessionId}
           onSwitch={onSwitchSession}
+          onDelete={onDeleteSession}
         />
       )}
       {sessions.length > 1 && <div style={styles.sessionLabel}>{activeSession.title}</div>}

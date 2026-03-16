@@ -167,11 +167,11 @@ test("applyPlannerDecision with task_failed sets outcome", () => {
 // recordBrowserResult
 // ---------------------------------------------------------------------------
 
-test("recordBrowserResult tracks actionHistory (max 10)", () => {
+test("recordBrowserResult tracks actionHistory (max 25)", () => {
   const orch = makeOrchestrator();
   let run = makeRun();
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 27; i++) {
     run = orch.recordBrowserResult(run, {
       ok: true,
       action: { type: "click", description: `Click button ${i}` },
@@ -179,10 +179,10 @@ test("recordBrowserResult tracks actionHistory (max 10)", () => {
     });
   }
 
-  assert.equal(run.checkpoint.actionHistory.length, 10);
+  assert.equal(run.checkpoint.actionHistory.length, 25);
   // Oldest two (0,1) should be dropped
   assert.equal(run.checkpoint.actionHistory[0].description, "Click button 2");
-  assert.equal(run.checkpoint.actionHistory[9].description, "Click button 11");
+  assert.equal(run.checkpoint.actionHistory[24].description, "Click button 26");
 });
 
 test("recordBrowserResult tracks consecutive soft failures", () => {
@@ -245,4 +245,36 @@ test("resumeFromApproval clears suspension and pending action", () => {
   assert.equal(resumed.status, "running");
   assert.equal(resumed.suspension, undefined);
   assert.equal(resumed.checkpoint.pendingApprovalId, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// recordBrowserResult captures targetId
+// ---------------------------------------------------------------------------
+
+test("recordBrowserResult captures targetId from action", () => {
+  const orch = makeOrchestrator();
+  const run = makeRun();
+
+  const updated = orch.recordBrowserResult(run, {
+    ok: true,
+    action: { type: "click", targetId: "el_42", description: "Click the Play button" },
+    summary: "Clicked Play"
+  });
+
+  const record = updated.checkpoint.actionHistory[0];
+  assert.equal(record.targetId, "el_42");
+});
+
+test("recordBrowserResult omits targetId when absent", () => {
+  const orch = makeOrchestrator();
+  const run = makeRun();
+
+  const updated = orch.recordBrowserResult(run, {
+    ok: true,
+    action: { type: "navigate", value: "https://example.com", description: "Go to site" },
+    summary: "Navigated"
+  });
+
+  const record = updated.checkpoint.actionHistory[0];
+  assert.equal(record.targetId, undefined);
 });

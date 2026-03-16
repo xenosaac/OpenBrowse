@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -85,6 +85,34 @@ declare global {
         artifact: RunHandoffArtifact;
         markdown: string;
       } | null>;
+      // Bookmarks
+      listBookmarks: () => Promise<Array<{ id: string; url: string; title: string; faviconUrl?: string; createdAt: string }>>;
+      getBookmarkByUrl: (url: string) => Promise<unknown>;
+      addBookmark: (data: { url: string; title: string; faviconUrl?: string }) => Promise<{ id: string }>;
+      deleteBookmark: (id: string) => Promise<void>;
+      searchBookmarks: (query: string) => Promise<unknown[]>;
+      // DevTools / Print / PDF
+      openDevTools: (sessionId: string) => Promise<unknown>;
+      printPage: (sessionId: string) => Promise<unknown>;
+      saveAsPdf: (sessionId: string) => Promise<boolean>;
+      // Chat persistence
+      chatListSessions: () => Promise<Array<{
+        id: string; title: string; createdAt: string; updatedAt: string;
+        messages: Array<{ id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string }>;
+        runIds: string[];
+      }>>;
+      chatCreateSession: (data: { id: string; title: string; createdAt: string }) => Promise<void>;
+      chatDeleteSession: (sessionId: string) => Promise<boolean>;
+      chatUpdateTitle: (sessionId: string, title: string) => Promise<void>;
+      chatAppendMessage: (msg: {
+        id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string;
+      }) => Promise<void>;
+      chatClearMessages: (sessionId: string) => Promise<void>;
+      chatLinkRun: (sessionId: string, runId: string) => Promise<void>;
+      // Browsing history
+      listHistory: (limit?: number) => Promise<unknown[]>;
+      searchHistory: (query: string) => Promise<unknown[]>;
+      clearHistory: () => Promise<void>;
     };
   }
 }
@@ -126,6 +154,26 @@ export function App() {
   const displayUrl = selection.mainPanel === "browser" && selection.activeBrowserTab
     ? selection.activeBrowserTab.url : "";
   const isSecure = displayUrl.startsWith("https://");
+
+  // ---- Bookmark state ----
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  useEffect(() => {
+    if (!displayUrl || displayUrl === "about:blank") { setIsBookmarked(false); return; }
+    window.openbrowse.getBookmarkByUrl(displayUrl).then(b => setIsBookmarked(!!b)).catch(() => setIsBookmarked(false));
+  }, [displayUrl]);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!displayUrl || displayUrl === "about:blank") return;
+    if (isBookmarked) {
+      const bk = await window.openbrowse.getBookmarkByUrl(displayUrl) as { id: string } | null;
+      if (bk) await window.openbrowse.deleteBookmark(bk.id);
+      setIsBookmarked(false);
+    } else {
+      const title = selection.activeBrowserTab?.title ?? displayUrl;
+      await window.openbrowse.addBookmark({ url: displayUrl, title });
+      setIsBookmarked(true);
+    }
+  }, [displayUrl, isBookmarked, selection.activeBrowserTab?.title]);
 
   // ---- Step 1.6: Cross-cutting handlers ----
 
@@ -556,22 +604,48 @@ export function App() {
       >
         New Session
       </button>
-      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("sessions")}>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("history")}>
         History
       </button>
       <div style={styles.dropdownSeparator} />
       <button
         className="ob-dropdown-item"
-        style={styles.dropdownItem}
-        disabled
-        title="Open Developer Tools (not yet available)"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.openDevTools(selection.activeBrowserTab.id);
+        }}
       >
         Developer Tools
       </button>
       <div style={styles.dropdownSeparator} />
-      <button className="ob-dropdown-item" style={styles.dropdownItem} disabled>Print Page</button>
-      <button className="ob-dropdown-item" style={styles.dropdownItem} disabled>Save as PDF</button>
-      <button className="ob-dropdown-item" style={styles.dropdownItem} disabled>Bookmarks</button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.printPage(selection.activeBrowserTab.id);
+        }}
+      >
+        Print Page
+      </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.saveAsPdf(selection.activeBrowserTab.id);
+        }}
+      >
+        Save as PDF
+      </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("bookmarks")}>Bookmarks</button>
     </div>
   );
 
@@ -604,6 +678,8 @@ export function App() {
           onToggleSessionList={() => chat.setSessionListOpen(v => !v)}
           onNewSession={chat.createSession}
           onSwitchSession={chat.switchSession}
+          onDeleteSession={chat.deleteSession}
+          onClearChat={chat.clearCurrentChat}
           onChatInputChange={chat.setChatInput}
           onSubmitTask={submitChatTask}
           onResumeRun={handleResumeRun}
@@ -640,6 +716,8 @@ export function App() {
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
           menuOpen={layout.menuOpen}
+          isBookmarked={isBookmarked}
+          onToggleBookmark={() => void handleToggleBookmark()}
           onAddressChange={addressBar.setAddressInput}
           onAddressFocus={addressBar.startEditing}
           onAddressBlur={addressBar.stopEditing}

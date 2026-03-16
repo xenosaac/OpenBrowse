@@ -1222,6 +1222,153 @@ Close the medium-priority "Approval Semantics Refinement" open problem: add name
 
 ---
 
+### Session 20 — 2026-03-16: Agent Brain Overhaul + Feature Completion Sprint
+
+#### Scope
+
+Comprehensive diagnosis and fix of the agent workflow (tasks getting stuck mid-execution) — the highest-priority problem. Then wiring up all missing static UI features (bookmarks, history, session delete, clear chat, URL auto-select, DevTools, print, save as PDF) and chat persistence to SQLite.
+
+#### Phase 1 — Agent Brain Fixes (Critical)
+
+Root cause analysis identified 4 interconnected bugs causing agent tasks to stall:
+
+**1A. `tool_choice` fix — "No reasoning provided"**
+- **Root cause:** `tool_choice: { type: "any" }` in `ClaudePlannerGateway` forces Claude to skip text blocks entirely, outputting only tool calls with no reasoning.
+- **Fix:** Changed to `tool_choice: { type: "auto" }` so Claude can reason before acting. Added retry fallback: if Claude returns text with no tool call, re-prompts with `tool_choice: "any"` and an explicit instruction to call a tool.
+- **File:** `packages/planner/src/ClaudePlannerGateway.ts`
+
+**1B. Planner timeout**
+- **Root cause:** No timeout on `client.messages.create()` — API call could hang indefinitely.
+- **Fix:** Added `callWithTimeout()` using `Promise.race` with 60-second timeout. Throws "Planner timed out after 60s" on expiry.
+- **File:** `packages/planner/src/ClaudePlannerGateway.ts`
+
+**1C. capturePageModel hardening**
+- **Root cause:** CDP failures in `capturePageModel()` crashed the entire planner loop.
+- **Fix:** Wrapped in try/catch with one retry after 500ms. On second failure, uses minimal fallback PageModel (url + title + createdAt only).
+- **File:** `packages/runtime-core/src/RunExecutor.ts`
+
+**1D. Anti-loop detection overhaul**
+- **Root cause:** Cycle detection only caught 2-3 step patterns. Soft failure counter reset on success. Action memory too short (15 items). No URL visit tracking.
+- **Fix:**
+  - Extended cycle detection to 2-5 step patterns over 12-action window
+  - Added `totalSoftFailures` counter that never resets (cap: 8)
+  - Added URL visit counting (warning at 4, fail at 6)
+  - Increased action history cap from 15 to 25
+  - Added `MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 3`
+- **Files:** `packages/runtime-core/src/RunExecutor.ts`, `packages/orchestrator/src/TaskOrchestrator.ts`, `packages/contracts/src/tasks.ts`
+
+**1E. Page model enrichment**
+- Element cap: 80 → 150
+- Visible text: 1500 → 3000 chars (extract: 2000 → 4000)
+- Added: scroll position context, last action result section, URL visit warnings
+- Form extraction: enriched with field labels, types, required status, current values, submit button ref
+- **Files:** `packages/planner/src/buildPlannerPrompt.ts`, `packages/browser-runtime/src/cdp/extractPageModel.ts`, `packages/contracts/src/browser.ts`
+
+**1F. MAX_LOOP_STEPS increase** (only safe after 1D)
+- 20 → 35 steps, with hardened anti-loop detection preventing runaway execution
+- **File:** `packages/runtime-core/src/RunExecutor.ts`
+
+#### Phase 2 — Static UI Features
+
+**2A. URL auto-select on focus**
+- Added `requestAnimationFrame(() => e.target.select())` to address bar `onFocus`
+- **File:** `apps/desktop/src/renderer/components/chrome/NavBar.tsx`
+
+**2B. Session deletion**
+- Added per-session delete button (×) in `SessionListDropdown`
+- Threaded `onDelete` prop through Sidebar → SessionListDropdown
+- **Files:** `SessionListDropdown.tsx`, `Sidebar.tsx`, `App.tsx`
+
+**2C. Bookmarks — Full stack**
+- Backend: IPC handlers (`bookmarks:list`, `bookmarks:get-by-url`, `bookmarks:add`, `bookmarks:delete`, `bookmarks:search`)
+- Preload: 5 new APIs exposed
+- UI: `BookmarkPanel.tsx` (searchable list with delete), bookmark star (☆/★) in NavBar address bar, "Bookmarks" tab in ManagementPanel, hamburger menu item wired
+- **Files:** `registerIpcHandlers.ts`, `preload/index.ts`, `BookmarkPanel.tsx` (new), `NavBar.tsx`, `ManagementPanel.tsx`, `App.tsx`
+
+**2D. Browsing history — Full stack**
+- Backend: IPC handlers (`history:list`, `history:search`, `history:clear`), auto-recording on navigation events
+- Preload: 3 new APIs exposed
+- UI: `HistoryPanel.tsx` (grouped by date, search, clear all with confirmation), "History" tab in ManagementPanel, hamburger menu item wired
+- **Files:** `registerIpcHandlers.ts`, `preload/index.ts`, `HistoryPanel.tsx` (new), `ManagementPanel.tsx`, `App.tsx`
+
+**2E. Clear chat**
+- Added `clearCurrentChat()` to `useChatSessions` — resets messages to welcome message
+- Added trash icon button in `SidebarHeader`
+- **Files:** `useChatSessions.ts`, `SidebarHeader.tsx`, `Sidebar.tsx`, `App.tsx`
+
+#### Phase 3 — Chat Persistence to SQLite
+
+- Added `clearMessages(sessionId)` to `ChatSessionStore` interface, `InMemoryChatSessionStore`, and `SqliteChatSessionStore`
+- Added 7 IPC handlers: `chat:sessions:list`, `chat:sessions:create`, `chat:sessions:delete`, `chat:sessions:update-title`, `chat:messages:append`, `chat:messages:clear`, `chat:runs:link`
+- Added 7 preload APIs for chat persistence
+- Modified `useChatSessions` hook:
+  - On mount: loads sessions from SQLite, hydrates messages + runIds
+  - All mutations persist: create session, delete session, rename, add message, clear chat, link run
+  - `setMessages` callback auto-persists new messages (diff detection via ID set)
+  - Graceful fallback if SQLite unavailable
+- **Files:** `MemoryStore.ts`, `SqliteChatSessionStore.ts`, `registerIpcHandlers.ts`, `preload/index.ts`, `useChatSessions.ts`, `App.tsx`
+
+#### Phase 4 — DevTools, Print, Save as PDF
+
+- Added `openDevTools()`, `printPage()`, `saveAsPdf()` methods to `AppBrowserShell`
+  - DevTools: `webContents.openDevTools({ mode: "detach" })`
+  - Print: `webContents.print()`
+  - PDF: `webContents.printToPDF({})` + `dialog.showSaveDialog()` + `fs.writeFile()`
+- Added 3 IPC handlers: `browser:devtools`, `browser:print`, `browser:save-pdf`
+- Added 3 preload APIs
+- Enabled hamburger menu items (grayed when no browser tab active)
+- **Files:** `AppBrowserShell.ts`, `registerIpcHandlers.ts`, `preload/index.ts`, `App.tsx`
+
+#### Cookie Persistence — No Code Needed
+
+Investigation confirmed Electron's `persist:` partition prefix automatically persists cookies, localStorage, and sessionStorage to disk. All browser profiles use `persist:${profileId}` partitions, standalone tabs use `persist:standalone`. Cookies survive app restarts without any custom code.
+
+#### Tests Updated
+
+3 test files updated for new constants (element cap 150, step budget 35, text cap 3000, action history cap 25):
+- `tests/planner-prompt.test.mjs` — element cap, step budget, visible text assertions
+- `tests/planner-loop.test.mjs` — MAX_LOOP_STEPS 35, action history cap 25, step exhaustion at 35
+- `tests/orchestrator-state.test.mjs` — action history cap 25
+
+#### Files Changed (Full List)
+
+| File | Change |
+|---|---|
+| `packages/planner/src/ClaudePlannerGateway.ts` | tool_choice auto+retry, 60s timeout |
+| `packages/planner/src/buildPlannerPrompt.ts` | Caps (150 elem, 3000 text, 35 steps), scroll/action/URL context, enriched forms |
+| `packages/runtime-core/src/RunExecutor.ts` | capturePageModel hardening, cycle detection (2-5 step), MAX_LOOP_STEPS 35 |
+| `packages/orchestrator/src/TaskOrchestrator.ts` | Action history 25, totalSoftFailures, URL visit counts |
+| `packages/browser-runtime/src/cdp/extractPageModel.ts` | Text cap 4000, enriched form extraction |
+| `packages/contracts/src/tasks.ts` | totalSoftFailures, urlVisitCounts in RunCheckpoint |
+| `packages/contracts/src/browser.ts` | PageFormField interface, extended PageFormSummary |
+| `packages/memory-store/src/MemoryStore.ts` | clearMessages in ChatSessionStore interface + InMemory impl |
+| `packages/memory-store/src/SqliteChatSessionStore.ts` | clearMessages prepared statement + method |
+| `apps/desktop/src/main/browser/AppBrowserShell.ts` | openDevTools, printPage, saveAsPdf |
+| `apps/desktop/src/main/ipc/registerIpcHandlers.ts` | Bookmarks, history, chat, DevTools/print/PDF IPC handlers |
+| `apps/desktop/src/preload/index.ts` | 18 new preload APIs |
+| `apps/desktop/src/renderer/components/App.tsx` | Window types, bookmark state, hamburger menu wiring |
+| `apps/desktop/src/renderer/components/ManagementPanel.tsx` | Bookmarks + History tabs |
+| `apps/desktop/src/renderer/components/BookmarkPanel.tsx` | **New** — bookmark management UI |
+| `apps/desktop/src/renderer/components/HistoryPanel.tsx` | **New** — history management UI |
+| `apps/desktop/src/renderer/components/chrome/NavBar.tsx` | URL auto-select, bookmark star |
+| `apps/desktop/src/renderer/components/sidebar/SessionListDropdown.tsx` | Per-session delete button |
+| `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` | Clear chat button |
+| `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx` | onDeleteSession, onClearChat props |
+| `apps/desktop/src/renderer/hooks/useChatSessions.ts` | clearCurrentChat, SQLite persistence |
+| `tests/planner-prompt.test.mjs` | Updated caps (150, 35, 3000) |
+| `tests/planner-loop.test.mjs` | Updated MAX_LOOP_STEPS 35, history cap 25 |
+| `tests/orchestrator-state.test.mjs` | Updated history cap 25 |
+
+#### Validation
+
+- `pnpm run build:packages` — clean
+- `pnpm run build` — clean (renderer 716.40 kB)
+- `pnpm test` — 141/141 pass
+
+*Session log entry written: 2026-03-16*
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
@@ -1240,35 +1387,37 @@ When the user submits a new task, the agent should first observe the page curren
 
 ### P1 — Core Browser Features
 
-**3. Hamburger menu (☰)**
+**~~3. Hamburger menu (☰)~~** — DONE (Session 20, 2026-03-16). Implemented with New Session, History, DevTools, Print, Save as PDF, Bookmarks items.
 
-Add a three-line menu button to the top-right of the nav bar, next to the existing gear (⚙) icon. The gear stays for quick Settings access. The hamburger menu provides access to: Clear Chat, History, Bookmarks, Developer Tools, Print & Save.
+**~~4. Clear chat history~~** — DONE (Session 20, 2026-03-16). Clear button in SidebarHeader + clearCurrentChat in useChatSessions. Persists to SQLite.
 
-**4. Clear chat history**
-
-Add ability to clear all chat messages from the hamburger menu. Simple state reset of the `messages` array in App.tsx. Consider adding a confirmation dialog.
-
-**5. Browsing history viewer**
-
-Full history of all visited URLs with timestamps, searchable and filterable. Accessible from the hamburger menu. Requires: (a) persist navigation events to memory-store with timestamps, (b) a new History UI panel/overlay.
+**~~5. Browsing history viewer~~** — DONE (Session 20, 2026-03-16). HistoryPanel with date grouping, search, clear all. Auto-recording on navigation. Hamburger + ManagementPanel tab.
 
 **6. Cookie management UI**
 
-View and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel.
+View and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel. Note: cookies already persist automatically via `persist:` partitions — this is purely a management/inspection UI.
 
 ### P2 — Enhancement Features
 
-**7. Bookmark tab & system**
+**~~7. Bookmark tab & system~~** — DONE (Session 20, 2026-03-16). Full stack: BookmarkPanel, star toggle in NavBar, ManagementPanel tab, hamburger item. SQLite-backed.
 
-Bookmark the current page, bookmark manager panel, optional bookmark bar. Requires new persistence layer in memory-store (bookmarks table with URL, title, favicon, folder, timestamp).
+**~~8. Developer mode (F12)~~** — DONE (Session 20, 2026-03-16). `openDevTools({ mode: "detach" })` via hamburger menu. Grayed when no browser tab active.
 
-**8. Developer mode (F12)**
+**~~9. Print & Save~~** — DONE (Session 20, 2026-03-16). Print via `webContents.print()`, Save as PDF via `webContents.printToPDF()` + save dialog. Both in hamburger menu.
 
-Toggle Chrome DevTools for the active WebContentsView. Electron supports `webContents.openDevTools()`. Accessible from the hamburger menu. Should open in a detached window or docked panel.
+### Known Bugs
 
-**9. Print & Save**
+**11. False-positive cycle detection on repetitive but valid actions**
 
-Print current page via `webContents.print()`. Save page as PDF via `webContents.printToPDF()`. Both accessible from the hamburger menu.
+*Reported: 2026-03-16*
+
+When playing Wordle, the agent correctly navigated to the game, clicked Play, closed the How to Play modal, and was about to start typing letters. The cycle detector flagged it as "Stuck in 2-step cycle" after just 2 click actions (click Play → screenshot → click Close modal → screenshot). These are distinct, purposeful actions on different elements — not a loop. The cycle detector matches action *type* keys too aggressively without considering whether the target element or context changed.
+
+**Root cause (preliminary):** `detectCycle()` in `RunExecutor.ts` compares action keys (likely `"click"`) without factoring in the target element ref or the page URL/state. Two consecutive clicks on *different* buttons look identical to the detector.
+
+**Fix needed:** The cycle key should include the target element ref (e.g., `"click:el_42"` vs `"click:el_17"`) or at minimum the element label/text, so that clicking different buttons is not treated as a repeated action. Also consider requiring a minimum of 3-4 full repetitions before declaring a cycle, not just 2.
+
+**Reproduction:** Ask the agent "look up wordle and do it for me today, use anonymous and don't login". Agent correctly navigates → clicks Play → closes How to Play modal → falsely flagged as stuck.
 
 ### P3 — Future
 

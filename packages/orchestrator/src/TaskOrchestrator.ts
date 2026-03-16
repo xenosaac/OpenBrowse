@@ -246,12 +246,13 @@ export class TaskOrchestrator {
       failureClass: result.failureClass,
       url: run.checkpoint.lastKnownUrl,
       targetUrl: result.action.type === "navigate" ? result.action.value : undefined,
+      targetId: result.action.targetId,
       typedText: result.action.type === "type" ? result.action.value : undefined,
       createdAt: new Date().toISOString()
     };
 
     const existingHistory = run.checkpoint.actionHistory ?? [];
-    const actionHistory = [...existingHistory, record].slice(-15);
+    const actionHistory = [...existingHistory, record].slice(-25);
 
     const isSoftFailure = !result.ok && (
       result.failureClass === "element_not_found" ||
@@ -260,6 +261,18 @@ export class TaskOrchestrator {
     const consecutiveSoftFailures = isSoftFailure
       ? (run.checkpoint.consecutiveSoftFailures ?? 0) + 1
       : 0;
+    const totalSoftFailures = isSoftFailure
+      ? (run.checkpoint.totalSoftFailures ?? 0) + 1
+      : (run.checkpoint.totalSoftFailures ?? 0);
+
+    // Track URL visit counts
+    const visitedUrl = result.action.type === "navigate"
+      ? result.action.value
+      : run.checkpoint.lastKnownUrl;
+    const urlVisitCounts = { ...(run.checkpoint.urlVisitCounts ?? {}) };
+    if (visitedUrl) {
+      urlVisitCounts[visitedUrl] = (urlVisitCounts[visitedUrl] ?? 0) + 1;
+    }
 
     return {
       ...run,
@@ -272,7 +285,9 @@ export class TaskOrchestrator {
         pendingBrowserAction: undefined,
         actionHistory,
         lastFailureClass: result.failureClass ?? (result.ok ? undefined : run.checkpoint.lastFailureClass),
-        consecutiveSoftFailures
+        consecutiveSoftFailures,
+        totalSoftFailures,
+        urlVisitCounts
       }
     };
   }

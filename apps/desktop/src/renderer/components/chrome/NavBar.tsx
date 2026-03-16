@@ -13,6 +13,8 @@ interface Props {
   isSecure: boolean;
   waitingCount: number;
   menuOpen: boolean;
+  isBookmarked: boolean;
+  onToggleBookmark: () => void;
   onAddressChange: (val: string) => void;
   onAddressFocus: () => void;
   onAddressBlur: () => void;
@@ -31,6 +33,7 @@ export function NavBar(props: Props) {
   const {
     activeBrowserTab, mainPanel, addressInput, addressEditing,
     navState, displayUrl, isSecure, waitingCount, menuOpen,
+    isBookmarked, onToggleBookmark,
     onAddressChange, onAddressFocus, onAddressBlur, onNavigate,
     onBack, onForward, onReload, onHome, onOpenManagement,
     onToggleMenu, addressBarRef, menuContent
@@ -76,7 +79,7 @@ export function NavBar(props: Props) {
           value={addressEditing ? addressInput : displayUrl}
           placeholder="Search or enter address"
           onChange={(e) => onAddressChange(e.target.value)}
-          onFocus={() => { onAddressChange(displayUrl); onAddressFocus(); }}
+          onFocus={(e) => { onAddressChange(displayUrl); onAddressFocus(); requestAnimationFrame(() => e.target.select()); }}
           onBlur={onAddressBlur}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -91,6 +94,19 @@ export function NavBar(props: Props) {
           }}
           style={{ ...styles.addressInput, WebkitAppRegion: "no-drag" } as React.CSSProperties}
         />
+        {displayUrl && displayUrl !== "about:blank" && (
+          <button
+            className="ob-btn"
+            style={{
+              ...styles.bookmarkStar,
+              color: isBookmarked ? colors.emerald : colors.textMuted,
+            }}
+            onClick={onToggleBookmark}
+            title={isBookmarked ? "Remove bookmark" : "Add bookmark"}
+          >
+            {isBookmarked ? "★" : "☆"}
+          </button>
+        )}
       </div>
       <div style={styles.headerActions}>
         <button
@@ -150,6 +166,10 @@ const styles: Record<string, React.CSSProperties> = {
   addressInput: {
     flex: 1, background: "transparent", border: "none", outline: "none",
     color: colors.textPrimary, fontSize: "0.86rem", minWidth: 0
+  },
+  bookmarkStar: {
+    background: "transparent", border: "none", cursor: "pointer",
+    fontSize: "0.92rem", padding: "2px 4px", flexShrink: 0, lineHeight: 1,
   },
   headerActions: {
     display: "flex", alignItems: "center", gap: 5, WebkitAppRegion: "no-drag"
