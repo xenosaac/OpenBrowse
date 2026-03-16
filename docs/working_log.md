@@ -2869,4 +2869,70 @@ Code review / gap analysis after all P0-P2 backlog complete and 798 tests passin
 - Issue 5: surface retry error in `ClaudePlannerGateway` catch block (observability)
 - P3-10 (profile system) remains deferred
 
+*Session log entry written: 2026-03-16 (Session 50)*
+
+---
+
+### Session 51 — 2026-03-16: Harden JSON.parse Boundaries + Surface Retry Error
+
+#### Context
+
+Gap analysis follow-up from Session 50. Three small hardening issues at JSON.parse / error boundaries:
+
+1. **settingsStore.ts line 27**: `JSON.parse(riskClassPoliciesRaw.value)` assigned directly without shape validation. Non-object or invalid keys/values propagate.
+2. **SqliteRunCheckpointStore.ts lines 38/43/48**: `JSON.parse(row.data)` can throw on corrupted data, crashing the caller.
+3. **ClaudePlannerGateway.ts line 76**: Bare `catch {}` on retry swallows error info.
+
+#### Plan
+
+1. Add `validateRiskClassPolicies()` to `settingsStore.ts` — strip invalid keys/values
+2. Wrap `JSON.parse` in `SqliteRunCheckpointStore` with try/catch
+3. Capture retry error in `ClaudePlannerGateway` and include in failureSummary
+4. Add tests for all three changes
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fix 1 — `packages/runtime-core/src/settingsStore.ts`:**
+- Added exported `validateRiskClassPolicies(parsed: unknown)` function
+- Validates input is a non-null, non-array object
+- Strips keys not in `VALID_RISK_CLASSES` set (financial, credential, destructive, submission, navigation, general)
+- Strips values not in `VALID_POLICIES` set (always_ask, auto_approve, default)
+- `readStoredRuntimeSettings` now calls `validateRiskClassPolicies()` on the parsed result
+
+**Fix 2 — `packages/memory-store/src/SqliteRunCheckpointStore.ts`:**
+- `load()`: wrapped `JSON.parse` in try/catch, returns `null` on parse failure
+- `listByStatus()` and `listAll()`: extracted shared `parseRows()` helper with try/catch per row — corrupted rows are silently skipped
+
+**Fix 3 — `packages/planner/src/ClaudePlannerGateway.ts`:**
+- Retry catch block now captures error message in `retryError` variable
+- `failureSummary` includes ` (retry error: <message>)` suffix when retry threw
+
+**Tests added:**
+- `tests/settingsStore.test.mjs`: +12 tests (9 for `validateRiskClassPolicies` + 3 integration tests for invalid stored JSON shapes)
+- `tests/claudePlannerGateway.test.mjs`: updated 1 test to assert retry error is surfaced in failureSummary
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm --filter @openbrowse/memory-store build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/settingsStore.test.mjs` — 30/30 pass (was 18, +12 new)
+- `node --test tests/claudePlannerGateway.test.mjs` — 17/17 pass (1 updated assertion)
+- `node --test tests/*.test.mjs` — 820/820 pass (was 808, +12 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Issue 4 from gap analysis (try/catch `JSON.parse` in `SqliteRunCheckpointStore`) — DONE in this session
+- Issue 5 (surface retry error in `ClaudePlannerGateway`) — DONE in this session
+- All three gap analysis hardening issues now resolved
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16 (Session 51)*
+
 *Session log entry written: 2026-03-16*
