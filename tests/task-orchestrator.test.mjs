@@ -241,6 +241,45 @@ test("observePage sets lastPageTitle to undefined for empty title", () => {
   assert.equal(observed.checkpoint.lastPageTitle, undefined);
 });
 
+test("observePage caps formValues at 20 entries", () => {
+  const o = makeOrchestrator();
+  const running = makeRunning(o);
+  const elements = Array.from({ length: 25 }, (_, i) => ({
+    id: `input_${i}`,
+    role: "textbox",
+    label: `Field ${i}`,
+    value: `val_${i}`,
+    isActionable: true,
+    inputType: "text",
+  }));
+  const observed = o.observePage(running, makePageModel({ elements }));
+  assert.equal(Object.keys(observed.checkpoint.lastPageModelSnapshot.formValues).length, 20);
+});
+
+test("observePage only captures inputs with non-empty value", () => {
+  const o = makeOrchestrator();
+  const running = makeRunning(o);
+  const pm = makePageModel({
+    elements: [
+      { id: "e1", role: "button", label: "Submit", isActionable: true },
+      { id: "e2", role: "textbox", label: "Empty", isActionable: true, inputType: "text" },
+      { id: "e3", role: "link", label: "Link", isActionable: true, href: "https://example.com" },
+    ],
+  });
+  const observed = o.observePage(running, pm);
+  assert.equal(observed.checkpoint.lastPageModelSnapshot.formValues, undefined);
+});
+
+test("recordBrowserResult omits targetId when action has none", () => {
+  const o = makeOrchestrator();
+  const running = makeRunning(o);
+  const after = o.recordBrowserResult(running, makeActionResult({
+    action: { type: "navigate", value: "https://example.com", description: "Go to site" },
+    summary: "Navigated",
+  }));
+  assert.equal(after.checkpoint.actionHistory[0].targetId, undefined);
+});
+
 // === applyPlannerDecision — clarification_request ===
 
 test("applyPlannerDecision suspends for clarification", () => {
