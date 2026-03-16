@@ -77,6 +77,7 @@ export interface PageElementModel {
   valueMax?: number;
   valueText?: string;
   orientation?: "horizontal" | "vertical";
+  autocomplete?: "inline" | "list" | "both";
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
