@@ -121,6 +121,7 @@ export interface PageModel {
   forms?: PageFormSummary[];
   alerts?: string[];
   captchaDetected?: boolean;
+  cookieBannerDetected?: boolean;
   scrollY?: number;
   activeDialog?: { label: string };
   tables?: Array<{
