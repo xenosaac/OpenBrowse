@@ -90,6 +90,10 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.href) line += ` href="${el.href}"`;
       if (el.inputType && el.inputType !== "text") line += ` type="${el.inputType}"`;
       if (el.value) line += ` value="${el.value}"`;
+      if (el.checked) line += " (checked)";
+      if (el.selected) line += " (selected)";
+      if (el.expanded === true) line += " (expanded)";
+      if (el.expanded === false) line += " (collapsed)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";
       if (!el.boundingVisible && el.isActionable) line += " (off-screen)";

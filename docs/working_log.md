@@ -3372,3 +3372,61 @@ Gap analysis (Session 58): `focusedElementId` is captured by the CDP extraction 
 - Consider adding `ariaSelected`/`ariaChecked`/`ariaExpanded` state to element rendering in prompt (captured by CDP but not surfaced)
 
 *Session log entry written: 2026-03-16 (Session 59)*
+
+---
+
+### Session 60 — 2026-03-16: Surface ARIA State Attributes in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 59): suggested surfacing `ariaSelected`/`ariaChecked`/`ariaExpanded` state in planner prompt. Investigation reveals these are NOT captured by the CDP extraction script at all — the planner has no visibility into checkbox/radio checked state, dropdown expanded state, or tab selected state. This limits the planner's ability to understand and interact with toggleable elements.
+
+#### Plan
+
+1. Add `checked`, `selected`, `expanded` to CDP element extraction in `extractPageModel.ts`
+2. Add corresponding optional fields to `PageElementModel` contract in `contracts/browser.ts`
+3. Surface in `buildPlannerPrompt.ts` element rendering (e.g., "(checked)", "(selected)", "(expanded)")
+4. Add tests for presence/absence of state annotations
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `checked?: boolean`, `selected?: boolean`, `expanded?: boolean` optional fields to `PageElementModel`
+- These represent ARIA interactive state: checkbox/radio checked state, tab/option selected state, accordion/dropdown expanded state
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- `checked`: Captures `el.checked` for checkbox/radio inputs, falls back to `aria-checked="true"` for custom components
+- `selected`: Captures `aria-selected="true"` for tabs, list items, tree items
+- `expanded`: Captures `aria-expanded` — `true` for expanded, `false` for collapsed, `undefined` when absent
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(checked)`, `(selected)`, `(expanded)`, `(collapsed)` state annotations
+- Placed before `(disabled)` and `(readonly)` for natural reading order
+
+**Impact:** The planner now knows:
+- Whether a checkbox/radio is checked or unchecked (no need to guess from page text)
+- Which tab is currently selected (avoid clicking an already-active tab)
+- Whether a dropdown/accordion is open or closed (decide whether to expand or collapse)
+
+**Added 8 tests to `tests/planner-prompt.test.mjs`:**
+- checked present/absent, selected present/absent, expanded/collapsed/absent, multiple states together
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 61/61 pass (was 53, +8 new)
+- `node --test tests/*.test.mjs` — 894/894 pass (was 886, +8 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (894 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-label` override in element rendering when it differs from visible text
+
+*Session log entry written: 2026-03-16 (Session 60)*

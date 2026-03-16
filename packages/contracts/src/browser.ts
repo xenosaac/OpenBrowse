@@ -61,6 +61,9 @@ export interface PageElementModel {
   inputType?: string;
   disabled?: boolean;
   readonly?: boolean;
+  checked?: boolean;
+  selected?: boolean;
+  expanded?: boolean;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }
