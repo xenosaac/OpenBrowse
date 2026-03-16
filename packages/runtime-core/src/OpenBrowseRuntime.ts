@@ -205,6 +205,37 @@ export class OpenBrowseRuntime {
   }
 
   async resumeTaskFromMessage(message: TaskMessage): Promise<TaskRun | null> {
+    return this.handleSuspensionMessage(
+      message,
+      (run, action) => this.resumeExecution(run, action),
+      async () => {}
+    );
+  }
+
+  async resumeTaskFromMessageDetached(
+    message: TaskMessage,
+    onSettled?: (run: TaskRun) => Promise<void> | void
+  ): Promise<TaskRun | null> {
+    return this.handleSuspensionMessage(
+      message,
+      (run, action) => this.detachedResume(run, onSettled, action),
+      async (run) => { await onSettled?.(run); }
+    );
+  }
+
+  /**
+   * Shared logic for handling a message directed at a suspended run.
+   * Handles approval parsing (approve/deny/ambiguous), denial outcomes
+   * (deny-continue vs cancel), and clarification resume.
+   *
+   * @param doResume — called to continue the run (sync or detached)
+   * @param onTerminal — called when the run reaches a terminal state (cancel)
+   */
+  private async handleSuspensionMessage(
+    message: TaskMessage,
+    doResume: (run: TaskRun, pendingAction?: BrowserAction) => Promise<TaskRun>,
+    onTerminal: (run: TaskRun) => Promise<void>
+  ): Promise<TaskRun | null> {
     if (!message.runId) return null;
     const run = await this.services.runCheckpointStore.load(message.runId);
     if (!run || !run.suspension) return null;
@@ -232,80 +263,9 @@ export class OpenBrowseRuntime {
           resumedRun.checkpoint.pendingBrowserAction = undefined;
           await this.services.runCheckpointStore.save(resumedRun);
           await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied \u2014 continuing with alternative.", {
-            channel: message.channel,
-            approved: "false",
-            outcome: "denied_continue"
-          });
-          return this.resumeExecution(resumedRun);
-        }
-
-        const cancelledRun = this.services.orchestrator.cancelRun(run, "User denied approval request.", message.createdAt);
-        await this.services.runCheckpointStore.save(cancelledRun);
-        await this.logWorkflowEvent(cancelledRun.id, "approval_answered", "Approval denied by user.", {
-          channel: message.channel, approved: "false"
-        });
-        await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
-        await this.handoff.writeHandoff(cancelledRun);
-        return cancelledRun;
-      }
-
-      const pendingAction = run.checkpoint.pendingBrowserAction;
-      const resumedRun = this.services.orchestrator.resumeFromApproval(run, true, message.createdAt);
-      await this.services.runCheckpointStore.save(resumedRun);
-      await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval granted by user.", {
-        channel: message.channel, approved: "true"
-      });
-      return this.resumeExecution(resumedRun, pendingAction);
-    }
-
-    if (!run.checkpoint.pendingClarificationId) return run;
-
-    const resumedRun = this.services.orchestrator.resumeFromClarification(run, {
-      requestId: run.checkpoint.pendingClarificationId,
-      runId: run.id,
-      answer: message.text,
-      respondedAt: message.createdAt
-    });
-    await this.services.runCheckpointStore.save(resumedRun);
-    await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
-      channel: message.channel
-    });
-    return this.resumeExecution(resumedRun);
-  }
-
-  async resumeTaskFromMessageDetached(
-    message: TaskMessage,
-    onSettled?: (run: TaskRun) => Promise<void> | void
-  ): Promise<TaskRun | null> {
-    if (!message.runId) return null;
-    const run = await this.services.runCheckpointStore.load(message.runId);
-    if (!run || !run.suspension) return null;
-
-    if (run.suspension.type === "approval") {
-      const approved = parseApprovalAnswer(message.text);
-      if (approved === null) {
-        await this.services.chatBridge.send({
-          channel: message.channel, runId: run.id,
-          text: `Run "${run.goal}" is waiting for approval. Reply with "approve" or "deny".`
-        });
-        return run;
-      }
-
-      if (!approved) {
-        const pendingAction = run.checkpoint.pendingBrowserAction;
-        const denialOutcome = pendingAction
-          ? this.services.securityPolicy.resolveDenial(run, pendingAction)
-          : "denied";
-
-        if (denialOutcome === "denied_continue") {
-          const resumedRun = this.services.orchestrator.resumeFromApproval(run, false, message.createdAt);
-          resumedRun.checkpoint.notes.push(`Action denied by user: "${pendingAction?.description ?? "unknown"}". Try a different approach.`);
-          resumedRun.checkpoint.pendingBrowserAction = undefined;
-          await this.services.runCheckpointStore.save(resumedRun);
-          await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied \u2014 continuing with alternative.", {
             channel: message.channel, approved: "false", outcome: "denied_continue"
           });
-          return this.detachedResume(resumedRun, onSettled);
+          return doResume(resumedRun);
         }
 
         const cancelledRun = this.services.orchestrator.cancelRun(run, "User denied approval request.", message.createdAt);
@@ -315,7 +275,7 @@ export class OpenBrowseRuntime {
         });
         await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
         await this.handoff.writeHandoff(cancelledRun);
-        await onSettled?.(cancelledRun);
+        await onTerminal(cancelledRun);
         return cancelledRun;
       }
 
@@ -325,7 +285,7 @@ export class OpenBrowseRuntime {
       await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval granted by user.", {
         channel: message.channel, approved: "true"
       });
-      return this.detachedResume(resumedRun, onSettled, pendingAction);
+      return doResume(resumedRun, pendingAction);
     }
 
     if (!run.checkpoint.pendingClarificationId) return run;
@@ -340,7 +300,7 @@ export class OpenBrowseRuntime {
     await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
       channel: message.channel
     });
-    return this.detachedResume(resumedRun, onSettled);
+    return doResume(resumedRun);
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
