@@ -2647,6 +2647,12 @@ test("error recovery section does not encourage infinite retries", () => {
   assert.match(system, /different approach/, "suggests alternative approach");
 });
 
+test("system prompt includes clear_first guidance for form field replacement", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.match(system, /clear_first/, "clear_first parameter mentioned in prompt");
+  assert.match(system, /replacing existing content|pre-filled/i, "explains when to use clear_first");
+});
+
 test("T4: all three realistic page models produce prompts under 30k chars", () => {
   const scenarios = [
     { name: "Google SERP", pm: makeGoogleSERPPageModel(), goal: "Search for OpenAI" },

@@ -328,20 +328,34 @@ export class ElectronBrowserKernel implements BrowserKernel {
         case "type": {
           const targetId = this.requireTargetId(action);
           const value = this.requireActionValue(action);
-          // Focus element, scroll into view, select all existing text
+          // Focus element, scroll into view
           const found = await managed.cdp.callFunction<boolean>(
             `function(targetAttr, targetId) {
               const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
               if (!el) return false;
               el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
               el.focus();
-              if (typeof el.select === 'function') el.select();
               return true;
             }`,
             TARGET_ATTR,
             targetId
           );
           if (!found) throw new Error(`Target not found: ${targetId}`);
+
+          // If clear_first, select all existing text via keyboard shortcut before typing.
+          // Uses Ctrl+A (works cross-platform in Chromium content areas).
+          if (action.clearFirst) {
+            await managed.cdp.send("Input.dispatchKeyEvent", {
+              type: "keyDown", key: "a", code: "KeyA",
+              modifiers: 2, // Ctrl
+              windowsVirtualKeyCode: 65
+            });
+            await managed.cdp.send("Input.dispatchKeyEvent", {
+              type: "keyUp", key: "a", code: "KeyA",
+              modifiers: 2,
+              windowsVirtualKeyCode: 65
+            });
+          }
 
           // Use character-by-character key dispatch for React/Vue/Angular compat.
           // Fast-path: insertText if hinted (plain HTML inputs without framework bindings).

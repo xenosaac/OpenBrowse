@@ -258,6 +258,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - For links with href: prefer browser_navigate with the href over browser_click
 - After visiting a page to read its content, use browser_go_back to return to search results or the previous page instead of re-navigating and re-searching
 - After filling form fields: press Enter or click the submit button
+- When replacing existing content in a form field (pre-filled values, default text, autofill), set clear_first to true on browser_type — this selects all existing text before typing, replacing it in one step
 - If an element is off-screen: scroll first to reveal it
 - For cookie consent banners: dismiss them first
 - For CAPTCHAs: call ask_user — you cannot solve them
