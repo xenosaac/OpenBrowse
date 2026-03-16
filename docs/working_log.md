@@ -1795,6 +1795,46 @@ Added two test files:
 
 ---
 
+### Session 31 — 2026-03-16: Gap Analysis — RunExecutor Test Suite
+
+#### Context
+
+Continuing gap analysis. All P0–P2 backlog done, P3 deferred. Initially planned to test `RecoveryManager` and `settings.ts` factories, but both modules import from `OpenBrowseRuntime.js` which transitively pulls in `ElectronBrowserKernel` (requires Electron context). Pivoted to `RunExecutor`, the most complex untested module that IS importable from system Node.
+
+#### Plan
+
+1. Add `tests/runExecutor.test.mjs` — test plannerLoop (complete, fail, clarification, approval, cancellation, browser action, stuck detection, max steps), continueResume (navigate, pending action, recovery context injection)
+2. Run `node --test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+**`tests/runExecutor.test.mjs`** — 18 tests:
+- `plannerLoop` terminal paths (4 tests): task_complete, task_failed, clarification_request suspension, planner error
+- `plannerLoop` browser_action (3 tests): successful action + continue, hard failure (non-soft), session lost
+- `plannerLoop` soft failure handling (3 tests): element_not_found continues, max consecutive soft failures, max total soft failures
+- `plannerLoop` control flow (3 tests): cooperative cancellation early return, max steps exceeded, approval gate suspension
+- `plannerLoop` state management (1 test): recovery context cleared after first planner call
+- `continueResume` (4 tests): navigate to lastKnownUrl, pending action execution, pending action failure, recovery context injection from snapshot
+
+Key mock design: full mock of `RuntimeServices` (orchestrator, planner, browserKernel, chatBridge, securityPolicy, stores), `CancellationController`, `HandoffManager`, and `SessionManager`. Action history in `recordBrowserResult` mock includes `targetId` and `url` to prevent false cycle detection on unique actions.
+
+#### Verification
+
+- `node --test tests/runExecutor.test.mjs` — 18/18 pass
+- `node --test tests/*.test.mjs` — 379/379 pass (was 361, +18 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests are blocked by Electron import dependency — would need either module mocking or extracting pure functions into separate files
+- Consider extracting `detectCycle()` from RunExecutor and testing directly (currently private)
+- Consider tests for Electron-dependent modules under Electron test harness
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
