@@ -3972,3 +3972,65 @@ This prevents the planner from clicking a column that's already sorted in the de
 - Consider surfacing `aria-roledescription` for custom widget descriptions
 
 *Session log entry written: 2026-03-16 (Session 69)*
+
+---
+
+### Session 70 — 2026-03-16: Surface aria-roledescription in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 69 suggestion): `aria-roledescription` overrides the default role text for custom widgets. For example, `<div role="slider" aria-roledescription="temperature control">` should be presented as "temperature control" instead of generic "slider". Without this, the planner sees only the generic ARIA role and may not understand what a custom widget does.
+
+#### Plan
+
+1. Add `roleDescription?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-roledescription` attribute (capped at 40 chars)
+3. Surface `roleDesc="..."` in `buildPlannerPrompt.ts` element rendering (after role/label)
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `roleDescription?: string` optional field to `PageElementModel`
+- Captures the `aria-roledescription` attribute value for custom widget descriptions
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `aria-sort`, captures `aria-roledescription` attribute
+- Trimmed, capped at 40 chars, only set when non-empty
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `roleDesc="..."` after sort annotation and before text
+- Example: `[el_5] slider "Temperature" roleDesc="temperature control" *`
+
+**Impact:** The planner can now see custom widget descriptions:
+- A slider with `aria-roledescription="temperature control"` instead of generic "slider"
+- A carousel with `aria-roledescription="image gallery"` instead of generic "group"
+- Any custom component where authors provided a human-readable role description
+This helps the planner understand what custom widgets do and interact with them more appropriately.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- roleDescription rendered when present
+- roleDescription absent when undefined
+- roleDescription rendered after sort and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 95/95 pass (was 92, +3 new)
+- `node --test tests/*.test.mjs` — 928/928 pass (was 925, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (928 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-valuemin`/`aria-valuemax`/`aria-valuenow` for range widgets (sliders, progress bars)
+
+*Session log entry written: 2026-03-16 (Session 70)*

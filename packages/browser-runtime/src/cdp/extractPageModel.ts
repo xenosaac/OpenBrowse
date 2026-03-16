@@ -329,6 +329,9 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     var elSort = el.getAttribute('aria-sort');
     elSort = (elSort && elSort !== 'none') ? elSort : undefined;
 
+    // aria-roledescription: custom widget description overriding generic role
+    var elRoleDesc = (el.getAttribute('aria-roledescription') || '').trim().slice(0, 40) || undefined;
+
     elements.push({
       id: targetId,
       role: role,
@@ -338,6 +341,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       level: elLevel,
       current: elCurrent,
       sort: elSort,
+      roleDescription: elRoleDesc,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
