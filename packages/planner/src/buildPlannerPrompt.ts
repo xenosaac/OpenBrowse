@@ -58,6 +58,12 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? `\n** WARNING: You have navigated to the same URL ${lastActions.length} times in a row. The page may be redirecting. Try a completely different approach: use a search engine, try a different URL, or consider that this specific page may not be accessible.`
     : "";
 
+  // --- Planner scratchpad notes ---
+  const plannerNotes = run.checkpoint.plannerNotes ?? [];
+  const plannerNotesSection = plannerNotes.length > 0
+    ? `\nYour saved notes (from browser_save_note — persistent across pages):\n${plannerNotes.map((n) => `  "${n.key}": ${n.value}`).join("\n")}`
+    : "";
+
   const recoveryContext = run.checkpoint.recoveryContext;
   const recoverySection = recoveryContext
     ? `\n** RECOVERY MODE: This run was interrupted and has been automatically resumed.
@@ -262,6 +268,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - After actions that trigger dynamic content loading (typing a search query then pressing Enter, clicking a navigation link on a single-page app), use browser_wait_for_text to wait for expected content to appear instead of using browser_wait with a fixed duration — it's faster and more reliable
 - After submitting a form, clicking a login button, or any action that should redirect to a different page, use browser_wait_for_navigation to wait for the URL to change — this catches JavaScript redirects and server-side redirects that may not complete immediately
 - When completing a task that involved searching, extracting, or looking up information, include the results as extracted_data in task_complete (array of {label, value} pairs) so the user receives structured findings
+- For multi-page tasks (comparing prices, collecting data from multiple sites), use browser_save_note to record intermediate findings before navigating away — your notes persist across pages and appear in "Your saved notes" on every subsequent step
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 
@@ -308,7 +315,7 @@ If you need user input, call ask_user. Otherwise, continue with your next action
 
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${activePageHint}${selfAssessmentSection}
 
 Current page:
 URL: ${pageModel.url}

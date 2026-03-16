@@ -163,6 +163,19 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_save_note",
+    description: "Save a note to your scratchpad for later reference. Use this to record intermediate findings, extracted data, or context you'll need on a future page (e.g. search results, prices, names, URLs to visit next). Notes persist across page navigations and appear in your context on every subsequent step.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        key: { type: "string", description: "A short label for this note (e.g. 'Site 1 price', 'Top 3 results', 'Login URL')" },
+        value: { type: "string", description: "The note content — the information to remember" },
+        description: { type: "string", description: "Why you are saving this note" }
+      },
+      required: ["key", "value", "description"]
+    }
+  },
+  {
     name: "task_complete",
     description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
@@ -240,6 +253,8 @@ export interface ToolInput {
   question?: string;
   options?: Array<{ label: string; summary?: string }>;
   extracted_data?: Array<Record<string, unknown>>;
+  // Note: 'key' is used by both browser_press_key (keyboard key) and browser_save_note (note label).
+  // The mapping function disambiguates by tool name.
 }
 
 export function mapToolCallToDecision(
@@ -407,6 +422,20 @@ export function mapToolCallToDecision(
           type: "wait_for_navigation",
           description: input.description ?? "Wait for navigation",
           interactionHint: String(input.timeout ?? 10000)
+        }
+      };
+
+    case "browser_save_note":
+      if (!input.key) return fail("browser_save_note called without key");
+      if (!input.value) return fail("browser_save_note called without value");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "save_note",
+          value: input.value,
+          description: input.description ?? "Save note",
+          interactionHint: input.key
         }
       };
 

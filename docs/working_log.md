@@ -6541,3 +6541,83 @@ Rationale: All PM tasks (T1-T8) complete. All UI design tasks (D1-D7) complete. 
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 109)*
+
+---
+
+### Session 110 — 2026-03-16: Add `browser_save_note` Planner Tool — Scratchpad for Multi-Page Tasks
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) complete. All UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3 deferred. T9 requires user action. The planner currently loses all context from previous pages when navigating — it only has the current page model plus a compressed action history. For multi-page tasks like "compare prices across 3 sites" or "search and collect data from multiple pages", the planner needs to explicitly save intermediate findings. A `browser_save_note` tool gives the planner an explicit scratchpad: saved notes appear in a dedicated prompt section on every subsequent step, enabling cross-page context retention.
+
+#### Plan
+
+1. **`contracts/src/browser.ts`**: Add `"save_note"` to `BrowserActionType`.
+2. **`contracts/src/tasks.ts`**: Add `plannerNotes?: Array<{key: string; value: string}>` to `RunCheckpoint`.
+3. **`planner/src/toolMapping.ts`**: Add `browser_save_note` tool definition + mapping + `key` to `ToolInput`.
+4. **`runtime-core/src/RunExecutor.ts`**: Intercept `save_note` actions before kernel — store note in checkpoint, create synthetic success result, skip kernel call.
+5. **`planner/src/buildPlannerPrompt.ts`**: Add "Your saved notes" section from `run.checkpoint.plannerNotes`.
+6. **Tests**: Tool definition, mapping, prompt building.
+7. Run typecheck and tests.
+
+#### Implementation
+
+**1. `packages/contracts/src/browser.ts`** — Added `"save_note"` to `BrowserActionType` union.
+
+**2. `packages/contracts/src/tasks.ts`** — Added `plannerNotes?: Array<{ key: string; value: string }>` to `RunCheckpoint` interface.
+
+**3. `packages/planner/src/toolMapping.ts`**:
+- Added `browser_save_note` tool definition: takes `key` (short label), `value` (note content), `description` (why saving). Required: key, value, description.
+- Added mapping case: maps to `BrowserAction` with `type: "save_note"`, `value` = note content, `interactionHint` = note key. This reuses existing BrowserAction fields without needing new ones.
+- Added comment to `ToolInput` interface documenting `key` dual use (press_key vs save_note).
+
+**4. `packages/runtime-core/src/RunExecutor.ts`** — Added `save_note` interception before kernel dispatch:
+- When action type is `save_note`, handles locally without calling the browser kernel
+- Extracts key from `interactionHint`, value from `action.value`
+- Upserts into `plannerNotes` array on the checkpoint (same key → replace, new key → append)
+- Caps at 20 notes to prevent unbounded growth
+- Creates synthetic success `BrowserActionResult` for action history
+- Records via `orchestrator.recordBrowserResult` for step counting
+- Continues loop (no page model refresh needed for a note operation)
+
+**5. `packages/planner/src/buildPlannerPrompt.ts`**:
+- Added "Your saved notes" section to user prompt — renders all `plannerNotes` as `"key": value` pairs
+- Section only appears when notes exist (no noise on empty)
+- Added system prompt guidance: "For multi-page tasks, use browser_save_note to record intermediate findings"
+- Notes section appears after user answers and before active page hint
+
+**6. Tests (10 new tests)**:
+- `tests/toolMapping.test.mjs` (+7): tool count updated (16→17), expected tool names include `browser_save_note`, mapping tests (happy path, default description, missing key, missing value), missing-field validation tests (2), cross-cutting reasoning preservation
+- `tests/planner-prompt.test.mjs` (+4): notes appear with plannerNotes entries, absent when empty, absent when undefined, system prompt mentions browser_save_note
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `save_note` action type
+- `packages/contracts/src/tasks.ts` — Added `plannerNotes` to RunCheckpoint
+- `packages/planner/src/toolMapping.ts` — Added browser_save_note tool + mapping
+- `packages/planner/src/buildPlannerPrompt.ts` — Added notes prompt section + guidance
+- `packages/runtime-core/src/RunExecutor.ts` — Added save_note interception
+- `tests/toolMapping.test.mjs` — 7 new/updated tests
+- `tests/planner-prompt.test.mjs` — 4 new tests
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 68/68 pass (was 61, +7 new/updated)
+- `node --test tests/planner-prompt.test.mjs` — 173/173 pass (was 169, +4 new)
+- `node --test tests/*.test.mjs` — 1047/1047 pass (was 1037, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 17 tools: navigate, click, type, select, scroll, hover, press_key, wait, screenshot, go_back, read_text, wait_for_text, wait_for_navigation, **save_note**, task_complete, task_failed, ask_user.
+- `browser_save_note` enables multi-page data collection: compare prices across sites, collect search results, remember context during multi-step workflows.
+- Notes persist in the checkpoint and survive recovery/resume (they're part of RunCheckpoint).
+- Notes are capped at 20 per run to prevent unbounded prompt growth.
+- Same-key writes update in place (upsert semantics), so the planner can refine notes as it learns more.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- Next potential features: `browser_clear_field` (explicit field clearing), file upload support, or vision integration for screenshot interpretation.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 110)*

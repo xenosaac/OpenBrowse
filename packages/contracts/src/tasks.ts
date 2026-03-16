@@ -118,6 +118,8 @@ export interface RunCheckpoint {
   totalSoftFailures?: number;
   /** How many times each URL has been visited during this run. */
   urlVisitCounts?: Record<string, number>;
+  /** Planner scratchpad — keyed notes saved via browser_save_note for cross-page context. */
+  plannerNotes?: Array<{ key: string; value: string }>;
   /** Lightweight snapshot of the last captured page model for recovery context. */
   lastPageModelSnapshot?: {
     title: string;
