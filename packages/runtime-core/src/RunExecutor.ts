@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import type { BrowserAction, BrowserActionFailureClass, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { MAX_PLANNER_STEPS } from "@openbrowse/planner";
 import type { RuntimeServices } from "./types.js";
 import type { SessionManager } from "./SessionManager.js";
@@ -10,6 +10,18 @@ const MAX_TOTAL_SOFT_FAILURES = 8;
 const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
 const MAX_URL_VISITS_BEFORE_FAIL = 12;
 const CYCLE_DETECTION_WINDOW = 20;
+
+/**
+ * Failure classes that are recoverable — the planner gets another iteration to
+ * try a different approach.  Safety nets (MAX_CONSECUTIVE_SOFT_FAILURES,
+ * MAX_TOTAL_SOFT_FAILURES) prevent infinite loops.
+ */
+const SOFT_FAILURE_CLASSES: ReadonlySet<BrowserActionFailureClass> = new Set([
+  "element_not_found",
+  "network_error",
+  "interaction_failed",
+  "navigation_timeout",
+]);
 
 /**
  * Detect repeating cycles of length 2–5 in an array of action keys.
@@ -230,11 +242,12 @@ export class RunExecutor {
         }
 
         if (!result.ok) {
-          if (result.failureClass !== "element_not_found" && result.failureClass !== "network_error") {
+          const fc = result.failureClass ?? "unknown";
+          if (!SOFT_FAILURE_CLASSES.has(fc as BrowserActionFailureClass)) {
             current = this.services.orchestrator.failRun(current, result.summary);
             await this.services.runCheckpointStore.save(current);
             await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
-              failureClass: result.failureClass ?? "unknown"
+              failureClass: fc
             });
             await this.handoff.writeHandoff(current);
             return current;
@@ -393,11 +406,12 @@ export class RunExecutor {
       });
 
       if (!result.ok) {
-        // Soft failures (element_not_found, network_error) are recoverable on resume —
-        // the page DOM likely changed after re-navigation, so the planner should retry.
-        if (result.failureClass === "element_not_found" || result.failureClass === "network_error") {
+        // Soft failures are recoverable on resume — the page DOM likely changed
+        // after re-navigation, so the planner should retry with fresh context.
+        const fc = result.failureClass ?? "unknown";
+        if (SOFT_FAILURE_CLASSES.has(fc as BrowserActionFailureClass)) {
           current.checkpoint.notes.push(
-            `Pending action "${pendingAction.description}" failed after resume (${result.failureClass}). The page state may have changed. Trying a different approach.`
+            `Pending action "${pendingAction.description}" failed after resume (${fc}). The page state may have changed. Trying a different approach.`
           );
           await this.services.runCheckpointStore.save(current);
         } else {

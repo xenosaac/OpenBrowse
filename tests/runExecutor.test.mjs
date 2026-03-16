@@ -560,12 +560,12 @@ test("continueResume executes pending action before plannerLoop", async () => {
   assert.equal(result.status, "completed");
 });
 
-test("continueResume fails if pending action has hard failure", async () => {
+test("continueResume fails if pending action has hard failure (validation_error)", async () => {
   const { services } = makeServices({
     decisions: [],
     executeResults: [
       { ok: true, summary: "Navigated" },
-      { ok: false, summary: "Click failed", failureClass: "interaction_failed" },
+      { ok: false, summary: "Invalid input", failureClass: "validation_error" },
     ],
   });
   const cancellation = makeCancellation();
@@ -577,6 +577,46 @@ test("continueResume fails if pending action has hard failure", async () => {
 
   assert.equal(result.status, "failed");
   assert.ok(handoff.handoffs.length >= 1);
+});
+
+test("continueResume recovers from pending action interaction_failed (soft failure)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after recovery" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Click failed — element stale", failureClass: "interaction_failed" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "click", targetId: "btn_stale", description: "Click stale button" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("interaction_failed")));
+  assert.ok(runWithNote, "Should have a note about the interaction_failed soft failure");
+});
+
+test("continueResume recovers from pending action navigation_timeout (soft failure)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after recovery" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Navigation timed out", failureClass: "navigation_timeout" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "navigate", value: "https://slow.com", description: "Navigate to slow page" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("navigation_timeout")));
+  assert.ok(runWithNote, "Should have a note about the navigation_timeout soft failure");
 });
 
 test("continueResume recovers from pending action element_not_found (soft failure)", async () => {
@@ -953,6 +993,69 @@ test("plannerLoop sends step progress when chatBridge.shouldSendStepProgress ret
   assert.ok(sentMessages.length >= 1, "Expected at least 1 step progress message");
   assert.ok(sentMessages[0].text.includes("Step"));
   assert.equal(sentMessages[0].channel, "telegram");
+});
+
+// --- plannerLoop: interaction_failed treated as soft failure ---
+
+test("plannerLoop continues on interaction_failed soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Click obscured button" } },
+      { type: "task_complete", reasoning: "Done after recovering" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Element not interactable", failureClass: "interaction_failed" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
+
+// --- plannerLoop: navigation_timeout treated as soft failure ---
+
+test("plannerLoop continues on navigation_timeout soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Navigate", action: { type: "navigate", value: "https://slow.example.com", description: "Go to slow page" } },
+      { type: "task_complete", reasoning: "Done after retrying" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Navigation timed out", failureClass: "navigation_timeout" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
+
+// --- plannerLoop: validation_error still treated as hard failure ---
+
+test("plannerLoop fails immediately on validation_error", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Type", action: { type: "type", targetId: "input", description: "Type text" } },
+    ],
+    executeResults: [
+      { ok: false, summary: "Invalid selector", failureClass: "validation_error" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(handoff.handoffs.length >= 1);
 });
 
 // --- plannerLoop: network_error treated as soft failure ---
