@@ -23,7 +23,7 @@ export function SidebarHeader({ runningCount, waitingCount, onToggleSessionList,
               </span>
             )}
             {waitingCount > 0 && (
-              <span style={{ ...styles.statusPip, color: "#f59e0b" }}>
+              <span style={{ ...styles.statusPip, color: colors.statusWaiting }}>
                 ◉ {waitingCount} waiting
               </span>
             )}

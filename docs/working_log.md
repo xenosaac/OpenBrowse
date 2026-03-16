@@ -6795,3 +6795,62 @@ Rationale: All PM tasks (T1-T8, T10-T12) are complete. T9 requires user action. 
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 113)*
+
+---
+
+### Session 114 — 2026-03-16: D9 — Add Status Tone Border Tokens and Fix Raw Hex Values
+
+#### Mode: feature
+
+Rationale: All PM tasks complete. D8 done. D9 is the next UI design task — adds status tone border tokens to `tokens.ts` and replaces raw hex/Tailwind values with token references across 3 component files. Pure token hygiene, no visual change. Well-scoped, one iteration.
+
+#### Plan
+
+1. **`tokens.ts`**: Add `statusRunningBorder`, `statusWaitingBorder`, `statusFailedBorder` tokens.
+2. **`ChatMessageItem.tsx`**: Replace hardcoded borderColor in success/warning/error bubbles with tokens. Replace user avatar `#334155`/`#e2e8f0` with neutral tint + `colors.textPrimary`.
+3. **`SidebarHeader.tsx`**: Replace `"#f59e0b"` with `colors.statusWaiting`.
+4. **`Sidebar.tsx`**: Replace `"#f59e0b"` with `colors.statusWaiting`.
+5. Run typecheck.
+
+#### Implementation
+
+**1. `apps/desktop/src/renderer/styles/tokens.ts`** — Added 3 status border tint tokens:
+- `statusRunningBorder: 'rgba(16,185,129,0.3)'` — derived from `statusRunning` (#10b981)
+- `statusWaitingBorder: 'rgba(245,158,11,0.3)'` — derived from `statusWaiting` (#f59e0b)
+- `statusFailedBorder: 'rgba(239,68,68,0.3)'` — derived from `statusFailed` (#ef4444)
+
+**2. `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`**:
+- `chatBubbleSuccess.borderColor` → `colors.statusRunningBorder` (was hardcoded `rgba(34,197,94,0.3)` — Tailwind green-500 derivative)
+- `chatBubbleWarning.borderColor` → `colors.statusWaitingBorder` (was hardcoded `rgba(245,158,11,0.3)`)
+- `chatBubbleError.borderColor` → `colors.statusFailedBorder` (was hardcoded `rgba(239,68,68,0.3)`)
+- `chatAvatarUser.background` → `rgba(255,255,255,0.08)` (was `#334155` Tailwind slate)
+- `chatAvatarUser.color` → `colors.textPrimary` (was `#e2e8f0` Tailwind slate)
+
+**3. `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx`**:
+- Waiting status pip `color` → `colors.statusWaiting` (was raw `"#f59e0b"`)
+
+**4. `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx`**:
+- Questions divider label `color` → `colors.statusWaiting` (was raw `"#f59e0b"`)
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — 3 new status border tint tokens
+- `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx` — Token refs for tone borders + user avatar
+- `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` — Token ref for waiting status color
+- `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx` — Token ref for questions divider color
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1059/1059 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D8 and D9 are both complete. All UI design tasks (D1-D9) are done.
+- All PM tasks (T1-T8, T10-T12) complete. T9 (manual end-to-end testing) remains the sole product validation gate.
+- Remaining UI audit items from design doc: chat empty state (low priority), traffic-light padding magic number (low priority).
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 114)*

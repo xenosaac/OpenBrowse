@@ -53,7 +53,7 @@ const styles: Record<string, React.CSSProperties> = {
   chatAvatarUser: {
     width: 26, height: 26, borderRadius: 999,
     display: "grid", placeItems: "center",
-    background: "#334155", color: "#e2e8f0",
+    background: "rgba(255,255,255,0.08)", color: colors.textPrimary,
     flexShrink: 0, fontSize: "0.7rem"
   },
   chatActionIcon: {
@@ -71,9 +71,9 @@ const styles: Record<string, React.CSSProperties> = {
     ...glass.emerald,
     color: "#ffffff"
   } as React.CSSProperties,
-  chatBubbleSuccess: { borderColor: "rgba(34,197,94,0.3)" },
-  chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
-  chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
+  chatBubbleSuccess: { borderColor: colors.statusRunningBorder },
+  chatBubbleWarning: { borderColor: colors.statusWaitingBorder },
+  chatBubbleError: { borderColor: colors.statusFailedBorder },
   chatBubbleAction: {
     background: "transparent", border: "none",
     borderLeft: "2px solid " + colors.emerald, borderRadius: 6,
