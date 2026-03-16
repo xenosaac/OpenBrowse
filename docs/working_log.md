@@ -570,17 +570,18 @@ At the end of the current build arc, evaluate:
 
 ### Schema Migrations
 
-Current schema version: **3**
+Current schema version: **4**
 
 | Version | Changes |
 |---|---|
 | 1 | Initial tables: `workflow_events`, `run_checkpoints`, `user_preferences`, `schema_meta` |
 | 2 | Added `status`, `goal`, `created_at` columns to `run_checkpoints`; added type/status/ns_key indexes; backfilled from JSON |
 | 3 | Added `idx_workflow_events_created_at (created_at DESC, id DESC)` for `listRecent()` performance |
+| 4 | Added tables: `browser_sessions`, `chat_sessions`, `chat_messages`, `chat_session_runs`, `bookmarks`, `browsing_history`, `browser_profiles`, `cookie_containers`, `user_accounts`, `standalone_tabs`, `chat_bridge_state` |
 
 ### Planner Output Format
 
-`ClaudePlannerGateway` uses a flat JSON schema with `output_config.format`. The schema allows all possible fields at the schema level (all optional except `type` and `reasoning`). `parsePlannerResponse` handles semantic validation of which fields are present per decision type. With structured outputs enabled, the `extractJson` fallbacks in `parsePlannerResponse` should never activate — but they remain as safety net.
+`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (12 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
 
 ---
 
@@ -2759,6 +2760,59 @@ Mock approach: Grammy's `Bot` constructor works with a fake token without networ
 #### Next Steps
 
 - All pure-logic modules across all packages now have test coverage (817 tests, 0 failures)
+- Remaining untested code requires Electron context (BrowserViewManager, ElectronBrowserKernel, AppBrowserShell, renderer components)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 49 — 2026-03-16: Stale Documentation Fix + Dead Code Removal (parsePlannerResponse)
+
+#### Context
+
+Gap analysis (Session 48 done, all pure-logic modules tested, 817 tests). Code review found:
+
+1. **Stale schema version in Section 10**: says "Current schema version: **3**" but `schema.ts` has `SCHEMA_VERSION = 4`. Migration 4 (V3→V4) added all session/chat/bookmark/history/profile/container/tab/state tables — undocumented in the table.
+2. **Stale Planner Output Format in Section 10**: says `ClaudePlannerGateway` uses `output_config.format` with a flat JSON schema. This was the old approach. The gateway now uses `tools` + `tool_choice` (12 tool definitions from `BROWSER_TOOLS`) with `mapToolCallToDecision`. `parsePlannerResponse` is referenced but no longer used.
+3. **Dead code**: `parsePlannerResponse` is exported from `packages/planner/src/index.ts` but never imported by any runtime code. It was the old JSON-parsing approach replaced by tool-use mapping in Session 41. Its 20-test file (`tests/parsePlannerResponse.test.mjs`) tests dead code.
+
+#### Plan
+
+1. Fix schema version 3→4 and add migration 4 to the table
+2. Rewrite Planner Output Format section to reflect tool-use approach
+3. Remove `parsePlannerResponse.ts` and its re-export from `index.ts`
+4. Remove `tests/parsePlannerResponse.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed stale Section 10 — Schema Migrations:**
+- Updated version 3→4
+- Added migration 4 row documenting 11 new tables (browser_sessions, chat_sessions, chat_messages, chat_session_runs, bookmarks, browsing_history, browser_profiles, cookie_containers, user_accounts, standalone_tabs, chat_bridge_state)
+
+**Fixed stale Section 10 — Planner Output Format:**
+- Rewrote to reflect actual tool-use approach: `BROWSER_TOOLS` (12 tools), `tool_choice: "auto"` → retry with `"any"`, `mapToolCallToDecision`
+- Removed references to `output_config.format`, JSON schema, `parsePlannerResponse`, and `extractJson` fallbacks
+
+**Removed dead code — `parsePlannerResponse`:**
+- Deleted `packages/planner/src/parsePlannerResponse.ts` (147 lines) — old JSON-parsing approach replaced by `mapToolCallToDecision` in Session 41
+- Removed `export * from "./parsePlannerResponse.js"` from `packages/planner/src/index.ts`
+- Deleted `tests/parsePlannerResponse.test.mjs` (19 tests, 195 lines) — tested dead code
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 798/798 pass (was 817, -19 dead code tests removed)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (798 tests, 0 failures)
 - Remaining untested code requires Electron context (BrowserViewManager, ElectronBrowserKernel, AppBrowserShell, renderer components)
 - P3-10 (profile system) remains deferred
 - Consider integration testing under Electron test harness for SQLite stores and browser kernel
