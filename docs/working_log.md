@@ -6084,4 +6084,49 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 
 *Session log entry written: 2026-03-16 (Session 102)*
 
+---
+
+### Session 103 — 2026-03-16: Render extractedData in Chat Outcome Messages
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. Session 102 added `extractedData` to `task_complete` but noted: "The renderer chat does not yet format extractedData specially — it will appear in the completion summary only. A future iteration could render a formatted data table in the chat UI." This is the next logical step: when the planner completes a search/extract task with structured results, the chat should display them as a formatted table below the summary. The markdown renderer already supports tables, so this is a minimal change.
+
+#### Plan
+
+1. In `App.tsx`, modify the outcome chat message builder to append a markdown table when `run.outcome.extractedData` is present and non-empty.
+2. Run typecheck.
+3. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Modified the outcome-to-chat-message builder (line ~563):
+- After building the summary content, checks `run.outcome.extractedData`
+- If present and non-empty, appends a `## Results` heading followed by a markdown table with Label/Value columns
+- Pipe characters in label/value are escaped to prevent table breakage
+- The existing markdown renderer (`renderMarkdownHtml`) already handles tables, headings, and inline formatting — no renderer changes needed
+- Outcome messages with `id.startsWith("outcome:")` already render via `renderMarkdownHtml` in `ChatMessageItem.tsx`
+
+**Result:** When the planner completes a search/extract task with `extracted_data`, the chat now displays the summary followed by a formatted results table. This makes the Session 102 extractedData feature visible to users in the sidebar chat.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/App.tsx` — Append extractedData as markdown table to outcome chat messages
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1015/1015 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The full extractedData pipeline is now end-to-end: planner tool call → PlannerDecision → RunOutcome → chat message → markdown table in sidebar.
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate. T9 would be the best way to validate that extractedData rendering works with real search+extract tasks.
+- Next potential features: `browser_go_forward` (low value), Telegram bridge validation (needs Electron), step budget increase for complex workflows, or additional planner capability.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 103)*
+
 *Session log entry written: 2026-03-16 (Session 101)*

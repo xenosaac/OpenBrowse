@@ -562,10 +562,16 @@ export function App() {
       postedOutcomesRef.current.add(run.id);
       const tone: ChatMessage["tone"] = run.outcome.status === "completed" ? "success" : "error";
       const msgId = `outcome:${run.id}`;
+      let content = run.outcome!.summary;
+      const ed = run.outcome!.extractedData;
+      if (ed && ed.length > 0) {
+        content += "\n\n## Results\n\n| Label | Value |\n|---|---|\n"
+          + ed.map((item) => `| ${item.label.replace(/\|/g, "\\|")} | ${item.value.replace(/\|/g, "\\|")} |`).join("\n");
+      }
       const outcomeMsg: ChatMessage = {
         id: msgId,
         role: "agent",
-        content: run.outcome!.summary,
+        content,
         tone,
         timestamp: run.outcome!.finishedAt
       };
