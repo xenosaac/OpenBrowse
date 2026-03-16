@@ -122,6 +122,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? "\n** CAPTCHA DETECTED: This page has a CAPTCHA. You cannot solve CAPTCHAs. Use ask_user to request the user to solve it."
     : "";
 
+  // --- Active dialog ---
+  const dialogHint = pageModel.activeDialog
+    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements.`
+    : "";
+
   // --- Forms (enriched with field details) ---
   const formsSection = pageModel.forms && pageModel.forms.length > 0
     ? `\nForms on page:\n${pageModel.forms.map((f) => {
@@ -249,7 +254,7 @@ Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistor
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${alertsSection}${formsSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${dialogHint}${alertsSection}${formsSection}
 
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}

@@ -234,6 +234,38 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return false;
   }
 
+  // --- Active dialog detection ---
+  function detectActiveDialog() {
+    // 1. Native <dialog> with open attribute
+    var dialog = document.querySelector('dialog[open]');
+    if (dialog) {
+      var label = dialog.getAttribute('aria-label')
+        || dialog.getAttribute('aria-labelledby') && (function() {
+          var ref = document.getElementById(dialog.getAttribute('aria-labelledby'));
+          return ref ? (ref.textContent || '').trim() : '';
+        })()
+        || (dialog.querySelector('h1, h2, h3, h4, h5, h6') || {}).textContent
+        || '';
+      return { label: (label || '').trim().slice(0, 80) || 'Dialog' };
+    }
+    // 2. ARIA role="dialog" or role="alertdialog" that is visible
+    var roleDialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
+    for (var di = 0; di < roleDialogs.length; di++) {
+      var rd = roleDialogs[di];
+      if (isVisible(rd)) {
+        var rdLabel = rd.getAttribute('aria-label')
+          || rd.getAttribute('aria-labelledby') && (function() {
+            var ref = document.getElementById(rd.getAttribute('aria-labelledby'));
+            return ref ? (ref.textContent || '').trim() : '';
+          })()
+          || (rd.querySelector('h1, h2, h3, h4, h5, h6') || {}).textContent
+          || '';
+        return { label: (rdLabel || '').trim().slice(0, 80) || 'Dialog' };
+      }
+    }
+    return undefined;
+  }
+
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
@@ -327,7 +359,8 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     forms: extractForms(),
     alerts: extractAlerts(),
     captchaDetected: detectCaptcha(),
-    scrollY: window.scrollY
+    scrollY: window.scrollY,
+    activeDialog: detectActiveDialog()
   };
 })()
 `;

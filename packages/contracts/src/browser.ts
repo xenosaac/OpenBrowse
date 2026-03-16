@@ -104,6 +104,7 @@ export interface PageModel {
   alerts?: string[];
   captchaDetected?: boolean;
   scrollY?: number;
+  activeDialog?: { label: string };
 }
 
 export interface BrowserAction {

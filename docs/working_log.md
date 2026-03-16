@@ -3662,3 +3662,63 @@ This helps the planner correlate what it "sees" in the prompt with what a user w
 - Consider surfacing `aria-description` for elements that have additional descriptive context
 
 *Session log entry written: 2026-03-16 (Session 64)*
+
+---
+
+### Session 65 — 2026-03-16: Surface Active Dialog/Modal Detection in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis: when a modal dialog is open (cookie consent banners, confirmation dialogs, login modals, popups), background elements are typically blocked by the dialog overlay. The planner currently has no way to know a dialog is present — it may try to click background elements that are unreachable. The `alerts` extraction catches `[role=alertdialog]` text, but doesn't indicate that a dialog is *blocking* the page.
+
+#### Plan
+
+1. Add `activeDialog?: { label: string }` to `PageModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, detect open `<dialog[open]>` or visible `[role="dialog"]`/`[role="alertdialog"]` elements
+3. In `buildPlannerPrompt.ts`, surface dialog notice prominently so the planner prioritizes dialog elements
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `activeDialog?: { label: string }` to `PageModel`
+- Captures the accessible label of the currently open modal dialog
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `detectActiveDialog()` function
+- Detects native `<dialog open>` elements first, then visible `[role="dialog"]`/`[role="alertdialog"]`
+- Resolves label from `aria-label`, `aria-labelledby`, or first heading inside the dialog
+- Falls back to "Dialog" when no label is available
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `dialogHint` section: `** DIALOG OPEN: "Label" — A modal dialog is covering the page...`
+- Placed between CAPTCHA hint and alerts section for prominence
+- Instructs the planner to interact with dialog elements first (accept, dismiss, fill) before background elements
+
+**Impact:** The planner now knows when a modal dialog is blocking the page and will prioritize interacting with the dialog instead of trying to click unreachable background elements. Common scenarios: cookie consent banners, confirmation dialogs, login modals, popups.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- active dialog hint shown when activeDialog present
+- active dialog hint absent when no activeDialog
+- active dialog hint absent when activeDialog is undefined
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 78/78 pass (was 75, +3 new)
+- `node --test tests/*.test.mjs` — 911/911 pass (was 908, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (911 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` for elements that have additional descriptive context
+- Consider table structure extraction for data-heavy pages
+
+*Session log entry written: 2026-03-16 (Session 65)*
