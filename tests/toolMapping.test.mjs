@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 13 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 13);
+  it("defines exactly 14 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 14);
   });
 
   it("has unique tool names", () => {
@@ -30,7 +30,7 @@ describe("BROWSER_TOOLS", () => {
     const expected = [
       "browser_navigate", "browser_click", "browser_type", "browser_select",
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
-      "browser_screenshot", "browser_go_back", "task_complete", "task_failed", "ask_user"
+      "browser_screenshot", "browser_go_back", "browser_read_text", "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -268,6 +268,38 @@ describe("mapToolCallToDecision — browser_go_back", () => {
     const result = mapToolCallToDecision("browser_go_back", {}, "r", "run_1");
     assert.equal(result.action.type, "go_back");
     assert.equal(result.action.description, "Go back to previous page");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_read_text
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_read_text", () => {
+  it("maps to read_text action with ref and description", () => {
+    const result = mapToolCallToDecision(
+      "browser_read_text",
+      { ref: "el_12", description: "Read article paragraph" },
+      "need to extract the first paragraph",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "read_text");
+    assert.equal(result.action.targetId, "el_12");
+    assert.equal(result.action.description, "Read article paragraph");
+    assert.equal(result.reasoning, "need to extract the first paragraph");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision("browser_read_text", { ref: "el_5" }, "r", "run_1");
+    assert.equal(result.action.type, "read_text");
+    assert.equal(result.action.description, "Read element text");
+  });
+
+  it("fails when ref is missing", () => {
+    const result = mapToolCallToDecision("browser_read_text", {}, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without ref"));
   });
 });
 
@@ -534,6 +566,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_wait", {}],
       ["browser_screenshot", {}],
       ["browser_go_back", {}],
+      ["browser_read_text", { ref: "r" }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

@@ -488,6 +488,28 @@ export class ElectronBrowserKernel implements BrowserKernel {
           break;
         }
 
+        case "read_text": {
+          const targetId = this.requireTargetId(action);
+          const text = await managed.cdp.callFunction<string | null>(
+            `function(targetAttr, targetId) {
+              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
+              if (!el) return null;
+              return (el.innerText || '').trim().slice(0, 2000);
+            }`,
+            TARGET_ATTR,
+            targetId
+          );
+          if (text === null) throw new Error(`Target not found: ${targetId}`);
+          const pageModelAfterRead = await this.capturePageModel(browserSession);
+          return {
+            ok: true,
+            action,
+            pageModelId: pageModelAfterRead.id,
+            summary: `Read text from [${targetId}]: ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
+            extractedText: text
+          };
+        }
+
         case "screenshot": {
           const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
           const pageModelAfterScreenshot = await this.capturePageModel(browserSession);

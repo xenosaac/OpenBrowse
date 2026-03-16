@@ -126,6 +126,18 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_read_text",
+    description: "Read the full text content (up to 2000 chars) from a specific element and its children. Use when you need to read detailed content from a particular section, paragraph, article body, search result, or any element whose text was truncated in the element list.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The element ID to read text from (e.g. el_5)" },
+        description: { type: "string", description: "What content you expect to find" }
+      },
+      required: ["ref", "description"]
+    }
+  },
+  {
     name: "task_complete",
     description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
@@ -333,6 +345,18 @@ export function mapToolCallToDecision(
         action: {
           type: "go_back",
           description: input.description ?? "Go back to previous page"
+        }
+      };
+
+    case "browser_read_text":
+      if (!input.ref) return fail("browser_read_text called without ref");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "read_text",
+          targetId: input.ref,
+          description: input.description ?? "Read element text"
         }
       };
 

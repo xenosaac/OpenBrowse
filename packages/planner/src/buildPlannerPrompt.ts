@@ -20,6 +20,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
         if (r.targetId) detail += `\n    → Element: [${r.targetId}]`;
         if (r.targetUrl) detail += `\n    → URL: ${r.targetUrl}`;
         if (r.typedText) detail += `\n    → Typed: "${r.typedText}"`;
+        if (r.extractedText) detail += `\n    → Text: "${r.extractedText}"`;
         return detail;
       }).join("\n")}`
     : "";
@@ -257,6 +258,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - Prefer elements marked with * (actionable)
 - If the current page is about:blank or empty: navigate to a relevant URL immediately
 - Ask for clarification only when genuinely ambiguous
+- When you need to read detailed text from a specific element (article body, product description, search result), use browser_read_text with the element's ref ID — it returns up to 2000 chars, much more than the 40-char truncation in the element list
 - When completing a task that involved searching, extracting, or looking up information, include the results as extracted_data in task_complete (array of {label, value} pairs) so the user receives structured findings
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
