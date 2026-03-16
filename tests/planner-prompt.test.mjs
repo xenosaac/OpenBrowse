@@ -1133,3 +1133,37 @@ test("current=step rendered for step indicators", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.match(user, /\(current=step\)/);
 });
+
+// --- aria-sort ---
+
+test("sort=ascending rendered for sorted column header", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Name", sort: "ascending", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=ascending\)/);
+});
+
+test("sort=descending rendered for sorted column header", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Date", sort: "descending", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=descending\)/);
+});
+
+test("sort annotation absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Size", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(sort"), "should not show sort annotation");
+});
+
+test("sort=other rendered for non-standard sort", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Priority", sort: "other", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=other\)/);
+});
