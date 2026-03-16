@@ -58,6 +58,9 @@ const api = {
     sessionId: string
   ): Promise<{ canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null> =>
     ipcRenderer.invoke("browser:nav-state", sessionId),
+  findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+    ipcRenderer.invoke("browser:find-in-page", { sessionId, text, ...options }),
+  stopFindInPage: (sessionId: string) => ipcRenderer.invoke("browser:stop-find-in-page", sessionId),
   openDevTools: (sessionId: string) => ipcRenderer.invoke("browser:devtools", sessionId),
   printPage: (sessionId: string) => ipcRenderer.invoke("browser:print", sessionId),
   saveAsPdf: (sessionId: string): Promise<boolean> => ipcRenderer.invoke("browser:save-pdf", sessionId),

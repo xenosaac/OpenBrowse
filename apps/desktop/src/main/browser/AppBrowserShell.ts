@@ -95,6 +95,20 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     return this.viewManager?.getNavState(sessionId) ?? null;
   }
 
+  findInPage(sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }): void {
+    this.viewManager?.findInPage(sessionId, text, options);
+  }
+
+  stopFindInPage(sessionId: string, action?: "clearSelection" | "keepSelection" | "activateSelection"): void {
+    this.viewManager?.stopFindInPage(sessionId, action);
+  }
+
+  setFindCallback(cb: (sessionId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void): void {
+    if (this.viewManager) {
+      this.viewManager.onFindResult = cb;
+    }
+  }
+
   setNavigationCallback(cb: (sessionId: string, url: string, title: string) => void): void {
     if (this.viewManager) {
       this.viewManager.onNavigate = cb;

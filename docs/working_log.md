@@ -6907,3 +6907,99 @@ Rationale: All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete. Fe
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 115)*
+
+---
+
+### Session 116 — 2026-03-16: Find-in-Page (Cmd+F) — Core Browser Feature
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete. Feature backlog P0-P2 done, P3 deferred. T9 requires user action. Find-in-page (Cmd+F) is a fundamental browser feature missing from the shell — every browser user expects it. This is real product capability, not cleanup.
+
+#### Plan
+
+1. **`BrowserViewManager.ts`**: Add `findInPage()` and `stopFindInPage()` methods. Add `found-in-page` event listener in `create()` that forwards results via a callback.
+2. **`AppBrowserShell.ts`**: Add `findInPage()`, `stopFindInPage()`, and `setFindCallback()` methods that delegate to the view manager.
+3. **`registerIpcHandlers.ts`**: Register `browser:find-in-page` and `browser:stop-find-in-page` IPC handlers. Wire the find callback to send results to the renderer.
+4. **`preload/index.ts`**: Add `findInPage` and `stopFindInPage` preload methods.
+5. **`App.tsx`**: Add Window interface declarations, find bar state, render FindBar component between chrome band and browser viewport.
+6. **`useKeyboardShortcuts.ts`**: Add Cmd+F handler.
+7. **`FindBar.tsx`**: New component — slim search bar with input, match count, prev/next, close. Follows Interior Component Rule (no blur, transparent bg, borderSubtle).
+
+#### Implementation
+
+**1. `apps/desktop/src/main/browser/BrowserViewManager.ts`**:
+- Added `onFindResult` callback field
+- Added `found-in-page` event listener in `create()` that forwards `activeMatchOrdinal`, `matches`, `finalUpdate` to the callback
+- Added `findInPage(sessionId, text, options)` method — delegates to `webContents.findInPage()`
+- Added `stopFindInPage(sessionId, action)` method — delegates to `webContents.stopFindInPage()`
+
+**2. `apps/desktop/src/main/browser/AppBrowserShell.ts`**:
+- Added `findInPage()`, `stopFindInPage()`, `setFindCallback()` methods delegating to the view manager
+
+**3. `apps/desktop/src/main/ipc/registerIpcHandlers.ts`**:
+- Registered `browser:find-in-page` IPC handler (accepts sessionId, text, forward, findNext)
+- Registered `browser:stop-find-in-page` IPC handler
+- Wired `setFindCallback` to send `find_in_page_result` runtime events to the renderer
+
+**4. `apps/desktop/src/preload/index.ts`**:
+- Added `findInPage(sessionId, text, options)` preload method
+- Added `stopFindInPage(sessionId)` preload method
+
+**5. `apps/desktop/src/renderer/lib/eventBus.ts`**:
+- Added `find_in_page_result` event type with `activeMatchOrdinal`, `matches`, `finalUpdate`
+
+**6. `apps/desktop/src/renderer/components/App.tsx`**:
+- Added Window interface declarations for `findInPage` and `stopFindInPage`
+- Added `findBarOpen` and `findResult` state
+- Added effect to subscribe to `find_in_page_result` events (only processes `finalUpdate`)
+- Added effect to close find bar and stop search when switching tabs
+- Added `handleFindInPage`, `handleStopFind`, `handleCloseFindBar` callbacks
+- Added `onFindInPage` handler to keyboard shortcuts
+- Renders `<FindBar>` between AgentActivityBar and BrowserPanel when open
+- Imported `FindBar` component
+
+**7. `apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts`**:
+- Added `onFindInPage` to the params interface
+- Added Cmd+F handler before the browser-only guard (works from any context when Cmd is pressed)
+- Added `onFindInPage` to the dependency array
+
+**8. `apps/desktop/src/renderer/components/chrome/FindBar.tsx`** (new):
+- Input field with auto-focus on mount
+- Live search — typing triggers `findInPage` immediately
+- Enter/Shift+Enter navigates forward/backward through matches
+- Escape closes the bar
+- Prev/Next buttons with ▲/▼ arrows
+- Close button with ✕
+- Match count display ("N / M" or "0 matches")
+- Follows Interior Component Rule: no `backdropFilter`, transparent background, `borderSubtle` separator
+- Uses `glass.control` for the inner container, `borderDefault` for the border
+- All colors use token references
+
+#### Files Changed
+
+- `apps/desktop/src/main/browser/BrowserViewManager.ts` — findInPage/stopFindInPage methods, found-in-page listener
+- `apps/desktop/src/main/browser/AppBrowserShell.ts` — findInPage/stopFindInPage/setFindCallback methods
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — 2 new IPC handlers + find callback wiring
+- `apps/desktop/src/preload/index.ts` — 2 new preload API methods
+- `apps/desktop/src/renderer/lib/eventBus.ts` — find_in_page_result event type
+- `apps/desktop/src/renderer/components/App.tsx` — Window type, state, effects, handlers, FindBar rendering
+- `apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts` — Cmd+F handler
+- `apps/desktop/src/renderer/components/chrome/FindBar.tsx` — New component
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1059/1059 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- Remaining low-priority UI audit items: traffic-light padding magic number (#6 from UI design doc).
+- P3-10 (profile system) remains deferred.
+- Possible follow-on: zoom controls (Cmd+/Cmd-/Cmd+0), tab-switching shortcuts (Cmd+1-9).
+
+*Session log entry written: 2026-03-16 (Session 116)*
