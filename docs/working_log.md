@@ -5410,4 +5410,66 @@ Both are at ≤3% opacity per the design spec. They should be invisible as stand
 
 *Session log entry written: 2026-03-16 (Session 93)*
 
-*Session log entry written: 2026-03-16 (Session 89)*
+---
+
+### Session 94 — 2026-03-16: T6/D2 — Unify Chrome Band (TabBar + NavBar)
+
+#### Mode: feature
+
+Rationale: T5/D1 (atmospheric background) is complete. Per PM and UI Designer, the next task is T6/D2: unify TabBar and NavBar into a single Tier 1 glass surface. This is the highest-impact layout fix — eliminates the double-bordered seam between tabs and navigation. The chrome band should read as one unified browser chrome surface.
+
+#### Context
+
+Currently TabBar and NavBar each independently apply `glass.panel`, full borders, full shadows, and each has `className="ob-glass-panel"` for the specular highlight. This creates two bordered boxes stacked vertically with a visible double-border seam between them.
+
+The D2 spec requires:
+1. Wrap both in a single `ob-glass-panel` container with Tier 1 glass
+2. Remove glass/border/shadow from both children
+3. Add a subtle `rgba(255,255,255,0.06)` separator between them
+4. Chrome band bottom edge: `rgba(255,255,255,0.12)` — strongest horizontal line
+
+#### Plan
+
+1. In `App.tsx`, wrap `<TabBar>` and `<NavBar>` in a single `<div className="ob-glass-panel">` with Tier 1 glass styles and the D2 bottom border.
+2. Add a 1px separator div between TabBar and NavBar.
+3. In `TabBar.tsx`, remove `...glass.panel`, `border`, `boxShadow`, `borderBottom`, and `ob-glass-panel` className from the tabBar root div.
+4. In `NavBar.tsx`, remove `...glass.panel`, `border`, `boxShadow`, `borderBottom`, and `ob-glass-panel` className from the navBar root div.
+5. Ensure combined height ≤ 88px.
+6. Run typecheck.
+7. Update log and commit.
+
+#### Implementation
+
+Applied the chrome band unification per the D2 spec across three files:
+
+1. **`App.tsx`** — The chrome band wrapper `<div className="ob-glass-panel" style={styles.chromeBand}>` was already added in the previous partial iteration. This session added the `chromeBand` and `chromeSeparator` style definitions:
+   - `chromeBand`: applies `glass.panel` (Tier 1 structural glass), `border: 1px solid borderGlass`, `borderBottom: 1px solid rgba(255,255,255,0.12)` (strongest horizontal line per spec), `boxShadow: shadows.glass`.
+   - `chromeSeparator`: 1px height, `rgba(255,255,255,0.06)` background, horizontal margin for breathing room.
+
+2. **`TabBar.tsx`** — Removed `className="ob-glass-panel"` from root div. Replaced the tabBar style: removed `...glass.panel`, `border`, `boxShadow`, `borderBottom`. Now uses `background: 'transparent'` — a plain flex row inside the chrome band. Active tab emerald treatment and `shadows.glassSubtle` on active tabs preserved (these are Tier 3 control states, not panel glass).
+
+3. **`NavBar.tsx`** — Removed `className="ob-glass-panel"` from root div. Replaced the navBar style: removed `...glass.panel`, `border`, `boxShadow`, `borderBottom`. Now uses `background: 'transparent'`. Removed unused `shadows` import. Address bar still uses `glass.input` (legitimate Tier 2 interactive surface inside structural chrome).
+
+**Result:** The chrome band now has exactly one glass panel background, one set of borders, one shadow, and one specular `::after` highlight. The internal TabBar/NavBar division is marked by a single subtle 0.06-opacity separator. The chrome band bottom edge is the strongest horizontal line at 0.12 opacity.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/App.tsx` — added `chromeBand` and `chromeSeparator` style definitions
+- `apps/desktop/src/renderer/components/chrome/TabBar.tsx` — removed glass.panel, borders, shadow, and ob-glass-panel className from root
+- `apps/desktop/src/renderer/components/chrome/NavBar.tsx` — removed glass.panel, borders, shadow, ob-glass-panel className, and unused shadows import
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T6/D2 is complete. The chrome band is now a single unified Tier 1 glass surface.
+- Next design task: T7/D3 (home page brand surface) or T8/D4 (reduce Tier 2 card border opacity).
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 94)*

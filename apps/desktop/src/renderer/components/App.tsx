@@ -712,20 +712,22 @@ export function App() {
 
       {/* Main browser area */}
       <section style={styles.main}>
-        <TabBar
-          shellTabs={browserTabs.shellTabs}
-          activeBrowserTab={selection.activeBrowserTab}
-          runs={agentRuns.runs}
-          tabFavicons={browserTabs.tabFavicons}
-          sidebarVisible={layout.sidebarVisible}
-          mainPanel={selection.mainPanel}
-          onSelectTab={handleSelectTab}
-          onCloseTab={handleCloseTab}
-          onNewTab={() => void handleNewTab()}
-          onToggleSidebar={layout.toggleSidebar}
-        />
-
-        <NavBar
+        {/* Unified chrome band — single Tier 1 glass surface for TabBar + NavBar */}
+        <div className="ob-glass-panel" style={styles.chromeBand}>
+          <TabBar
+            shellTabs={browserTabs.shellTabs}
+            activeBrowserTab={selection.activeBrowserTab}
+            runs={agentRuns.runs}
+            tabFavicons={browserTabs.tabFavicons}
+            sidebarVisible={layout.sidebarVisible}
+            mainPanel={selection.mainPanel}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
+            onNewTab={() => void handleNewTab()}
+            onToggleSidebar={layout.toggleSidebar}
+          />
+          <div style={styles.chromeSeparator} />
+          <NavBar
           activeBrowserTab={selection.activeBrowserTab}
           mainPanel={selection.mainPanel}
           addressInput={addressBar.addressInput}
@@ -763,6 +765,7 @@ export function App() {
           addressBarRef={addressBarRef}
           menuButtonRef={menuButtonRef}
         />
+        </div>
 
         {/* Loading indicator */}
         {selection.activeBrowserTab && browserTabs.loadingTabs[selection.activeBrowserTab.id] && (
@@ -867,6 +870,17 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
     zIndex: 10,
     boxSizing: "border-box" as const
+  },
+  chromeBand: {
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    borderBottom: '1px solid rgba(255,255,255,0.12)',
+    boxShadow: shadows.glass,
+  } as React.CSSProperties,
+  chromeSeparator: {
+    height: 1,
+    background: 'rgba(255,255,255,0.06)',
+    margin: '0 10px',
   },
   main: {
     flex: 1,
