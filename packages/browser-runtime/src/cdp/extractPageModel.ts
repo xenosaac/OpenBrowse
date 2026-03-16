@@ -311,12 +311,23 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     }
     elDesc = elDesc ? elDesc.trim().slice(0, 80) : undefined;
 
+    // Heading level: h1-h6 tags or explicit aria-level on role="heading"
+    var elLevel = undefined;
+    var tagMatch = el.tagName.match && el.tagName.match(/^H([1-6])$/);
+    if (tagMatch) {
+      elLevel = parseInt(tagMatch[1], 10);
+    } else if (role === 'heading') {
+      var ariaLevel = el.getAttribute('aria-level');
+      if (ariaLevel) elLevel = parseInt(ariaLevel, 10) || undefined;
+    }
+
     elements.push({
       id: targetId,
       role: role,
       label: elLabel,
       text: elText,
       description: elDesc,
+      level: elLevel,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
