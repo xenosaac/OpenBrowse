@@ -4587,3 +4587,54 @@ Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectab
 - Consider surfacing `aria-live` regions so planner knows about dynamic content areas
 
 *Session log entry written: 2026-03-16 (Session 79)*
+
+---
+
+### Session 80 — 2026-03-16: Surface aria-busy in Page Model for Loading State Awareness
+
+#### Context
+
+Gap analysis (Session 79 suggestion): `aria-busy="true"` is used on elements (and regions) that are currently loading or updating content. Common use cases: loading spinners, dynamically refreshing data tables, AJAX-fetched content areas. Without this, the planner may try to interact with elements inside busy regions that haven't finished loading, causing element_not_found failures or stale data extraction.
+
+#### Plan
+
+1. Add `busy?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-busy="true"` in `extractPageModel.ts` element enumeration
+3. Render `(busy)` in `buildPlannerPrompt.ts` element line — place after `hasPopup` and before `invalid`
+4. Add 4 planner-prompt tests: busy=true renders, absent when undefined, absent when false, ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `busy?: boolean` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `busy` extraction in element enumeration:
+- Uses `el.getAttribute('aria-busy') === 'true' ? true : undefined`
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(busy)` rendering in element line after `(haspopup=...)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (131 → 135):
+- `busy=true` renders `(busy)` for region element
+- `busy` absent when undefined
+- `busy` absent when false
+- `busy` renders after haspopup and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 135/135 pass (was 131, +4 new)
+- `node --test tests/*.test.mjs` — 970/970 pass (was 966, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (970 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-live` regions so planner knows about dynamic content areas
+- Consider surfacing `aria-disabled` as distinct from HTML disabled (custom disabled widgets)
+
+*Session log entry written: 2026-03-16 (Session 80)*

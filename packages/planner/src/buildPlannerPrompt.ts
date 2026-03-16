@@ -117,6 +117,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.multiselectable) line += " (multiselectable)";
       if (el.required) line += " (required)";
       if (el.hasPopup) line += ` (haspopup=${el.hasPopup})`;
+      if (el.busy) line += " (busy)";
       if (el.invalid) line += " (invalid)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";
