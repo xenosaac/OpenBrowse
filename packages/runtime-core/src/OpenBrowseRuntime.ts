@@ -1,13 +1,13 @@
 import { StubBrowserKernel } from "@openbrowse/browser-runtime";
 import type { BrowserAction, BrowserSession, PageModel, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { TelegramChatBridge, StubChatBridge } from "@openbrowse/chat-bridge";
-import { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
 import { HandoffManager } from "./HandoffManager.js";
 import { SessionManager } from "./SessionManager.js";
 import { CancellationController } from "./CancellationController.js";
 import { RunExecutor } from "./RunExecutor.js";
 import { parseApprovalAnswer } from "./approvalParsing.js";
+import { handleBotCommand } from "./botCommands.js";
 import type { RuntimeServices } from "./types.js";
 
 // ── Backward-compatible module-level functions ────────────────────────────
@@ -23,105 +23,9 @@ export function wireBotCommands(services: RuntimeServices): void {
 
   services.chatBridge.setCommandHandler(async (ctx) => {
     const { command, args, respond } = ctx;
-
-    switch (command) {
-      case "status": {
-        const runs = await services.runCheckpointStore.listAll();
-        const active = runs.filter(
-          (r) => r.status === "running" || r.status.startsWith("suspended")
-        );
-        if (active.length === 0) {
-          await respond("No active runs.");
-          return;
-        }
-        const lines = active.map((r) => {
-          const emoji = r.status === "running" ? "\u2699" : "\u23F8";
-          const steps = r.checkpoint.stepCount ?? 0;
-          const url = r.checkpoint.lastKnownUrl
-            ? ` \u2014 ${r.checkpoint.lastKnownUrl.slice(0, 50)}`
-            : "";
-          return `${emoji} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 40)} (step ${steps}${url})`;
-        });
-        await respond(`Active runs:\n${lines.join("\n")}`);
-        break;
-      }
-
-      case "list": {
-        const n = Math.min(parseInt(args) || 5, 20);
-        const all = await services.runCheckpointStore.listAll();
-        const recent = all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, n);
-        if (recent.length === 0) {
-          await respond("No runs yet.");
-          return;
-        }
-        const statusEmoji: Record<string, string> = {
-          running: "\u2699", completed: "\u2713", failed: "\u2717",
-          cancelled: "\u2298", suspended_for_clarification: "\u23F8",
-          suspended_for_approval: "\u23F8", queued: "\u23F3"
-        };
-        const lines = recent.map((r) => {
-          const e = statusEmoji[r.status] ?? "?";
-          return `${e} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 50)}`;
-        });
-        await respond(`Recent runs:\n${lines.join("\n")}`);
-        break;
-      }
-
-      case "cancel": {
-        const targetId = args.trim() || null;
-        if (!targetId) {
-          const all = await services.runCheckpointStore.listAll();
-          const running = all
-            .filter((r) => r.status === "running")
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-          if (running.length === 0) {
-            await respond("No running tasks to cancel.");
-            return;
-          }
-          const target = running[0];
-          const cancelled = await cancelTrackedRun(services, target.id, "Cancelled by remote operator.");
-          await respond(
-            cancelled
-              ? `Cancelled: "${target.goal.slice(0, 60)}"`
-              : "Failed to cancel the run."
-          );
-          return;
-        }
-        const cancelled = await cancelTrackedRun(services, targetId, "Cancelled by remote operator.");
-        if (!cancelled) {
-          await respond(`Run not found: ${targetId}`);
-          return;
-        }
-        await respond(`Cancelled: "${cancelled.goal.slice(0, 60)}"`);
-        break;
-      }
-
-      case "handoff": {
-        const targetId = args.trim() || null;
-        let run: TaskRun | null = null;
-        if (targetId) {
-          run = await services.runCheckpointStore.load(targetId);
-        } else {
-          const all = await services.runCheckpointStore.listAll();
-          const terminal = all
-            .filter((r) => ["completed", "failed", "cancelled"].includes(r.status))
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-          run = terminal[0] ?? null;
-        }
-        if (!run) {
-          await respond("Run not found.");
-          return;
-        }
-        const artifact = buildHandoffArtifact(run);
-        const md = renderHandoffMarkdown(artifact);
-        for (let i = 0; i < md.length; i += 4000) {
-          await respond(md.slice(i, i + 4000));
-        }
-        break;
-      }
-
-      default:
-        await respond(`Unknown command: /${command}`);
+    const result = await handleBotCommand(services, command, args, cancelTrackedRun);
+    for (const text of result.responses) {
+      await respond(text);
     }
   });
 }

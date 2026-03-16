@@ -3148,3 +3148,62 @@ Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic module
 - Consider integration testing under Electron test harness
 
 *Session log entry written: 2026-03-16 (Session 55)*
+
+---
+
+### Session 56 — 2026-03-16: Extract Bot Command Handlers into Testable Module + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (849 tests). `wireBotCommands` in `OpenBrowseRuntime.ts` contains ~100 lines of command routing logic for `/status`, `/list`, `/cancel`, `/handoff` — 4 commands with multiple code paths each. This logic is pure (services bag + command + args → response text) but untestable because it's embedded in a function gated by `instanceof TelegramChatBridge`. Same extraction pattern as Sessions 36–54.
+
+#### Plan
+
+1. Extract `handleBotCommand(services, command, args)` into `botCommands.ts` (no TelegramChatBridge dependency)
+2. Update `wireBotCommands` in `OpenBrowseRuntime.ts` to delegate to the new function
+3. Export from `index.ts`
+4. Run typecheck + build
+5. Write comprehensive test suite covering all 4 commands + edge cases
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/botCommands.ts`:**
+- Extracted `handleBotCommand(services, command, args, cancelRunFn?)` pure function
+- Returns `BotCommandResult` with `responses: string[]` — no TelegramChatBridge dependency
+- `cancelRunFn` is injectable (same DI pattern as RecoveryManager, compose.ts)
+- Handles all 4 commands: `/status`, `/list`, `/cancel`, `/handoff`
+
+**Updated `OpenBrowseRuntime.ts`:**
+- `wireBotCommands` now delegates to `handleBotCommand` (5 lines vs 100+)
+- Removed unused `buildHandoffArtifact`/`renderHandoffMarkdown` imports (moved to `botCommands.ts`)
+- Added `import { handleBotCommand } from "./botCommands.js"`
+
+**Updated `index.ts`:**
+- Added `export * from "./botCommands.js"` to public API
+
+**Created `tests/botCommands.test.mjs` — 28 tests:**
+- `/status` (6 tests): no active runs, running runs with emoji/id/goal, suspended runs, step count + URL, URL omitted, filters terminal statuses
+- `/list` (8 tests): empty, default 5, custom count, cap at 20, status emojis (✓✗⊘⏳), unknown status ?, sorted by updatedAt desc, invalid args default
+- `/cancel` (7 tests): no cancelFn available, no running tasks, auto-picks most recent, cancel returns null, specific id, id not found, goal truncation at 60
+- `/handoff` (5 tests): specific runId, auto-picks most recent terminal, not found, no terminal runs, long markdown chunking at 4000
+- Cross-cutting (2 tests): unknown command error, responses always array
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/botCommands.test.mjs` — 28/28 pass
+- `node --test tests/*.test.mjs` — 877/877 pass (was 849, +28 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (877 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider testing `handleInboundMessage`/`handleNewTaskMessage` module-level orchestration (needs service mocking with OpenBrowseRuntime constructor)
+
+*Session log entry written: 2026-03-16 (Session 56)*
