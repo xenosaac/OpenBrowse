@@ -4235,4 +4235,66 @@ Gap analysis: toggle buttons (dark mode switches, mute buttons, bookmark/favorit
 - Consider table column/row span awareness for complex tables
 - Consider surfacing `aria-multiselectable` for listboxes/grids
 
-*Session log entry written: 2026-03-16 (Session 72)*
+*Session log entry written: 2026-03-16 (Session 73)*
+
+---
+
+### Session 74 — 2026-03-16: Surface aria-orientation for Sliders/Scrollbars in Page Model
+
+#### Context
+
+Gap analysis (Sessions 71–73 suggested): sliders, scrollbars, separators, toolbars, and tab lists can have `aria-orientation` set to "horizontal" or "vertical". Without this, the planner cannot determine the axis of interaction for range widgets (e.g., whether to drag left/right or up/down) or understand toolbar/tablist layout direction.
+
+#### Plan
+
+1. Add `orientation?: "horizontal" | "vertical"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-orientation` in `extractPageModel.ts` element enumeration
+3. Surface `(horizontal)` / `(vertical)` in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `orientation?: "horizontal" | "vertical"` to `PageElementModel`
+- Captures axis direction for sliders, scrollbars, separators, toolbars, and tab lists
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-orientation` attribute during element enumeration
+- Maps "horizontal" → `"horizontal"`, "vertical" → `"vertical"`, absent → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(horizontal)` or `(vertical)` in element lines
+- Placed after pressed rendering, before invalid
+
+**Impact:** The planner can now see orientation for:
+- Sliders (drag left/right vs up/down)
+- Scrollbars (horizontal vs vertical scrolling)
+- Separators (horizontal vs vertical dividers)
+- Toolbars (horizontal vs vertical layout)
+- Tab lists (horizontal vs vertical tab arrangement)
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- orientation=horizontal renders (horizontal)
+- orientation=vertical renders (vertical)
+- orientation undefined does not render orientation text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 115/115 pass (was 112, +3 new)
+- `node --test tests/*.test.mjs` — 948/948 pass (was 945, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (948 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+- Consider table column/row span awareness for complex tables
+- Consider surfacing `aria-autocomplete` for combobox/search inputs
+
+*Session log entry written: 2026-03-16 (Session 74)*

@@ -1375,3 +1375,30 @@ test("pressed undefined does not render pressed text", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.doesNotMatch(user, /pressed/);
 });
+
+// --- aria-orientation (slider/scrollbar/toolbar direction) ---
+
+test("orientation=horizontal renders (horizontal)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", orientation: "horizontal", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(horizontal\)/);
+});
+
+test("orientation=vertical renders (vertical)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", orientation: "vertical", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(vertical\)/);
+});
+
+test("orientation undefined does not render orientation text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(horizontal\)/);
+  assert.doesNotMatch(user, /\(vertical\)/);
+});
