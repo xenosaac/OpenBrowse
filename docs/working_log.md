@@ -1523,6 +1523,51 @@ Import uses `dist/validation.js` directly (not `dist/index.js`) to avoid pulling
 
 ---
 
+### Session 25 — 2026-03-16: Gap Analysis — RunStateMachine + parsePlannerResponse Tests
+
+#### Context
+
+Continuing gap analysis from Session 24. All P0–P2 done, P3 deferred. Two pure-function modules have zero test coverage:
+
+1. `packages/orchestrator/src/RunStateMachine.ts` — `canTransition` and `assertTransition` control task state machine transitions. Untested = risk of invalid state transitions being allowed.
+2. `packages/planner/src/parsePlannerResponse.ts` — `extractJson` and `parsePlannerResponse` parse LLM output into structured decisions. Untested = risk of silent misparse or crash on malformed LLM output.
+
+#### Plan
+
+1. Add `tests/runStateMachine.test.mjs` — test all valid transitions, reject all invalid ones, test assertTransition throws
+2. Add `tests/parsePlannerResponse.test.mjs` — test raw JSON, code-block JSON, brace-depth extraction, invalid/malformed inputs, all decision types
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/runStateMachine.test.mjs`** — 28 tests:
+- `canTransition`: 15 valid transitions (queued→running, running→all targets, suspended→running/cancelled/failed), 9 invalid transitions (queued→completed, terminal states, suspended→completed)
+- `assertTransition`: 3 tests (valid doesn't throw, invalid throws with message, terminal→terminal throws)
+
+**`tests/parsePlannerResponse.test.mjs`** — 18 tests:
+- Raw JSON parsing: browser_action, task_complete, task_failed
+- Markdown code block extraction: with/without `json` tag
+- Brace-depth extraction: JSON embedded in prose
+- All decision types: clarification_request (with options/defaults), approval_request
+- Default fallbacks: completionSummary, failureSummary, action description all fall back to reasoning
+- Error cases: missing type, missing reasoning, unsupported type, no JSON, empty string, incomplete JSON
+
+#### Verification
+
+- `pnpm test` — 217/217 pass (was 173, +44 new tests for RunStateMachine and parsePlannerResponse)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `ClarificationPolicy`, `EventBus`, `CancellationController` (requires mocking dependencies)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
