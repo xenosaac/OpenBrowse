@@ -337,6 +337,10 @@ export function App() {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
     document.body.style.background = colors.bgBase;
+    document.body.style.backgroundImage = [
+      'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(16,185,129,0.03) 0%, transparent 70%)',
+      'radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.02) 0%, transparent 60%)'
+    ].join(', ');
     const style = document.createElement("style");
     style.textContent = `
       @keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -841,6 +845,10 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100vh",
     overflow: "hidden",
     background: colors.bgBase,
+    backgroundImage: [
+      'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(16,185,129,0.03) 0%, transparent 70%)',
+      'radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.02) 0%, transparent 60%)'
+    ].join(', '),
     color: colors.textPrimary,
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
@@ -866,7 +874,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    background: colors.bgBase,
+    background: "transparent",
     position: "relative"
   },
   mainBody: {
