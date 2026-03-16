@@ -13,6 +13,7 @@ import type { AttachSessionOptions, BrowserKernel } from "./BrowserKernel.js";
 import { CdpClient } from "./cdp/CdpClient.js";
 import { DISMISS_COOKIE_BANNER_SCRIPT } from "./cdp/dismissCookieBanner.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
+import { mapRawToPageModel, type RawPageModelResult } from "./mapRawToPageModel.js";
 import { classifyFailure, parseKeyboardShortcut, validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
 
 export interface EmbeddedViewProvider {
@@ -239,38 +240,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
       throw new Error(`Session not found: ${browserSession.id}`);
     }
 
-    const raw = await managed.cdp.evaluate<{
-      url: string;
-      title: string;
-      summary: string;
-      focusedElementId?: string;
-      elements: Array<{
-        id: string; role: string; label: string; value?: string; isActionable: boolean;
-        href?: string; inputType?: string; disabled?: boolean; readonly?: boolean; boundingVisible?: boolean;
-        boundingBox?: { x: number; y: number; width: number; height: number };
-      }>;
-      visibleText: string;
-      pageType?: string;
-      forms?: Array<{
-        action: string; method: string; fieldCount: number;
-        fields?: Array<{ ref: string; label: string; type: string; required: boolean; currentValue: string }>;
-        submitRef?: string;
-      }>;
-      alerts?: string[];
-      captchaDetected?: boolean;
-      cookieBannerDetected?: boolean;
-      scrollY?: number;
-      activeDialog?: { label: string };
-      tables?: Array<{
-        caption?: string;
-        headers: string[];
-        rowCount: number;
-        sampleRows?: string[][];
-      }>;
-      landmarks?: Array<{ role: string; label: string }>;
-      iframeCount?: number;
-      iframeSources?: string[];
-    }>(EXTRACT_PAGE_MODEL_SCRIPT);
+    const raw = await managed.cdp.evaluate<RawPageModelResult>(EXTRACT_PAGE_MODEL_SCRIPT);
 
     // Auto-dismiss cookie banner if detected and not yet attempted for this session+hostname
     if (raw.cookieBannerDetected) {
@@ -294,28 +264,8 @@ export class ElectronBrowserKernel implements BrowserKernel {
             await new Promise((r) => setTimeout(r, 500));
             managed.cdp.invalidateContext();
             // Re-extract page model with banner dismissed
-            const fresh = await managed.cdp.evaluate<typeof raw>(EXTRACT_PAGE_MODEL_SCRIPT);
-            return {
-              id: `page_${browserSession.id}_${Date.now()}`,
-              url: fresh.url,
-              title: fresh.title,
-              summary: fresh.summary,
-              focusedElementId: fresh.focusedElementId,
-              elements: fresh.elements,
-              visibleText: fresh.visibleText,
-              pageType: (fresh.pageType as PageModel["pageType"]) ?? undefined,
-              forms: fresh.forms,
-              alerts: fresh.alerts,
-              captchaDetected: fresh.captchaDetected,
-              cookieBannerDetected: fresh.cookieBannerDetected,
-              scrollY: fresh.scrollY,
-              activeDialog: fresh.activeDialog,
-              tables: fresh.tables,
-              landmarks: fresh.landmarks,
-              iframeCount: fresh.iframeCount,
-              iframeSources: fresh.iframeSources,
-              createdAt: new Date().toISOString()
-            };
+            const fresh = await managed.cdp.evaluate<RawPageModelResult>(EXTRACT_PAGE_MODEL_SCRIPT);
+            return mapRawToPageModel(fresh, browserSession.id);
           }
         } catch {
           // Dismiss failed — return original page model with banner still detected
@@ -323,27 +273,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
       }
     }
 
-    return {
-      id: `page_${browserSession.id}_${Date.now()}`,
-      url: raw.url,
-      title: raw.title,
-      summary: raw.summary,
-      focusedElementId: raw.focusedElementId,
-      elements: raw.elements,
-      visibleText: raw.visibleText,
-      pageType: (raw.pageType as PageModel["pageType"]) ?? undefined,
-      forms: raw.forms,
-      alerts: raw.alerts,
-      captchaDetected: raw.captchaDetected,
-      cookieBannerDetected: raw.cookieBannerDetected,
-      scrollY: raw.scrollY,
-      activeDialog: raw.activeDialog,
-      tables: raw.tables,
-      landmarks: raw.landmarks,
-      iframeCount: raw.iframeCount,
-      iframeSources: raw.iframeSources,
-      createdAt: new Date().toISOString()
-    };
+    return mapRawToPageModel(raw, browserSession.id);
   }
 
   async executeAction(browserSession: BrowserSession, action: BrowserAction): Promise<BrowserActionResult> {
