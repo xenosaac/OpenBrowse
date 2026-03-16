@@ -4788,3 +4788,43 @@ Gap analysis (Session 82 suggestion): The planner sees a flat list of elements w
 - Consider: iframe content extraction, shadow DOM penetration, or element-to-landmark association (annotating each element with its containing landmark)
 
 *Session log entry written: 2026-03-16 (Session 83)*
+
+---
+
+### Session 84 — 2026-03-16: Show Element Count and Truncation Notice in Planner Prompt
+
+#### Context
+
+Gap analysis: The planner prompt shows up to 150 elements (sorted by actionability/visibility) but doesn't tell the planner how many total elements exist on the page. If a page has 250 interactive elements but only 150 are shown, the planner has no signal that additional elements exist below the fold or off-screen. This causes the planner to miss relevant elements without knowing they exist. Adding a truncation notice (e.g., "Showing 150 of 250 elements — scroll to reveal more") gives the planner the information to decide whether scrolling would help.
+
+#### Plan
+
+1. In `buildPlannerPrompt.ts`, add a truncation notice after the elements list when `pageModel.elements.length > 150`
+2. Add 3 planner-prompt tests: truncation notice appears when >150 elements, absent when <=150, correct count in message
+3. Run typecheck + tests
+
+#### Implementation
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added truncation notice in the "Interactive elements" header line. When `pageModel.elements.length > 150`, the header now reads: `Interactive elements (* = actionable) — showing 150 of N (scroll to reveal more):` instead of just `Interactive elements (* = actionable):`. This gives the planner a clear signal that more elements exist off-screen.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (143 → 146):
+- Truncation notice shown when elements exceed 150 (200 elements → "showing 150 of 200")
+- Truncation notice absent when elements are 150 or fewer
+- Truncation notice absent when no elements
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 146/146 pass (was 143, +3 new)
+- `node --test tests/*.test.mjs` — 981/981 pass (was 978, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (981 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element-to-landmark association (annotating each element with its containing landmark), iframe content extraction, shadow DOM penetration
+
+*Session log entry written: 2026-03-16 (Session 84)*
