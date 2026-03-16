@@ -6620,4 +6620,75 @@ Rationale: All PM tasks (T1-T8) complete. All UI design tasks (D1-D7) complete. 
 - Next potential features: `browser_clear_field` (explicit field clearing), file upload support, or vision integration for screenshot interpretation.
 - P3-10 (profile system) remains deferred.
 
+---
+
+### Session 111 — 2026-03-16: T11 — Kernel-to-Contract Integration Test (Prevent Field Dropout)
+
+#### Mode: framework
+
+Rationale: PM directive says T11 is next after T10 (done). T11 prevents the Session 108 class of bugs where optional PageModel fields computed by extractPageModel silently fail to reach the planner because the kernel mapping omits them. This is a P2 integration quality task.
+
+#### Plan
+
+1. **Extract `mapRawToPageModel.ts`** — a pure function in `packages/browser-runtime/src/` that takes the raw CDP evaluation result + a session ID and returns a `PageModel`. Both return paths in `capturePageModel` (main path + cookie banner re-extract path) will call this function.
+2. **Update `ElectronBrowserKernel.ts`** — replace both inline mapping blocks with calls to `mapRawToPageModel`.
+3. **Write tests** in `tests/mapRawToPageModel.test.mjs`:
+   - Construct a raw CDP result with ALL PageModel fields populated (including all optional ones)
+   - Pass through `mapRawToPageModel`
+   - Assert every field survives the mapping
+   - Key test: parse the PageModel interface from `packages/contracts/src/browser.ts`, extract all field names, and assert each one is tested — so adding a new field to PageModel without updating the test/mapping causes a failure
+4. Run typecheck and tests.
+
+#### Implementation
+
+**1. `packages/browser-runtime/src/mapRawToPageModel.ts`** (new file):
+- Defines `RawPageModelResult` interface — the shape returned by the extractPageModel CDP script
+- Exports `mapRawToPageModel(raw, browserSessionId)` — pure function mapping raw CDP output to `PageModel`
+- Synthesises `id` and `createdAt`; passes all other fields through
+- Return type is explicitly `PageModel` — TypeScript enforces required field mapping
+
+**2. `packages/browser-runtime/src/ElectronBrowserKernel.ts`**:
+- Imports `mapRawToPageModel` and `RawPageModelResult`
+- Replaces inline 30-line type annotation with `RawPageModelResult` type reference
+- Both return paths (main + cookie banner re-extract) now call `mapRawToPageModel` instead of inline object construction
+- Eliminates the duplicated mapping that caused the Session 108 field dropout bug
+
+**3. `packages/browser-runtime/src/index.ts`** — re-exports new module
+
+**4. `tests/mapRawToPageModel.test.mjs`** (new file, 10 tests):
+- Mapping tests (7): required fields, all optional fields, minimal input, unique IDs, pageType casting, table structure, form structure
+- Contract compliance tests (3):
+  - Parses `PageModel` interface from `contracts/src/browser.ts` source, extracts all field names with balanced-brace traversal
+  - Asserts every PageModel field is present in the mapping output
+  - Asserts no field is silently dropped when raw input has it
+  - Asserts expected field count (19) — adding a new field to PageModel without updating the test causes a failure with an explicit error message telling the developer exactly what to do
+
+#### Files Changed
+
+- `packages/browser-runtime/src/mapRawToPageModel.ts` — New pure mapping function + RawPageModelResult interface
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Uses mapRawToPageModel for both return paths
+- `packages/browser-runtime/src/index.ts` — Re-exports new module
+- `tests/mapRawToPageModel.test.mjs` — 10 integration tests with contract compliance checks
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/mapRawToPageModel.test.mjs` — 10/10 pass
+- `node --test tests/*.test.mjs` — 1057/1057 pass (was 1047, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T11 is complete. The Session 108 class of bugs (kernel silently dropping PageModel fields) is now caught by:
+  1. TypeScript: `mapRawToPageModel` has explicit return type `PageModel`
+  2. Runtime tests: contract compliance tests parse the interface source and verify all fields survive
+  3. Count guard: adding a new field changes the expected count (19), forcing the developer to update the mapping and test fixture
+- There is now a single source of truth for the raw-to-PageModel mapping (was duplicated in two places in the kernel)
+- T12 (error recovery guidance) is the next PM task
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16 (Session 111)*
+
 *Session log entry written: 2026-03-16 (Session 110)*
