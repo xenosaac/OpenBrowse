@@ -12,7 +12,6 @@ interface Props {
   displayUrl: string;
   isSecure: boolean;
   waitingCount: number;
-  menuOpen: boolean;
   isBookmarked: boolean;
   onToggleBookmark: () => void;
   onAddressChange: (val: string) => void;
@@ -26,17 +25,17 @@ interface Props {
   onOpenManagement: (tab: ManagementTab) => void;
   onToggleMenu: (e: React.MouseEvent) => void;
   addressBarRef: React.RefObject<HTMLInputElement | null>;
-  menuContent: React.ReactNode;
+  menuButtonRef: React.RefObject<HTMLButtonElement | null>;
 }
 
 export function NavBar(props: Props) {
   const {
     activeBrowserTab, mainPanel, addressInput, addressEditing,
-    navState, displayUrl, isSecure, waitingCount, menuOpen,
+    navState, displayUrl, isSecure, waitingCount,
     isBookmarked, onToggleBookmark,
     onAddressChange, onAddressFocus, onAddressBlur, onNavigate,
     onBack, onForward, onReload, onHome, onOpenManagement,
-    onToggleMenu, addressBarRef, menuContent
+    onToggleMenu, addressBarRef, menuButtonRef
   } = props;
 
   return (
@@ -125,15 +124,13 @@ export function NavBar(props: Props) {
           style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           title="Settings & Management"
         >⚙</button>
-        <div style={{ position: "relative" }}>
-          <button
-            className="ob-btn"
-            onClick={onToggleMenu}
-            style={{ ...styles.iconButton, WebkitAppRegion: "no-drag", fontSize: 18 } as React.CSSProperties}
-            title="More actions"
-          >☰</button>
-          {menuOpen && menuContent}
-        </div>
+        <button
+          ref={menuButtonRef}
+          className="ob-btn"
+          onClick={onToggleMenu}
+          style={{ ...styles.iconButton, WebkitAppRegion: "no-drag", fontSize: 18 } as React.CSSProperties}
+          title="More actions"
+        >☰</button>
       </div>
     </div>
   );
