@@ -7544,3 +7544,75 @@ Created `makeMockWebContents()` — returns a mock `WebContents` with a `debugge
 *Session log entry written: 2026-03-16 (Session 124)*
 
 *Session log entry written: 2026-03-16 (Session 123)*
+
+---
+
+### Session 125 — 2026-03-16: T18 — Browser Context Menu (Right-Click)
+
+#### Mode: feature
+
+Rationale: PM ordering says T18 is next after T16-T17. All test hardening tasks are complete (T16-T17, 1092 tests). T18 is a browser feature that makes the product feel like a real browser — right-click is the second most-used browser interaction. Framework maturity checklist is satisfied; this is a legitimate feature task.
+
+#### Plan
+
+1. **BrowserViewManager.ts**: Add `onContextMenu` callback + `context-menu` event listener in `create()`.
+2. **AppBrowserShell.ts**: Add `setContextMenuCallback()`, `inspectElement()`, `copyImageAt()`, `executeEditCommand()`.
+3. **registerIpcHandlers.ts**: Import `Menu` and `clipboard`. Set context menu callback with context-appropriate items:
+   - Link: Open Link in New Tab, Copy Link Address
+   - Image: Copy Image
+   - Editable: Cut, Copy, Paste, Select All
+   - Selected text: Copy, Search Google for "..."
+   - Always: Back, Forward, Reload, Inspect Element
+4. Use direct `webContents` methods for clipboard ops (not `role` items) to target the correct WebContentsView.
+5. Run `pnpm run typecheck`.
+
+#### Implementation
+
+**`BrowserViewManager.ts`** — Added `onContextMenu` callback and `context-menu` event listener in `create()`:
+- Listens for `context-menu` on each created WebContentsView's webContents
+- Forwards session ID and a subset of `ContextMenuParams` (x, y, linkURL, linkText, selectionText, mediaType, srcURL, isEditable) to the callback
+
+**`AppBrowserShell.ts`** — Added 4 new methods:
+- `setContextMenuCallback(cb)` — wires the BrowserViewManager callback
+- `inspectElement(sessionId, x, y)` — opens DevTools at the clicked position via `webContents.inspectElement()`
+- `copyImageAt(sessionId, x, y)` — copies the image at coordinates via `webContents.copyImageAt()`
+- `executeEditCommand(sessionId, command)` — executes `cut`/`copy`/`paste`/`selectAll` on the correct WebContentsView's webContents (not via `role` items, which would target the main window)
+
+**`registerIpcHandlers.ts`** — Added `Menu` and `clipboard` imports. Context menu callback builds context-appropriate items:
+
+| Context | Menu Items |
+|---|---|
+| Link present | Open Link in New Tab, Copy Link Address |
+| Image | Copy Image |
+| Editable field | Cut, Copy, Paste, Select All |
+| Selected text (non-editable) | Copy, Search Google for "..." |
+| Always | Back (enabled/disabled), Forward (enabled/disabled), Reload, Inspect Element |
+
+Key decisions:
+- Used direct `webContents` methods (`.copy()`, `.cut()`, `.paste()`, `.selectAll()`) instead of Electron `role` items, because `role` items route to the focused webContents of the main window, which may not be the WebContentsView where the user right-clicked.
+- "Open Link in New Tab" creates a standalone tab and sends `standalone_tab_created` event to the renderer.
+- "Search Google for ..." truncates selection text to 30 chars with ellipsis in the label, uses full text in the search URL.
+- Navigation items (Back/Forward) use `navState` to correctly enable/disable.
+- Menu renders via Electron's native `Menu.popup()` — no renderer changes needed.
+
+#### Files Changed
+
+- `apps/desktop/src/main/browser/BrowserViewManager.ts` — `onContextMenu` callback + `context-menu` event listener
+- `apps/desktop/src/main/browser/AppBrowserShell.ts` — `setContextMenuCallback`, `inspectElement`, `copyImageAt`, `executeEditCommand`
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — context menu handler with `Menu.buildFromTemplate()` + `Menu.popup()`
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1092/1092 pass (no change — feature is Electron main-process only, no unit-testable logic)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T18 is complete. Right-clicking in the browser viewport now shows a native context menu with standard actions.
+- PM ordering: T19 (zoom controls) is next.
+- D12 (sidebar residual token cleanup) is available as a quick design polish task.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 125)*

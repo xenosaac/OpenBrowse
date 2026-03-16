@@ -23,6 +23,10 @@ export class BrowserViewManager {
   onLoadingStateChanged: ((sessionId: string, isLoading: boolean) => void) | null = null;
   onFaviconUpdated: ((sessionId: string, faviconUrl: string) => void) | null = null;
   onFindResult: ((sessionId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) | null = null;
+  onContextMenu: ((sessionId: string, params: {
+    x: number; y: number; linkURL: string; linkText: string;
+    selectionText: string; mediaType: string; srcURL: string; isEditable: boolean;
+  }) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -83,6 +87,19 @@ export class BrowserViewManager {
         activeMatchOrdinal: result.activeMatchOrdinal,
         matches: result.matches,
         finalUpdate: result.finalUpdate
+      });
+    });
+
+    view.webContents.on("context-menu", (_event, params) => {
+      this.onContextMenu?.(sessionId, {
+        x: params.x,
+        y: params.y,
+        linkURL: params.linkURL,
+        linkText: params.linkText,
+        selectionText: params.selectionText,
+        mediaType: params.mediaType,
+        srcURL: params.srcURL,
+        isEditable: params.isEditable
       });
     });
 
