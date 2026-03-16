@@ -433,6 +433,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       autocomplete: (function() { var ac = el.getAttribute('aria-autocomplete'); return ac === 'inline' || ac === 'list' || ac === 'both' ? ac : undefined; })(),
       multiselectable: el.getAttribute('aria-multiselectable') === 'true' ? true : undefined,
       required: (el.required || el.getAttribute('aria-required') === 'true') ? true : undefined,
+      hasPopup: (function() { var hp = el.getAttribute('aria-haspopup'); if (!hp || hp === 'false') return undefined; return hp === 'true' ? 'menu' : hp; })(),
       invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;

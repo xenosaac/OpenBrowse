@@ -80,6 +80,7 @@ export interface PageElementModel {
   autocomplete?: "inline" | "list" | "both";
   multiselectable?: boolean;
   required?: boolean;
+  hasPopup?: string;
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };

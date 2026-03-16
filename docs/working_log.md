@@ -4530,3 +4530,60 @@ Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectab
 - Consider surfacing `aria-busy` for loading states
 
 *Session log entry written: 2026-03-16 (Session 78)*
+
+---
+
+### Session 79 — 2026-03-16: Surface aria-haspopup in Page Model for Menu/Dialog Trigger Awareness
+
+#### Context
+
+The planner currently cannot distinguish between buttons that perform direct actions and buttons that open menus, dialogs, listboxes, or other popups. The `aria-haspopup` attribute indicates what type of popup a trigger element controls (`true`/`menu`, `dialog`, `listbox`, `tree`, `grid`). Surfacing this helps the planner:
+- Know which buttons will open dropdown menus vs perform actions
+- Anticipate that clicking a trigger will reveal new interactive elements
+- Understand the interaction pattern (menu navigation, dialog filling, listbox selection)
+
+Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectable`, `required`, and `invalid` following the same pattern.
+
+#### Plan
+
+1. Add `hasPopup?: string` to `PageElementModel` in `packages/contracts/src/browser.ts`
+2. Extract `aria-haspopup` in `extractPageModel.ts` element enumeration (normalize `true` → `menu`)
+3. Render `(haspopup=<type>)` in `buildPlannerPrompt.ts` element line — place after `required` and before `invalid`
+4. Add 4 planner-prompt tests: haspopup renders, absent when undefined, "true" normalizes to "menu", ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `hasPopup?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `hasPopup` extraction in element enumeration:
+- Reads `aria-haspopup` attribute; normalizes `"true"` → `"menu"` (per ARIA spec, `true` is equivalent to `menu`)
+- Filters out `"false"` (treated as no popup)
+- Valid values: `menu`, `dialog`, `listbox`, `tree`, `grid`
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(haspopup=<type>)` rendering in element line after `(required)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (127 → 131):
+- `hasPopup` renders `(haspopup=menu)` for button with menu trigger
+- `hasPopup` absent when undefined
+- `hasPopup` renders `(haspopup=dialog)` for dialog triggers
+- `hasPopup` renders after required and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 131/131 pass (was 127, +4 new)
+- `node --test tests/*.test.mjs` — 966/966 pass (was 962, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (966 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-busy` so planner sees loading states
+- Consider surfacing `aria-live` regions so planner knows about dynamic content areas
+
+*Session log entry written: 2026-03-16 (Session 79)*
