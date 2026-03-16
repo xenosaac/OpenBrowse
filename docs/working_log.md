@@ -5042,3 +5042,58 @@ This covers many modern UI frameworks and CMP tools that use Web Components with
 - Consider: iframe content extraction, element grouping by landmark in prompt, or closed shadow DOM handling (not possible without `mode: "open"`)
 
 *Session log entry written: 2026-03-16 (Session 88)*
+
+---
+
+### Session 89 — 2026-03-16: Detect Iframes in Page Model and Surface in Planner Prompt
+
+#### Context
+
+Gap analysis (Session 88 suggestion): Pages with `<iframe>` elements have content that is invisible to the planner's element enumeration (which only queries the main document and open shadow DOMs). Cross-origin iframes are completely opaque, and even same-origin iframes are not currently traversed. The planner should at least know when iframes exist so it can reason about missing content and consider alternative approaches.
+
+#### Plan
+
+1. Add `iframeCount?: number` and `iframeSources?: string[]` to `PageModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, count visible `<iframe>` elements and collect their `src` (truncated, max 5)
+3. In `buildPlannerPrompt.ts`, render an iframe hint when iframes are present
+4. Add 3 planner-prompt tests: iframe hint shown, absent when no iframes, shows sources
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `iframeCount?: number` and `iframeSources?: string[]` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added iframe detection at end of page model extraction:
+- Counts visible `<iframe>` elements (only those passing `isVisible()`)
+- Collects `src` attributes (truncated to 120 chars, max 5 sources), skips `about:blank`
+- Returns `undefined` when no visible iframes exist
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `iframeHint` section rendered when `iframeCount > 0`:
+- Shows count and optionally lists sources
+- Advises the planner that iframe content is not visible in the element list
+- Suggests navigating directly to iframe source URLs if needed info is missing
+- Placed after cookie banner hint and before dialog hint
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (158 → 161):
+- iframeCount hint shown when iframes are present
+- iframe hint absent when iframeCount is undefined
+- iframe hint includes sources when iframeSources provided
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 161/161 pass (was 158, +3 new)
+- `node --test tests/*.test.mjs` — 996/996 pass (was 993, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (996 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element grouping by landmark in prompt, loading/spinner state detection, or aria-errormessage surfacing
+
+*Session log entry written: 2026-03-16 (Session 89)*

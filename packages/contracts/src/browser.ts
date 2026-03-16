@@ -133,6 +133,8 @@ export interface PageModel {
     sampleRows?: string[][];
   }>;
   landmarks?: Array<{ role: string; label: string }>;
+  iframeCount?: number;
+  iframeSources?: string[];
 }
 
 export interface BrowserAction {

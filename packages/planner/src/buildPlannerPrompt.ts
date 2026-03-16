@@ -154,6 +154,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? "\n** COOKIE BANNER DETECTED: A cookie consent banner is covering part of the page. Dismiss it first (look for \"Accept\", \"Accept All\", \"Agree\", or \"Reject\" buttons) before interacting with other page elements."
     : "";
 
+  // --- Iframes ---
+  const iframeHint = pageModel.iframeCount && pageModel.iframeCount > 0
+    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page. Content inside iframes is NOT visible in the element list below.${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Sources: ${pageModel.iframeSources.join(", ")}` : ""} If the information you need is not visible, it may be inside an iframe — try navigating directly to the iframe source URL.`
+    : "";
+
   // --- Active dialog ---
   const dialogHint = pageModel.activeDialog
     ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements.`
@@ -302,7 +307,7 @@ Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistor
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${cookieBannerHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}${landmarksSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${cookieBannerHint}${iframeHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}${landmarksSection}
 
 Visible text (excerpt):
 ${(pageModel.visibleText ?? "").slice(0, 3000)}

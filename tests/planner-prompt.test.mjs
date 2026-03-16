@@ -1823,3 +1823,31 @@ test("inShadowDom renders after options and before off-screen", () => {
   const offscreenIdx = line.indexOf("(off-screen)");
   assert.ok(shadowIdx < offscreenIdx, "(shadow) should appear before (off-screen)");
 });
+
+// --- Iframe detection ---
+
+test("iframeCount hint shown when iframes are present", () => {
+  const pm = makePageModel({ iframeCount: 3 });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /IFRAMES DETECTED/);
+  assert.match(user, /3 iframe\(s\)/);
+});
+
+test("iframe hint absent when iframeCount is undefined", () => {
+  const pm = makePageModel({});
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /IFRAMES DETECTED/);
+});
+
+test("iframe hint includes sources when iframeSources provided", () => {
+  const pm = makePageModel({
+    iframeCount: 2,
+    iframeSources: ["https://ads.example.com/banner", "https://maps.example.com/embed"]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /IFRAMES DETECTED/);
+  assert.match(user, /2 iframe\(s\)/);
+  assert.match(user, /ads\.example\.com/);
+  assert.match(user, /maps\.example\.com/);
+  assert.match(user, /navigating directly to the iframe source URL/);
+});
