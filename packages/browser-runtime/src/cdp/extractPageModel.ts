@@ -266,6 +266,67 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return undefined;
   }
 
+  // --- Table structure extraction ---
+  function extractTables() {
+    var tables = document.querySelectorAll('table');
+    var result = [];
+    for (var ti = 0; ti < Math.min(tables.length, 3); ti++) {
+      var table = tables[ti];
+      if (!isVisible(table)) continue;
+
+      // Caption
+      var captionEl = table.querySelector('caption');
+      var caption = captionEl ? (captionEl.textContent || '').trim().slice(0, 80) : undefined;
+
+      // Headers from <thead> or first <tr>
+      var headers = [];
+      var headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+      if (headerRow) {
+        var headerCells = headerRow.querySelectorAll('th, td');
+        for (var hi = 0; hi < Math.min(headerCells.length, 10); hi++) {
+          headers.push((headerCells[hi].textContent || '').trim().slice(0, 40));
+        }
+      }
+
+      // Row count (excluding header row)
+      var allRows = table.querySelectorAll('tbody tr');
+      if (allRows.length === 0) {
+        // No tbody, count all tr minus the header
+        var allTr = table.querySelectorAll('tr');
+        var rowCount = Math.max(0, allTr.length - (headerRow ? 1 : 0));
+        var bodyRows = [];
+        for (var ri = (headerRow ? 1 : 0); ri < allTr.length; ri++) {
+          bodyRows.push(allTr[ri]);
+        }
+        allRows = bodyRows;
+      } else {
+        var rowCount = allRows.length;
+      }
+
+      // Sample rows (first 3)
+      var sampleRows = [];
+      for (var si = 0; si < Math.min(allRows.length, 3); si++) {
+        var row = allRows[si];
+        var cells = row.querySelectorAll('td, th');
+        var rowData = [];
+        for (var ci = 0; ci < Math.min(cells.length, 10); ci++) {
+          rowData.push((cells[ci].textContent || '').trim().slice(0, 40));
+        }
+        sampleRows.push(rowData);
+      }
+
+      if (headers.length > 0 || rowCount > 0) {
+        result.push({
+          caption: caption || undefined,
+          headers: headers,
+          rowCount: rowCount,
+          sampleRows: sampleRows.length > 0 ? sampleRows : undefined
+        });
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  }
+
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
@@ -416,7 +477,8 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     alerts: extractAlerts(),
     captchaDetected: detectCaptcha(),
     scrollY: window.scrollY,
-    activeDialog: detectActiveDialog()
+    activeDialog: detectActiveDialog(),
+    tables: extractTables()
   };
 })()
 `;
