@@ -5348,4 +5348,66 @@ Added 5 tests to `tests/planner-prompt.test.mjs` (164 → 169):
 
 *Session log entry written: 2026-03-16 (Session 92)*
 
+---
+
+### Session 93 — 2026-03-16: T5/D1 — Atmospheric Background Gradient
+
+#### Mode: feature
+
+Rationale: T4 (planner input pipeline validation) is complete. T9 requires user action. Per PM and UI Designer, the next overnight task is T5/D1: atmospheric background gradient — the D-P0 design prerequisite that enables all other glass improvements. This is the cheapest fix with the highest visual impact.
+
+#### Context
+
+PM task T5 and UI Designer task D1 both specify: add subtle atmospheric radial gradients to the root background so glass blur has something to refract. Currently `bgBase: #0a0a10` is flat black, making all glass surfaces look like tinted dark rectangles.
+
+Spec from `docs/ui_design.md`:
+```
+background: #0a0a10;
+background-image:
+  radial-gradient(ellipse 80% 50% at 50% 0%, rgba(16,185,129,0.03) 0%, transparent 70%),
+  radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.02) 0%, transparent 60%);
+```
+
+#### Plan
+
+1. Update `document.body.style.background` in App.tsx useEffect to use the atmospheric gradient.
+2. Update `styles.app` background to use the atmospheric gradient instead of flat `colors.bgBase`.
+3. Make `styles.main` background transparent so glass surfaces in the chrome band can refract the gradient.
+4. Run typecheck.
+5. Update log and commit.
+
+#### Implementation
+
+Applied the atmospheric background gradient from `docs/ui_design.md` spec to three locations in `App.tsx`:
+
+1. **`document.body.style.backgroundImage`** (useEffect) — Sets the gradient on the HTML body so it persists even if the React root unmounts.
+2. **`styles.app.backgroundImage`** — Applies the same gradient to the root React container div.
+3. **`styles.main.background`** — Changed from `colors.bgBase` (opaque) to `transparent` so glass surfaces in the chrome band (TabBar, NavBar) can refract the atmospheric gradient via their `backdrop-filter` properties.
+
+The gradient spec:
+- Emerald-tinted ellipse at top center: `rgba(16,185,129,0.03)` — extremely subtle
+- Indigo-tinted ellipse at bottom-right: `rgba(99,102,241,0.02)` — even subtler
+
+Both are at ≤3% opacity per the design spec. They should be invisible as standalone gradients but give glass blur something meaningful to refract at different positions on the screen.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/App.tsx` — added atmospheric radial gradient to body, app container, and made main section transparent
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T5/D1 is complete. Glass surfaces should now visibly refract differently based on position.
+- Next design task: T6/D2 (unify chrome band — TabBar + NavBar into single glass surface).
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 93)*
+
 *Session log entry written: 2026-03-16 (Session 89)*
