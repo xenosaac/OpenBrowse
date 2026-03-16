@@ -391,6 +391,31 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return result.length > 0 ? result : undefined;
   }
 
+  // --- Containing landmark lookup ---
+  var landmarkRolesSet = new Set([
+    'banner', 'navigation', 'main', 'complementary',
+    'contentinfo', 'search', 'region', 'form'
+  ]);
+  var tagToLandmarkRole = {
+    'HEADER': 'banner',
+    'NAV': 'navigation',
+    'MAIN': 'main',
+    'ASIDE': 'complementary',
+    'FOOTER': 'contentinfo'
+  };
+
+  function getContainingLandmark(el) {
+    var node = el.parentElement;
+    while (node && node !== document.body && node !== document.documentElement) {
+      var r = (node.getAttribute('role') || '').toLowerCase();
+      if (landmarkRolesSet.has(r)) return r;
+      var implicitRole = tagToLandmarkRole[node.tagName];
+      if (implicitRole && !node.getAttribute('role')) return implicitRole;
+      node = node.parentElement;
+    }
+    return undefined;
+  }
+
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
@@ -522,6 +547,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
         }
         return result.length > 0 ? result : undefined;
       })(),
+      landmark: getContainingLandmark(el),
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });

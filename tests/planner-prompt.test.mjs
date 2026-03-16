@@ -1696,3 +1696,40 @@ test("truncation notice absent when no elements", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.doesNotMatch(user, /showing.*of/);
 });
+
+// ---------------------------------------------------------------------------
+// Element-to-landmark association
+// ---------------------------------------------------------------------------
+
+test("element with landmark annotation renders in=<landmark>", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "link", label: "Home", isActionable: true, landmark: "navigation" },
+      { id: "el_1", role: "button", label: "Submit", isActionable: true, landmark: "main" },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] link "Home" in=navigation/);
+  assert.match(user, /\[el_1\] button "Submit" in=main/);
+});
+
+test("element without landmark annotation does not render in=", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "OK", isActionable: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] button "OK"/);
+  assert.doesNotMatch(user, /in=/);
+});
+
+test("landmark annotation renders before other attributes like level", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "heading", label: "Section Title", isActionable: false, landmark: "main", level: 2 },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] heading "Section Title" in=main level=2/);
+});
