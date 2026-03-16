@@ -479,6 +479,15 @@ export class ElectronBrowserKernel implements BrowserKernel {
           await managed.cdp.evaluate(EXTRACT_PAGE_MODEL_SCRIPT);
           break;
 
+        case "go_back": {
+          if (wc.canGoBack()) {
+            wc.goBack();
+            await this.waitForLoadIfNavigating(wc);
+            managed.cdp.invalidateContext();
+          }
+          break;
+        }
+
         case "screenshot": {
           const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
           const pageModelAfterScreenshot = await this.capturePageModel(browserSession);

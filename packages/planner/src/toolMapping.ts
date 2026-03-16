@@ -115,6 +115,17 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_go_back",
+    description: "Navigate back to the previous page (like pressing the browser back button). Use after visiting a page to return to search results or a previous page.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        description: { type: "string", description: "Why you are going back" }
+      },
+      required: ["description"]
+    }
+  },
+  {
     name: "task_complete",
     description: "Mark the task as successfully completed.",
     input_schema: {
@@ -299,6 +310,16 @@ export function mapToolCallToDecision(
         action: {
           type: "screenshot",
           description: "Capture screenshot"
+        }
+      };
+
+    case "browser_go_back":
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "go_back",
+          description: input.description ?? "Go back to previous page"
         }
       };
 
