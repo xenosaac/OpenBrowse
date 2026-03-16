@@ -1,4 +1,5 @@
 import type { BrowserProfile } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface Props {
   profiles: BrowserProfile[];
@@ -29,20 +30,20 @@ export function ManagedProfiles({ profiles }: Props) {
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#151522",
+    ...glass.card,
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
-    border: "1px solid #2a2a3e"
-  },
+    border: "1px solid " + colors.borderGlass
+  } as React.CSSProperties,
   row: {
     display: "flex",
     alignItems: "center",
     gap: 8
   },
   badge: {
-    background: "#312e81",
-    color: "#fffdf9",
+    background: colors.emeraldTintStrong,
+    color: colors.emeraldHover,
     fontSize: "0.7rem",
     padding: "2px 6px",
     borderRadius: 4,

@@ -1,4 +1,5 @@
 import type { TaskRun } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface Props {
   runs: TaskRun[];
@@ -7,11 +8,11 @@ interface Props {
 }
 
 const statusColors: Record<string, string> = {
-  running: "#22c55e",
+  running: colors.statusRunning,
   suspended_for_clarification: "#eab308",
   suspended_for_approval: "#f97316",
-  completed: "#6366f1",
-  failed: "#ef4444",
+  completed: colors.emerald,
+  failed: colors.statusFailed,
   cancelled: "#6b7280",
   queued: "#94a3b8"
 };
@@ -30,6 +31,7 @@ export function LiveTasks({ runs, onSelectRun, onCancelRun }: Props) {
           key={run.id}
           onClick={() => onSelectRun(run.id)}
           style={styles.card}
+          className="ob-card"
         >
           <div style={styles.row}>
             <div style={styles.goalGroup}>
@@ -69,13 +71,13 @@ export function LiveTasks({ runs, onSelectRun, onCancelRun }: Props) {
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#151522",
+    ...glass.card,
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
     cursor: "pointer",
-    border: "1px solid #2a2a3e"
-  },
+    border: "1px solid " + colors.borderGlass
+  } as React.CSSProperties,
   row: {
     display: "flex",
     alignItems: "center",

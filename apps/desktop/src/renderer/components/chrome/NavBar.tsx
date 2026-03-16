@@ -1,6 +1,7 @@
 import React, { useRef, forwardRef } from "react";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
 import type { ManagementTab } from "../ManagementPanel";
+import { colors, radii, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   activeBrowserTab: BrowserShellTabDescriptor | null;
@@ -36,9 +37,10 @@ export function NavBar(props: Props) {
   } = props;
 
   return (
-    <div style={styles.navBar}>
+    <div className="ob-glass-panel" style={styles.navBar}>
       <div style={styles.navButtons}>
         <button
+          className="ob-btn"
           style={{
             ...styles.iconButton, WebkitAppRegion: "no-drag",
             ...(navState.canGoBack ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
@@ -46,6 +48,7 @@ export function NavBar(props: Props) {
           onClick={onBack}
         >←</button>
         <button
+          className="ob-btn"
           style={{
             ...styles.iconButton, WebkitAppRegion: "no-drag",
             ...(navState.canGoForward ? {} : { opacity: 0.3, cursor: "default", pointerEvents: "none" as const })
@@ -53,16 +56,18 @@ export function NavBar(props: Props) {
           onClick={onForward}
         >→</button>
         <button
+          className="ob-btn"
           style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           onClick={onReload}
         >↻</button>
         <button
+          className="ob-btn"
           style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           onClick={onHome}
         >⌂</button>
       </div>
-      <div style={styles.addressBarWrap}>
-        <span style={{ ...styles.addressLock, color: isSecure ? "#22c55e" : "#9090a8" }}>
+      <div className="ob-address" style={styles.addressBarWrap}>
+        <span style={{ ...styles.addressLock, color: isSecure ? colors.emerald : colors.textSecondary }}>
           {isSecure ? "🔒" : "●"}
         </span>
         <input
@@ -89,6 +94,7 @@ export function NavBar(props: Props) {
       </div>
       <div style={styles.headerActions}>
         <button
+          className="ob-btn"
           style={{ ...styles.headerPill, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           onClick={() => onOpenManagement("demos")}
         >Demos</button>
@@ -98,12 +104,14 @@ export function NavBar(props: Props) {
           </div>
         )}
         <button
+          className="ob-btn"
           onClick={() => onOpenManagement("config")}
           style={{ ...styles.iconButton, WebkitAppRegion: "no-drag" } as React.CSSProperties}
           title="Settings & Management"
         >⚙</button>
         <div style={{ position: "relative" }}>
           <button
+            className="ob-btn"
             onClick={onToggleMenu}
             style={{ ...styles.iconButton, WebkitAppRegion: "no-drag", fontSize: 18 } as React.CSSProperties}
             title="More actions"
@@ -118,32 +126,36 @@ export function NavBar(props: Props) {
 const styles: Record<string, React.CSSProperties> = {
   navBar: {
     display: "flex", alignItems: "center", gap: 8,
-    padding: "7px 10px", background: "#12121a",
-    borderBottom: "1px solid #2a2a3e", WebkitAppRegion: "drag"
+    padding: "7px 10px",
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    boxShadow: shadows.glassSubtle,
+    borderBottom: `1px solid ${colors.borderGlass}`, WebkitAppRegion: "drag"
   } as React.CSSProperties,
   navButtons: {
     display: "flex", alignItems: "center", gap: 3, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    background: "#1a1a26", color: "#cbd5e1", border: "1px solid #2a2a3e",
-    borderRadius: 9, minWidth: 30, height: 30,
+    background: colors.buttonBg, color: colors.textSecondary, border: `1px solid ${colors.borderGlass}`,
+    borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
   },
   addressBarWrap: {
     flex: 1, display: "flex", alignItems: "center", gap: 7, minWidth: 0,
-    background: "#1e1e2e", border: "1px solid #2a2a3e", borderRadius: 9,
+    ...glass.input,
+    border: `1px solid ${colors.borderGlass}`, borderRadius: radii.md,
     padding: "0 10px", height: 30, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   addressLock: { fontSize: "0.68rem", flexShrink: 0 },
   addressInput: {
     flex: 1, background: "transparent", border: "none", outline: "none",
-    color: "#e5e7eb", fontSize: "0.86rem", minWidth: 0
+    color: colors.textPrimary, fontSize: "0.86rem", minWidth: 0
   },
   headerActions: {
     display: "flex", alignItems: "center", gap: 5, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   headerPill: {
-    background: "#1a1a26", color: "#e5e7eb", border: "1px solid #2a2a3e",
+    background: colors.buttonBg, color: colors.textPrimary, border: `1px solid ${colors.borderGlass}`,
     borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontSize: "0.8rem"
   },
   waitingPip: {

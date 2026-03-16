@@ -1,5 +1,6 @@
 import React from "react";
 import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   run: TaskRun;
@@ -8,7 +9,7 @@ interface Props {
 
 export function RunContextCard({ run, recentActions }: Props) {
   const statusColor = run.status === "running" || run.status === "completed"
-    ? "#22c55e"
+    ? colors.statusRunning
     : run.status === "suspended_for_clarification" || run.status === "suspended_for_approval"
     ? "#f59e0b"
     : "#ef4444";
@@ -18,8 +19,21 @@ export function RunContextCard({ run, recentActions }: Props) {
     ? "rgba(245,158,11,0.15)"
     : "rgba(239,68,68,0.15)";
 
+  const isRunning = run.status === "running";
+
   return (
-    <div style={styles.card}>
+    <div style={{
+      ...styles.card,
+      ...(isRunning ? {
+        ...glass.emerald,
+        backdropFilter: "blur(16px) saturate(180%)",
+        WebkitBackdropFilter: "blur(16px) saturate(180%)",
+        borderRadius: 12,
+        padding: "10px 12px",
+        marginBottom: 4,
+        boxShadow: shadows.glassSubtle
+      } as React.CSSProperties : {})
+    }}>
       <div style={styles.header}>
         <span style={{ ...styles.badge, background: statusBg, color: statusColor }}>
           {run.status.replace(/_/g, " ")}
@@ -44,9 +58,10 @@ export function RunContextCard({ run, recentActions }: Props) {
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#171726", border: "1px solid #2a2a3e",
+    ...glass.card,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 12, padding: "10px 12px", marginBottom: 4
-  },
+  } as React.CSSProperties,
   header: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
   badge: {
     fontSize: "0.68rem", fontWeight: 600, borderRadius: 999,
@@ -57,6 +72,6 @@ const styles: Record<string, React.CSSProperties> = {
   actions: { display: "flex", flexDirection: "column", gap: 3 },
   actionItem: {
     fontSize: "0.72rem", color: "#9090a8",
-    paddingLeft: 8, borderLeft: "2px solid rgba(139,92,246,0.3)"
+    paddingLeft: 8, borderLeft: "2px solid rgba(16,185,129,0.3)"
   }
 };

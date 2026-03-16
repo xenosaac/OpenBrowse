@@ -1,5 +1,6 @@
 import React from "react";
 import type { ChatSession } from "../../types/chat";
+import { colors, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   sessions: ChatSession[];
@@ -16,6 +17,7 @@ export function SessionListDropdown({ sessions, activeSessionId, onSwitch }: Pro
       {sessions.map(session => (
         <button key={session.id}
           onClick={() => onSwitch(session.id)}
+          className="ob-card"
           style={{
             ...styles.sessionItem,
             ...(session.id === activeSessionId ? styles.sessionItemActive : {})
@@ -33,9 +35,12 @@ export function SessionListDropdown({ sessions, activeSessionId, onSwitch }: Pro
 
 const styles: Record<string, React.CSSProperties> = {
   sessionList: {
-    background: "#12121a", borderBottom: "1px solid #2a2a3e",
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    boxShadow: shadows.glassElevated,
+    borderBottom: "1px solid " + colors.borderGlass,
     padding: "6px 8px", maxHeight: 220, overflowY: "auto" as const, flexShrink: 0
-  },
+  } as React.CSSProperties,
   sessionListHeader: { padding: "4px 6px 6px", display: "flex", alignItems: "center" },
   sessionListTitle: {
     fontSize: "0.7rem", color: "#9090a8",
@@ -43,13 +48,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sessionItem: {
     display: "block", width: "100%", background: "none",
-    border: "1px solid transparent", borderRadius: 8,
+    border: `1px solid ${colors.borderGlass}`, borderRadius: 8,
     padding: "6px 8px", textAlign: "left" as const,
     cursor: "pointer", color: "#e5e7eb", marginBottom: 2
   },
   sessionItemActive: {
-    background: "rgba(139,92,246,0.1)", borderColor: "rgba(139,92,246,0.25)"
-  },
+    ...glass.emerald
+  } as React.CSSProperties,
   sessionItemTitle: {
     fontSize: "0.82rem", fontWeight: 600,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const

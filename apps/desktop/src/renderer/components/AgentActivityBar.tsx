@@ -1,4 +1,5 @@
 import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface AgentActivityBarProps {
   run: TaskRun | null;
@@ -22,6 +23,7 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
       <div style={barStyles.spacer} />
       <button
         style={barStyles.stopButton}
+        className="ob-btn"
         onClick={() => onCancel(run.id)}
       >
         Stop
@@ -32,27 +34,28 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
 
 const barStyles: Record<string, React.CSSProperties> = {
   bar: {
+    ...glass.panel,
     display: "flex",
     alignItems: "center",
     gap: 8,
     height: 32,
     padding: "0 12px",
-    background: "#12121a",
-    borderBottom: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderGlass,
+    boxShadow: shadows.glassSubtle,
     flexShrink: 0,
     fontSize: "0.78rem",
-    color: "#9090a8"
-  },
+    color: colors.textSecondary
+  } as React.CSSProperties,
   dot: {
     width: 6,
     height: 6,
     borderRadius: "50%",
-    background: "#22c55e",
+    background: colors.statusRunning,
     flexShrink: 0,
     animation: "ob-pulse 1.5s ease-in-out infinite"
   },
   label: {
-    color: "#22c55e",
+    color: colors.statusRunning,
     fontWeight: 600,
     flexShrink: 0
   },
