@@ -249,8 +249,8 @@ export function App() {
     selection.setMainPanel("browser");
   }, [selection.selectGroup, selection.selectRun, selection.setForegroundRunId, selection.setMainPanel]);
 
-  const submitChatTask = async () => {
-    const goal = chat.chatInput.trim();
+  const submitChatTask = async (goalOverride?: string) => {
+    const goal = (goalOverride ?? chat.chatInput).trim();
     if (!goal || chat.chatBusy) return;
 
     chat.setMessages(current => [
@@ -798,6 +798,7 @@ export function App() {
               shellTabs={browserTabs.shellTabs}
               tabFavicons={browserTabs.tabFavicons}
               onOpenTab={handleSelectTab}
+              onStartTask={(goal) => void submitChatTask(goal)}
             />
           )}
         </div>

@@ -5560,3 +5560,64 @@ Also updated the global `.ob-card:hover` border-color in App.tsx from `rgba(255,
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 95)*
+
+---
+
+### Session 96 — 2026-03-16: T7/D3 — Home Page Brand Surface
+
+#### Mode: feature
+
+Rationale: T8/D4 (card border opacity) is complete. Per PM and UI Designer, T7/D3 (home page brand surface) is the next task. The home page is the first thing users see — currently a flat card grid on `#0a0a10` with no brand personality. D3 spec calls for: richer atmospheric background, centered agent prompt card (Tier 2 glass, 18px radius, max-width 560px), greeting + task input, secondary recent-tabs grid below.
+
+#### Plan
+
+1. Refactor `submitChatTask` in App.tsx to accept an optional `goalOverride` parameter
+2. Add `onStartTask` prop to HomePage
+3. Redesign HomePage.tsx per D3 spec:
+   - Richer atmospheric background (exceeding the 3% ceiling per D3 allowance)
+   - Centered prompt card: `glass.card`, `shadows.glass`, border-radius 18px, max-width 560px
+   - Brand mark, greeting, simple task input field
+   - Recent-tabs grid secondary, below the prompt card
+4. Wire `onStartTask` in App.tsx
+5. Run typecheck
+6. Update log and commit
+
+#### Implementation
+
+Redesigned `HomePage.tsx` per D3 spec and wired `submitChatTask` to accept a `goalOverride` parameter for home page task entry:
+
+1. **`App.tsx`** — Refactored `submitChatTask` to accept optional `goalOverride: string` parameter so the home page input can trigger task starts directly. Added `onStartTask` prop to `<HomePage>`.
+
+2. **`HomePage.tsx`** — Full redesign:
+   - **Richer atmospheric background:** Three radial gradients — emerald at top center (6%), indigo at bottom-right (4%), secondary emerald at bottom-left (2.5%). Exceeds the 3% base ceiling per D3 allowance for the brand surface.
+   - **Centered prompt card (hero):** `glass.card` with `shadows.glass` (elevated for emphasis), `borderRadius: 18`, `maxWidth: 560px`. Contains brand mark (◎ icon + "OpenBrowse"), greeting ("What would you like to do?"), and a functional task input with "Go" submit button.
+   - **Task input:** Uses `ob-address` class for emerald focus glow. Submit triggers `onStartTask` which delegates to the sidebar chat task flow — messages appear in chat, runs are tracked in sessions.
+   - **Recent-tabs grid (secondary):** Moved below the prompt card, narrower `maxWidth: 680px`, smaller text (`0.85rem` titles, `0.72rem` URLs), muted eyebrow label (`textMuted` instead of `textSecondary`). Grid spacing tightened to 8px.
+   - **Empty state:** Simplified hint below the prompt card instead of a bordered empty card.
+
+**Key design decisions:**
+- The prompt card is a `<form>` for native Enter-to-submit behavior.
+- The "Go" button uses `ob-btn-primary` class for emerald hover/active treatment per the existing global CSS.
+- The brand mark uses the existing `◎` character (same as favicon display) rather than importing an image.
+- The page background is `colors.bgBase` + triple gradient — distinctly richer than the base app gradient but still below "visible gradient" threshold when glass surfaces are removed.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/App.tsx` — `submitChatTask` accepts `goalOverride`, `<HomePage>` gets `onStartTask` prop
+- `apps/desktop/src/renderer/components/panels/HomePage.tsx` — full redesign per D3 spec
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T7/D3 is complete. Home page now has a brand surface with centered prompt card, atmospheric background, and secondary recent-tabs grid.
+- Next design tasks: D5 (glass.control token + button borders), D6 (border token fix), D7 (sidebar glass-on-glass).
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 96)*
