@@ -429,6 +429,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
       expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
       pressed: el.getAttribute('aria-pressed') === 'true' ? true : (el.getAttribute('aria-pressed') === 'false' ? false : (el.getAttribute('aria-pressed') === 'mixed' ? 'mixed' : undefined)),
+      orientation: (el.getAttribute('aria-orientation') === 'horizontal' ? 'horizontal' : (el.getAttribute('aria-orientation') === 'vertical' ? 'vertical' : undefined)),
       invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;

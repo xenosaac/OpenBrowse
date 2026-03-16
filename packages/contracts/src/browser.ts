@@ -76,6 +76,7 @@ export interface PageElementModel {
   valueMin?: number;
   valueMax?: number;
   valueText?: string;
+  orientation?: "horizontal" | "vertical";
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
