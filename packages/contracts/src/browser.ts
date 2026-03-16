@@ -64,6 +64,7 @@ export interface PageElementModel {
   checked?: boolean;
   selected?: boolean;
   expanded?: boolean;
+  invalid?: boolean;
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
@@ -77,6 +78,7 @@ export interface PageFormField {
   type: string;
   required: boolean;
   currentValue: string;
+  validationMessage?: string;
 }
 
 export interface PageFormSummary {

@@ -905,3 +905,80 @@ test("datalist options omit label when same as value", () => {
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.match(user, /options=\["Red", "Blue"\]/);
 });
+
+// --- Invalid / validation state ---
+
+test("invalid element shows (invalid) annotation", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true,
+      invalid: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(invalid\)/);
+});
+
+test("non-invalid element omits (invalid) annotation", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(invalid)"));
+});
+
+test("invalid annotation appears before disabled", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true,
+      invalid: true, disabled: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const invalidIdx = user.indexOf("(invalid)");
+  const disabledIdx = user.indexOf("(disabled)");
+  assert.ok(invalidIdx < disabledIdx, "(invalid) should appear before (disabled)");
+});
+
+test("form field shows validation message", () => {
+  const pm = makePageModel({
+    forms: [{
+      action: "/submit",
+      method: "POST",
+      fieldCount: 1,
+      fields: [{
+        ref: "el_0",
+        label: "Email",
+        type: "email",
+        required: true,
+        currentValue: "notanemail",
+        validationMessage: "Please enter a valid email address"
+      }],
+      submitRef: "el_1"
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /INVALID: "Please enter a valid email address"/);
+});
+
+test("form field omits validation message when absent", () => {
+  const pm = makePageModel({
+    forms: [{
+      action: "/submit",
+      method: "POST",
+      fieldCount: 1,
+      fields: [{
+        ref: "el_0",
+        label: "Email",
+        type: "email",
+        required: true,
+        currentValue: "test@example.com"
+      }],
+      submitRef: "el_1"
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("INVALID:"));
+});

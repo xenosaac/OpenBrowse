@@ -188,12 +188,14 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
           fLabel = inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || inp.name || '';
         }
         var ref = inp.getAttribute(targetAttr) || '';
+        var valMsg = inp.validationMessage || '';
         fields.push({
           ref: ref,
           label: fLabel.slice(0, 60),
           type: inp.type || inp.tagName.toLowerCase(),
           required: inp.required || inp.getAttribute('aria-required') === 'true',
-          currentValue: inp.value || ''
+          currentValue: inp.value || '',
+          validationMessage: valMsg ? valMsg.slice(0, 120) : undefined
         });
       }
       var submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
@@ -272,6 +274,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       checked: (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : (el.getAttribute('aria-checked') === 'true' ? true : undefined),
       selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
       expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
+      invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;
         if (el.tagName === 'SELECT') {

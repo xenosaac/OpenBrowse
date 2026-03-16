@@ -3537,3 +3537,69 @@ Gap analysis (Session 61): suggested extracting `<datalist>` autocomplete sugges
 - Consider surfacing `aria-description` or `aria-errormessage` for form validation feedback
 
 *Session log entry written: 2026-03-16 (Session 62)*
+
+---
+
+### Session 63 — 2026-03-16: Surface Form Validation State in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 62): suggested surfacing `aria-errormessage` / form validation feedback. Currently, when a form submission fails validation, the planner cannot see which fields are invalid or why. The `alerts` extraction catches some page-level errors, but field-level validation (HTML5 `validationMessage`, `aria-invalid`) is invisible. This causes the planner to re-submit forms without fixing the actual validation error.
+
+#### Plan
+
+1. Add `invalid?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Capture `aria-invalid="true"` or `el.validity?.valid === false` in `extractPageModel.ts`
+3. Add `validationMessage?: string` to `PageFormField` in `contracts/browser.ts`
+4. Capture `el.validationMessage` in `extractForms()` in `extractPageModel.ts`
+5. Surface `(invalid)` annotation in `buildPlannerPrompt.ts` element rendering
+6. Surface `validationMessage` in `buildPlannerPrompt.ts` forms section
+7. Add tests to `planner-prompt.test.mjs`
+8. Run typecheck + tests
+9. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `invalid?: boolean` to `PageElementModel` — captures form validation / `aria-invalid` state
+- Added `validationMessage?: string` to `PageFormField` — captures HTML5 constraint validation messages
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Element enumeration: captures `invalid` from `aria-invalid="true"` or `el.validity.valid === false` (with non-empty `validationMessage`)
+- Form fields: captures `el.validationMessage` (capped at 120 chars), only when non-empty
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering: shows `(invalid)` annotation between `(collapsed)` and `(disabled)` for natural reading order
+- Form fields: shows `INVALID: "message"` after current value, making validation errors immediately visible
+
+**Impact:** The planner can now:
+- See which form fields have validation errors (red-outlined fields in the browser)
+- Read the exact validation message (e.g., "Please enter a valid email address")
+- Fix the specific field instead of re-submitting the entire form blindly
+
+**Added 5 tests to `tests/planner-prompt.test.mjs`:**
+- invalid element shows (invalid) annotation
+- non-invalid element omits (invalid) annotation
+- invalid annotation appears before disabled (ordering)
+- form field shows validation message
+- form field omits validation message when absent
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 72/72 pass (was 67, +5 new)
+- `node --test tests/*.test.mjs` — 905/905 pass (was 900, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (905 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-label` override when it differs from visible text (Session 60 suggestion)
+
+*Session log entry written: 2026-03-16 (Session 63)*
+
+*Session log entry written: 2026-03-16 (Session 62)*
