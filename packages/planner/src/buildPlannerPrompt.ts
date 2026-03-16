@@ -114,6 +114,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.pressed === "mixed") line += " (partially pressed)";
       if (el.orientation) line += ` (${el.orientation})`;
       if (el.autocomplete) line += ` (autocomplete=${el.autocomplete})`;
+      if (el.multiselectable) line += " (multiselectable)";
       if (el.invalid) line += " (invalid)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";
