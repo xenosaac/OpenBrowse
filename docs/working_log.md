@@ -5827,3 +5827,119 @@ Applied the Interior Component Rule to all three violating sidebar components:
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 99)*
+
+---
+
+### Session 100 — 2026-03-16: Border Weight Discipline Audit — Fix Remaining borderGlass Violations
+
+#### Mode: feature
+
+Rationale: D7 (sidebar glass-on-glass nesting) is complete. Session 99 documented the next step as "audit renderer against the Border Weight Discipline table to confirm no remaining violations." Audit found 14 surfaces still using `borderGlass` (0.18) that are not Tier 1 or Tier 4. Per the UI designer: "If a card or control uses borderGlass, that is a bug."
+
+#### Plan
+
+Fix 14 `borderGlass` violations across 8 files:
+
+**Input fields → `borderDefault` (0.10):**
+1. HistoryPanel.tsx search
+2. BookmarkPanel.tsx search
+3. CookiePanel.tsx search
+4. WorkflowLog.tsx select
+5. HandoffViewer.tsx select
+6. DemoPanel.tsx intervalInput
+7. RemoteQuestions.tsx input
+8. SettingsPanel.tsx input
+9. HomePage.tsx kbd
+
+**Buttons → `rgba(255,255,255,0.08)` + `glass.control`:**
+10. HistoryPanel.tsx clearBtn
+11. CookiePanel.tsx refreshBtn
+12. CookiePanel.tsx clearBtn
+
+**Content cards → `borderSubtle` (0.06):**
+13. SettingsPanel.tsx card
+
+**Content display → `borderDefault` (0.10):**
+14. HandoffViewer.tsx pre (uses glass.input preset)
+
+Correct usages confirmed (no change needed):
+- App.tsx sidebar borderRight — Tier 1 ✓
+- App.tsx chromeBand border — Tier 1 ✓
+- App.tsx dropdownMenu border — Tier 4 overlay ✓
+- ManagementPanel.tsx borderTop — Tier 1 structural ✓
+- AgentActivityBar.tsx bar border — Tier 1 (glass.panel) ✓
+
+#### Implementation
+
+Fixed all 14 remaining `borderGlass` violations. The border hierarchy is now fully enforced across the entire renderer.
+
+**Input fields → `borderDefault` (0.10):**
+
+| Component | Style Property | Change |
+|---|---|---|
+| HistoryPanel.tsx | search border | borderGlass → borderDefault |
+| BookmarkPanel.tsx | search border | borderGlass → borderDefault |
+| CookiePanel.tsx | search border | borderGlass → borderDefault |
+| WorkflowLog.tsx | select border | borderGlass → borderDefault |
+| HandoffViewer.tsx | select border | borderGlass → borderDefault |
+| HandoffViewer.tsx | pre border | borderGlass → borderDefault |
+| DemoPanel.tsx | intervalInput border | borderGlass → borderDefault |
+| RemoteQuestions.tsx | input border | borderGlass → borderDefault |
+| SettingsPanel.tsx | input border | borderGlass → borderDefault |
+| HomePage.tsx | kbd border | borderGlass → borderDefault |
+
+**Buttons → `glass.control` + control-weight border (0.08):**
+
+| Component | Style Property | Change |
+|---|---|---|
+| HistoryPanel.tsx | clearBtn | buttonBg + borderGlass → glass.control + 0.08 |
+| CookiePanel.tsx | refreshBtn | buttonBg + borderGlass → glass.control + 0.08 |
+| CookiePanel.tsx | clearBtn | buttonBg + borderGlass → glass.control + 0.08 |
+
+**Content cards → `borderSubtle` (0.06):**
+
+| Component | Style Property | Change |
+|---|---|---|
+| SettingsPanel.tsx | card border | borderGlass → borderSubtle |
+
+**Remaining `borderGlass` usages (all correct — Tier 1 or Tier 4):**
+- `tokens.ts` — token definition
+- `App.tsx` sidebar borderRight — Tier 1
+- `App.tsx` chromeBand border — Tier 1
+- `App.tsx` dropdownMenu border — Tier 4 overlay
+- `ManagementPanel.tsx` borderTop — Tier 1 structural
+- `AgentActivityBar.tsx` bar border — Tier 1 (glass.panel)
+
+**RunContextCard status (per UI designer post-D7 audit note):** RunContextCard applies `glass.card` inside the sidebar. Designer ruled this is acceptable because D1 (atmospheric background) provides enough visual separation. No change needed.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/HistoryPanel.tsx` — search border, clearBtn → glass.control
+- `apps/desktop/src/renderer/components/BookmarkPanel.tsx` — search border
+- `apps/desktop/src/renderer/components/CookiePanel.tsx` — search border, refreshBtn + clearBtn → glass.control
+- `apps/desktop/src/renderer/components/WorkflowLog.tsx` — select border
+- `apps/desktop/src/renderer/components/HandoffViewer.tsx` — select border, pre border
+- `apps/desktop/src/renderer/components/DemoPanel.tsx` — intervalInput border
+- `apps/desktop/src/renderer/components/RemoteQuestions.tsx` — input border
+- `apps/desktop/src/renderer/components/SettingsPanel.tsx` — card → borderSubtle, input → borderDefault
+- `apps/desktop/src/renderer/components/panels/HomePage.tsx` — kbd border
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+- Post-audit grep: `borderGlass` only appears in tokens.ts definition and 5 correct Tier 1/Tier 4 usages
+
+#### Status: DONE
+
+#### Next Steps
+
+- The Border Weight Discipline is now fully enforced. No surface below Tier 1 uses `borderGlass` (0.18) anywhere in the renderer.
+- Complete border hierarchy: `borderSubtle` (0.06) for cards → `borderDefault` (0.10) for inputs/controls → `borderGlass` (0.18) for structural panels and overlays.
+- All PM-defined design tasks (D1-D7) and product tasks (T1-T8) are complete.
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate.
+- P3-10 (profile system) remains deferred.
+- The page model fidelity phase remains declared complete.
+- Next iteration: if the user has not done T9, consider capability work from Program E (structured data output, Telegram bridge, etc.) or a gap analysis for the next product feature.
+
+*Session log entry written: 2026-03-16 (Session 100)*

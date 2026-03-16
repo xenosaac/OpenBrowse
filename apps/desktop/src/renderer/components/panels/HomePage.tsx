@@ -242,7 +242,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   kbd: {
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderDefault}`,
     borderRadius: 4,
     padding: "1px 5px",
     fontSize: "0.82rem",
