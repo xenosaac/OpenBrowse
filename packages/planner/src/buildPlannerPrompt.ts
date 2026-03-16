@@ -109,6 +109,9 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
       if (el.selected) line += " (selected)";
       if (el.expanded === true) line += " (expanded)";
       if (el.expanded === false) line += " (collapsed)";
+      if (el.pressed === true) line += " (pressed)";
+      if (el.pressed === false) line += " (not pressed)";
+      if (el.pressed === "mixed") line += " (partially pressed)";
       if (el.invalid) line += " (invalid)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";

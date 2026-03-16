@@ -1341,3 +1341,37 @@ test("tablesSection shows multiple tables", () => {
   assert.match(user, /TABLE: A/);
   assert.match(user, /TABLE: B/);
 });
+
+// --- aria-pressed (toggle button state) ---
+
+test("pressed=true renders (pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Mute", pressed: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(pressed\)/);
+});
+
+test("pressed=false renders (not pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Mute", pressed: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(not pressed\)/);
+});
+
+test("pressed=mixed renders (partially pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Select All", pressed: "mixed", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(partially pressed\)/);
+});
+
+test("pressed undefined does not render pressed text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /pressed/);
+});

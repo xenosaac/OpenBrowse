@@ -4172,3 +4172,67 @@ This prevents the planner from relying solely on flat text dumps to understand t
 - Consider table column/row span awareness for complex tables
 
 *Session log entry written: 2026-03-16 (Session 72)*
+
+---
+
+### Session 73 — 2026-03-16: Surface aria-pressed for Toggle Buttons in Page Model
+
+#### Context
+
+Gap analysis: toggle buttons (dark mode switches, mute buttons, bookmark/favorite toggles, like buttons) are ubiquitous on modern pages. The page model currently surfaces `checked` for checkboxes/radios and `expanded` for disclosure widgets, but has no representation for `aria-pressed` on toggle buttons. Without this, the planner cannot determine whether a toggle is currently active or inactive, leading to blind toggling.
+
+#### Plan
+
+1. Add `pressed?: boolean | "mixed"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-pressed` in `extractPageModel.ts` element enumeration
+3. Surface `(pressed)` / `(not pressed)` / `(partially pressed)` in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `pressed?: boolean | "mixed"` to `PageElementModel`
+- Supports true (pressed), false (not pressed), and "mixed" (partially pressed) states
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-pressed` attribute during element enumeration
+- Maps "true" → `true`, "false" → `false`, "mixed" → `"mixed"`, absent → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(pressed)`, `(not pressed)`, or `(partially pressed)` in element lines
+- Placed after expanded/collapsed rendering
+
+**Impact:** The planner can now see toggle button state on pages with:
+- Dark mode / light mode toggles
+- Mute/unmute buttons
+- Bookmark/favorite/like toggles
+- Bold/italic/underline toolbar buttons
+- Any button with `aria-pressed` attribute
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- pressed=true renders (pressed)
+- pressed=false renders (not pressed)
+- pressed=mixed renders (partially pressed)
+- pressed undefined does not render pressed text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 112/112 pass (was 108, +4 new)
+- `node --test tests/*.test.mjs` — 945/945 pass (was 941, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (945 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+- Consider table column/row span awareness for complex tables
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+
+*Session log entry written: 2026-03-16 (Session 72)*

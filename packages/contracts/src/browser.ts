@@ -64,6 +64,7 @@ export interface PageElementModel {
   checked?: boolean;
   selected?: boolean;
   expanded?: boolean;
+  pressed?: boolean | "mixed";
   invalid?: boolean;
   text?: string;
   description?: string;
