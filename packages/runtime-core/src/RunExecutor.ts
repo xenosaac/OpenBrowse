@@ -359,11 +359,20 @@ export class RunExecutor {
       });
 
       if (!result.ok) {
-        const failedRun = this.services.orchestrator.failRun(current, result.summary);
-        await this.services.runCheckpointStore.save(failedRun);
-        await this.logEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
-        await this.handoff.writeHandoff(failedRun);
-        return failedRun;
+        // Soft failures (element_not_found, network_error) are recoverable on resume —
+        // the page DOM likely changed after re-navigation, so the planner should retry.
+        if (result.failureClass === "element_not_found" || result.failureClass === "network_error") {
+          current.checkpoint.notes.push(
+            `Pending action "${pendingAction.description}" failed after resume (${result.failureClass}). The page state may have changed. Trying a different approach.`
+          );
+          await this.services.runCheckpointStore.save(current);
+        } else {
+          const failedRun = this.services.orchestrator.failRun(current, result.summary);
+          await this.services.runCheckpointStore.save(failedRun);
+          await this.logEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
+          await this.handoff.writeHandoff(failedRun);
+          return failedRun;
+        }
       }
     }
 
