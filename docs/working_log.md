@@ -7461,3 +7461,86 @@ Rationale: PM ordering says T16 is next. The `browser_save_note` tool's executio
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 123)*
+
+---
+
+### Session 124 — 2026-03-16: T17 — Test CdpClient error recovery paths
+
+#### Mode: framework
+
+Rationale: PM ordering says T17 is next after T16. `CdpClient.ts` (97 lines) is the sole CDP communication bridge — every browser action flows through it. It has zero test coverage. A bug here silently breaks navigate, click, type, scroll, read_text, wait_for_text, and the page model. Same risk class as the Session 108 kernel field dropout.
+
+#### Plan
+
+1. Create `tests/cdpClient.test.mjs` with a mock `WebContents` object (mock `debugger.attach`, `debugger.detach`, `debugger.sendCommand`).
+2. Test coverage:
+   - `attach()` calls `debugger.attach("1.3")` and sets attached state
+   - `attach()` is idempotent (second call is a no-op)
+   - `detach()` calls `debugger.detach()` and clears state
+   - `detach()` is idempotent when not attached
+   - `detach()` swallows errors from already-detached debugger
+   - `send()` auto-attaches if not attached, then delegates to `sendCommand`
+   - `evaluate()` sends `Runtime.evaluate` with correct params and extracts `.result.value`
+   - `callFunction()` fetches and caches globalThis objectId, sends `Runtime.callFunctionOn`
+   - `callFunction()` stale objectId triggers re-fetch and retry (the critical error recovery path)
+   - `callFunction()` propagates error if retry also fails
+   - `invalidateContext()` clears cached objectId so next callFunction re-fetches
+   - `callFunction()` maps `undefined` args to `{ unserializableValue: "undefined" }`
+3. Run `node --test tests/cdpClient.test.mjs` and `pnpm run typecheck`.
+
+#### Implementation
+
+**`tests/cdpClient.test.mjs`** — 14 new tests across 6 describe groups:
+
+**attach (2 tests):**
+1. **"calls debugger.attach with protocol version 1.3"** — Verifies `debugger.attach("1.3")` is called exactly once.
+2. **"is idempotent — second attach is a no-op"** — Two `attach()` calls produce only one underlying `debugger.attach`.
+
+**detach (3 tests):**
+3. **"calls debugger.detach and clears state"** — After attach + detach, `debugger.detach()` is called once.
+4. **"is idempotent when not attached — no-op"** — `detach()` without prior `attach()` does not call `debugger.detach()`.
+5. **"swallows errors from already-detached debugger"** — `detach()` catches and ignores errors from `debugger.detach()`.
+
+**send (2 tests):**
+6. **"auto-attaches if not attached, then delegates to sendCommand"** — Calling `send()` on a fresh client triggers `attach()` first, then `sendCommand()`.
+7. **"propagates sendCommand errors as rejections"** — CDP errors from `sendCommand` propagate as rejected promises.
+
+**evaluate (1 test):**
+8. **"sends Runtime.evaluate with correct params and extracts result.value"** — Verifies `returnByValue: true`, `awaitPromise: true`, and correct value extraction.
+
+**callFunction (5 tests):**
+9. **"fetches globalThis objectId, caches it, and calls Runtime.callFunctionOn"** — First call fetches context via `Runtime.evaluate({ expression: "globalThis", returnByValue: false })`, then sends `Runtime.callFunctionOn` with the objectId.
+10. **"caches objectId across multiple callFunction invocations"** — Two `callFunction()` calls produce only one `Runtime.evaluate` for globalThis.
+11. **"maps undefined args to unserializableValue"** — `undefined` arguments become `{ unserializableValue: "undefined" }`, others become `{ value: arg }`.
+12. **"retries with fresh objectId on stale context error"** — When `callFunctionOn` fails with stale objectId, CdpClient re-fetches globalThis and retries. Verifies 2 evaluate calls and 2 callFunctionOn calls, with the retry using the new objectId.
+13. **"propagates error when retry also fails"** — If both the original and retry `callFunctionOn` fail, the error propagates.
+
+**invalidateContext (1 test):**
+14. **"clears cached objectId so next callFunction re-fetches"** — After `invalidateContext()`, the next `callFunction()` re-fetches globalThis.
+
+#### Mock Strategy
+
+Created `makeMockWebContents()` — returns a mock `WebContents` with a `debugger` property that records all calls. Supports `sendCommandHandler` override for custom CDP response logic (used for stale objectId retry test, error propagation, etc.). Default handler provides sensible responses for `Runtime.evaluate` and `Runtime.callFunctionOn`.
+
+#### Files Changed
+
+- `tests/cdpClient.test.mjs` — new file, 14 tests covering the full CdpClient API and error recovery paths
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/cdpClient.test.mjs` — 14/14 pass
+- `node --test tests/*.test.mjs` — 1092/1092 pass (was 1078, +14 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T17 is complete. CdpClient now has full test coverage: attach/detach lifecycle, send delegation, evaluate, callFunction with caching, stale objectId retry, error propagation, invalidateContext, and undefined argument mapping.
+- PM ordering: T18 (context menu) is next. This is a browser feature task (Electron `Menu` API for right-click).
+- All PM tasks (T1-T15) complete. All design tasks (D1-D11) complete. Test hardening tasks T16-T17 complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 124)*
+
+*Session log entry written: 2026-03-16 (Session 123)*
