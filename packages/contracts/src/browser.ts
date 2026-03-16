@@ -71,6 +71,10 @@ export interface PageElementModel {
   current?: string;
   sort?: string;
   roleDescription?: string;
+  valueNow?: number;
+  valueMin?: number;
+  valueMax?: number;
+  valueText?: string;
   options?: Array<{ value: string; label: string }>;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };

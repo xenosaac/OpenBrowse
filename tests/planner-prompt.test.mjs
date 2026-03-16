@@ -1197,3 +1197,60 @@ test("roleDescription rendered after sort and before text", () => {
   assert.ok(sortIdx < roleDescIdx, "sort should come before roleDesc");
   assert.ok(roleDescIdx < textIdx, "roleDesc should come before text");
 });
+
+// --- aria-value* (range widgets) ---
+
+test("valueNow rendered as range for slider", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Volume", valueNow: 50, valueMin: 0, valueMax: 100, isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=50\/0–100/);
+});
+
+test("valueNow without min/max rendered as simple range", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "progressbar", label: "Upload", valueNow: 75, isActionable: false, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=75\b/);
+  assert.ok(!user.includes("range=75/"), "should not show min-max when both undefined");
+});
+
+test("valueText takes precedence over valueNow", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Temperature", valueNow: 72, valueText: "72°F (warm)", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /valueText="72°F \(warm\)"/);
+  assert.ok(!user.includes("range="), "should not show range when valueText present");
+});
+
+test("range annotation absent when no value properties", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Brightness", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("range="), "should not show range annotation");
+  assert.ok(!user.includes("valueText"), "should not show valueText annotation");
+});
+
+test("valueNow with partial min renders question mark for missing max", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "spinbutton", label: "Quantity", valueNow: 3, valueMin: 1, isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=3\/1–\?/);
+});
+
+test("range annotation placed after roleDesc and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Speed", roleDescription: "speed control", valueNow: 5, valueMin: 1, valueMax: 10, text: "5 mph", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const roleDescIdx = user.indexOf('roleDesc="speed control"');
+  const rangeIdx = user.indexOf("range=5/1–10");
+  const textIdx = user.indexOf('text="5 mph"');
+  assert.ok(roleDescIdx < rangeIdx, "roleDesc should come before range");
+  assert.ok(rangeIdx < textIdx, "range should come before text");
+});

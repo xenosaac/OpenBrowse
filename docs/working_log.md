@@ -4034,3 +4034,70 @@ This helps the planner understand what custom widgets do and interact with them 
 - Consider surfacing `aria-valuemin`/`aria-valuemax`/`aria-valuenow` for range widgets (sliders, progress bars)
 
 *Session log entry written: 2026-03-16 (Session 70)*
+
+---
+
+### Session 71 — 2026-03-16: Surface aria-value* Properties in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 70 suggestion): `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, and `aria-valuetext` are used on range widgets (`role=slider`, `role=progressbar`, `role=spinbutton`, `role=scrollbar`, `role=meter`). Without these, the planner cannot see a slider's current position, a progress bar's completion percentage, or a spinbutton's current/min/max values. This leads to blind interactions with range controls.
+
+#### Plan
+
+1. Add `valueNow?: number`, `valueMin?: number`, `valueMax?: number`, `valueText?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, `aria-valuetext` attributes
+3. Surface `range=now/min–max` or `valueText="..."` annotation in `buildPlannerPrompt.ts`
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `valueNow?: number`, `valueMin?: number`, `valueMax?: number`, `valueText?: string` optional fields to `PageElementModel`
+- Captures ARIA range widget properties for sliders, progress bars, spinbuttons, scrollbars, meters
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After `aria-roledescription`, captures `aria-valuenow`, `aria-valuemin`, `aria-valuemax` (parsed as float, NaN filtered)
+- Captures `aria-valuetext` (trimmed, capped at 60 chars)
+- Fields are `undefined` for elements without these attributes (zero overhead)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- `valueText` takes precedence: renders `valueText="72°F (warm)"`
+- Otherwise `valueNow` renders as `range=50/0–100` (with min/max) or `range=50` (without)
+- Missing min or max shown as `?` (e.g., `range=3/1–?`)
+- Placed after `roleDesc` and before `text` for natural reading order
+
+**Impact:** The planner can now see:
+- A slider at 50% out of 0–100 range
+- A progress bar at 75% completion
+- A spinbutton at value 3 with min 1
+- Human-readable value text like "72°F (warm)" for range widgets
+This prevents blind interactions with range controls and helps the planner understand current widget state.
+
+**Added 6 tests to `tests/planner-prompt.test.mjs`:**
+- valueNow rendered as range with min/max
+- valueNow without min/max rendered as simple range
+- valueText takes precedence over valueNow
+- range annotation absent when no value properties
+- valueNow with partial min renders `?` for missing max
+- range annotation placed after roleDesc and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 101/101 pass (was 95, +6 new)
+- `node --test tests/*.test.mjs` — 934/934 pass (was 928, +6 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (934 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+
+*Session log entry written: 2026-03-16 (Session 71)*
