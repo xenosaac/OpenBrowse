@@ -653,7 +653,29 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     scrollY: window.scrollY,
     activeDialog: detectActiveDialog(),
     tables: extractTables(),
-    landmarks: extractLandmarks()
+    landmarks: extractLandmarks(),
+    iframeCount: (function() {
+      var iframes = document.querySelectorAll('iframe');
+      var count = 0;
+      for (var ii = 0; ii < iframes.length; ii++) {
+        if (isVisible(iframes[ii])) count++;
+      }
+      return count > 0 ? count : undefined;
+    })(),
+    iframeSources: (function() {
+      var iframes = document.querySelectorAll('iframe');
+      var sources = [];
+      for (var ii = 0; ii < iframes.length; ii++) {
+        if (!isVisible(iframes[ii])) continue;
+        var src = iframes[ii].getAttribute('src') || '';
+        if (src && src !== 'about:blank') {
+          // Truncate long URLs and cap at 5 sources
+          sources.push(src.slice(0, 120));
+          if (sources.length >= 5) break;
+        }
+      }
+      return sources.length > 0 ? sources : undefined;
+    })()
   };
 })()
 `;
