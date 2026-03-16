@@ -311,14 +311,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 4
   },
   subTabBtn: {
-    background: colors.buttonBg,
-    border: "1px solid " + colors.borderGlass,
+    ...glass.control,
+    border: "1px solid rgba(255,255,255,0.08)",
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "6px 14px",
     cursor: "pointer",
     fontSize: "0.84rem"
-  },
+  } as React.CSSProperties,
   subTabBtnActive: {
     ...glass.emerald,
     color: "#ffffff"

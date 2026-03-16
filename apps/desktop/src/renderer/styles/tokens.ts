@@ -86,6 +86,12 @@ export const glass = {
     WebkitBackdropFilter: "blur(16px) saturate(180%)",
     border: "1px solid rgba(16, 185, 129, 0.2)",
   },
+  // Controls: buttons, inactive tabs, pills — idle state glass presence
+  control: {
+    background: "rgba(255, 255, 255, 0.05)",
+    backdropFilter: "blur(8px) saturate(140%)",
+    WebkitBackdropFilter: "blur(8px) saturate(140%)",
+  },
   // Heavy overlay: management panel backdrop, modals
   overlay: {
     background: "rgba(0, 0, 0, 0.45)",

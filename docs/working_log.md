@@ -5685,3 +5685,77 @@ Fixed the border token redundancy in `tokens.ts` and reclassified two separator 
 - The page model fidelity phase remains declared complete.
 
 *Session log entry written: 2026-03-16 (Session 97)*
+
+---
+
+### Session 98 — 2026-03-16: D5 — Add glass.control Token and Fix Control Border Weight
+
+#### Mode: feature
+
+Rationale: D6 (border token fix) is complete. Per UI designer guidance, D5 is next — adds `glass.control` token for idle control state and fixes button borders from panel-weight (0.18) to control-weight (0.08). Also gives inactive tabs minimum visual presence.
+
+#### Plan
+
+1. Add `control` entry to `glass` object in `tokens.ts`: background 0.05, blur 8px, saturate 140%.
+2. In TabBar.tsx: change `iconButton` and `addTabButton` border from `borderGlass` to `rgba(255,255,255,0.08)`. Add `glass.control` spread to both. Give inactive tabs (`headerTabWrap`) minimum presence: bg 0.03, border 0.06.
+3. In NavBar.tsx: change `iconButton` border from `borderGlass` to `rgba(255,255,255,0.08)`. Add `glass.control` spread. Change `headerPill` border similarly. Change address bar border from `borderGlass` to `borderDefault` (input-appropriate).
+4. In SidebarHeader.tsx: change `sessionListToggle` and `newSessionButton` borders from `borderGlass` to `rgba(255,255,255,0.08)`. Add `glass.control` spread.
+5. In ManagementPanel.tsx: change `subTabBtn` border from `borderGlass` to `rgba(255,255,255,0.08)`. Add `glass.control` spread.
+6. Run typecheck.
+7. Update log and commit.
+
+#### Implementation
+
+Added `glass.control` token and applied it across all Tier 3 control surfaces, replacing panel-weight borders (0.18) with control-weight borders (0.08):
+
+**Token addition (`tokens.ts`):**
+- Added `glass.control`: `background: rgba(255,255,255,0.05)`, `backdropFilter: blur(8px) saturate(140%)`. Lighter than `glass.card` — controls now have subtle glass presence at idle without looking like content cards.
+
+**TabBar.tsx:**
+- `iconButton`: replaced `colors.buttonBg` + `borderGlass` (0.18) with `glass.control` + `rgba(255,255,255,0.08)` border
+- `addTabButton`: same treatment — `glass.control` + lighter border
+- `headerTabWrap` (inactive tabs): changed from `background: transparent` + `border: transparent` (invisible) to `background: rgba(255,255,255,0.03)` + `border: rgba(255,255,255,0.06)`. Inactive tabs now have a perceptible shape at rest without competing with the active tab's emerald treatment.
+
+**NavBar.tsx:**
+- `iconButton`: `glass.control` + `rgba(255,255,255,0.08)` border (was `buttonBg` + `borderGlass`)
+- `headerPill` (Demos button): `glass.control` + `rgba(255,255,255,0.08)` border (was `buttonBg` + `borderGlass`)
+- `addressBarWrap`: border changed from `borderGlass` (0.18) to `borderDefault` (0.10) — input-appropriate weight per Border Weight Discipline
+
+**SidebarHeader.tsx:**
+- `sessionListToggle`: `glass.control` + `rgba(255,255,255,0.08)` border (was `buttonBg` + `borderGlass`)
+- `newSessionButton`: border changed from `borderGlass` (0.18) to `rgba(255,255,255,0.08)` (kept emeraldTint background since it's a primary action)
+
+**ManagementPanel.tsx:**
+- `subTabBtn`: `glass.control` + `rgba(255,255,255,0.08)` border (was `buttonBg` + `borderGlass`)
+
+**Visual hierarchy now expressed:**
+- Tier 1 panels: `borderGlass` (0.18) — strongest
+- Tier 3 controls idle: `rgba(255,255,255,0.08)` — subtle
+- Tier 2 cards: `borderSubtle` (0.06) — lightest
+- Controls have glass presence at idle (faint blur visible) via `glass.control`
+- Inactive tabs have minimum shape presence
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — added `glass.control` preset
+- `apps/desktop/src/renderer/components/chrome/TabBar.tsx` — iconButton, addTabButton, headerTabWrap updated
+- `apps/desktop/src/renderer/components/chrome/NavBar.tsx` — iconButton, headerPill, addressBarWrap updated
+- `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` — sessionListToggle, newSessionButton updated
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — subTabBtn updated
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1004/1004 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D5 is complete. Controls now have glass presence at idle and use control-weight borders (0.08) instead of panel-weight (0.18).
+- Next design task: D7 (sidebar glass-on-glass nesting — fix SidebarHeader, ChatComposer, SessionListDropdown).
+- After D7: audit renderer against Border Weight Discipline table to confirm full hierarchy expression.
+- T9 (manual end-to-end testing) still requires user action.
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 98)*
