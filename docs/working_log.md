@@ -3101,3 +3101,50 @@ Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic module
 - Consider integration testing under Electron test harness
 
 *Session log entry written: 2026-03-16 (Session 54)*
+
+---
+
+### Session 55 — 2026-03-16: Code Review — Refactor Approval-Handling Duplication + Fix Stale Comment
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (849 tests). Code review found:
+
+1. **Stale comment** in `contracts/src/tasks.ts` line 99: says "Max 15" for `actionHistory` but `RunExecutor.ts` retains 25 entries (`.slice(-25)`). The cycle detection window is 20, so 25 is correct — the comment is just stale.
+
+2. **Code duplication** in `OpenBrowseRuntime.ts`: `resumeTaskFromMessage` (lines 207–274) and `resumeTaskFromMessageDetached` (lines 276–344) share ~80% identical approval-handling logic (parse answer, handle null, handle denial with deny-continue vs cancel, handle approval, handle clarification). The only differences are how resume and terminal callbacks work.
+
+#### Plan
+
+1. Fix stale "Max 15" comment → "Max 25"
+2. Extract shared approval-handling into `private async handleSuspensionMessage()` with resume/terminal callbacks
+3. Simplify both public methods to delegate to the shared helper
+4. Run typecheck + tests
+5. Update log and commit
+
+#### Implementation
+
+**Fix 1 — `packages/contracts/src/tasks.ts`:**
+- Line 99: Fixed stale comment "Max 15" → "Max 25" to match `RunExecutor.ts` line 255 (`.slice(-25)`)
+
+**Fix 2 — `packages/runtime-core/src/OpenBrowseRuntime.ts`:**
+- Extracted `private async handleSuspensionMessage(message, doResume, onTerminal)` — contains the shared approval-handling logic previously duplicated across `resumeTaskFromMessage` and `resumeTaskFromMessageDetached`
+- `resumeTaskFromMessage` now delegates to `handleSuspensionMessage` with `doResume → this.resumeExecution` and `onTerminal → no-op`
+- `resumeTaskFromMessageDetached` delegates with `doResume → this.detachedResume(run, onSettled, action)` and `onTerminal → onSettled?.(run)`
+- Net removal of ~65 duplicated lines. All behavior preserved — same approval parsing, denial outcome handling, clarification resume, workflow event logging, and handoff writes.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 849/849 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (849 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 55)*

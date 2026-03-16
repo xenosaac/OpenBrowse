@@ -96,7 +96,7 @@ export interface RunCheckpoint {
   notes: string[];
   /** Number of planner steps taken so far. */
   stepCount?: number;
-  /** Last N browser actions taken (most recent last). Max 15. */
+  /** Last N browser actions taken (most recent last). Max 25. */
   actionHistory?: RunActionRecord[];
   /** Human-readable reason why the run stopped, paused, or failed. */
   stopReason?: string;
