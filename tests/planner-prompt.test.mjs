@@ -2140,3 +2140,463 @@ test("T3: heavy prompt is significantly larger than light prompt", () => {
   // Heavy should be meaningfully larger due to 150 elements + forms + tables + etc.
   assert.ok(heavyTotal > lightTotal * 2, `heavy prompt should be at least 2x light (got ${ratio}x)`);
 });
+
+// ===========================================================================
+// T4: Planner Input Pipeline Integration Tests — Realistic Page Models
+// ===========================================================================
+
+// --- T4-A: Google-like Search Engine Results Page ---
+
+function makeGoogleSERPPageModel() {
+  return {
+    id: "pm_serp_1",
+    url: "https://www.google.com/search?q=openai",
+    title: "openai - Google Search",
+    summary: "Google search results page for 'openai'",
+    pageType: "search_results",
+    visibleText: "openai - Google Search\n\nOpenAI\nhttps://openai.com\nOpenAI is an AI research and deployment company. Our mission is to ensure that artificial general intelligence benefits all of humanity.\n\nOpenAI - Wikipedia\nhttps://en.wikipedia.org/wiki/OpenAI\nOpenAI is an American artificial intelligence research laboratory consisting of the non-profit OpenAI, Inc. and its for-profit subsidiary OpenAI Global, LLC.\n\nOpenAI Platform\nhttps://platform.openai.com\nExplore developer resources, tutorials, API docs, and dynamic examples to get the most out of OpenAI's platform.\n\nPeople also ask\nWhat does OpenAI do?\nIs ChatGPT made by OpenAI?\nIs OpenAI free to use?\n\nRelated searches: openai chatgpt, openai stock, openai api",
+    cookieBannerDetected: true,
+    scrollY: 0,
+    focusedElementId: "e_search_box",
+    landmarks: [
+      { role: "banner", label: "" },
+      { role: "navigation", label: "Search navigation" },
+      { role: "main", label: "Search results" },
+      { role: "contentinfo", label: "" }
+    ],
+    elements: [
+      // Banner / Navigation
+      { id: "e_logo", role: "link", label: "Google", href: "https://www.google.com", isActionable: true, boundingVisible: true, landmark: "banner" },
+      { id: "e_search_box", role: "combobox", label: "Search", value: "openai", isActionable: true, boundingVisible: true, inputType: "text", autocomplete: "both", hasPopup: "listbox", expanded: false, landmark: "banner" },
+      { id: "e_search_btn", role: "button", label: "Google Search", isActionable: true, boundingVisible: true, landmark: "banner" },
+      { id: "e_lucky_btn", role: "button", label: "I'm Feeling Lucky", isActionable: true, boundingVisible: true, landmark: "banner" },
+      { id: "e_nav_all", role: "link", label: "All", href: "https://www.google.com/search?q=openai", isActionable: true, boundingVisible: true, current: "page", landmark: "navigation" },
+      { id: "e_nav_images", role: "link", label: "Images", href: "https://www.google.com/search?q=openai&tbm=isch", isActionable: true, boundingVisible: true, landmark: "navigation" },
+      { id: "e_nav_news", role: "link", label: "News", href: "https://www.google.com/search?q=openai&tbm=nws", isActionable: true, boundingVisible: true, landmark: "navigation" },
+      { id: "e_nav_videos", role: "link", label: "Videos", href: "https://www.google.com/search?q=openai&tbm=vid", isActionable: true, boundingVisible: true, landmark: "navigation" },
+
+      // Search results
+      { id: "e_r1_link", role: "link", label: "OpenAI", href: "https://openai.com", isActionable: true, boundingVisible: true, text: "OpenAI is an AI research and deployment company.", landmark: "main" },
+      { id: "e_r1_url", role: "link", label: "https://openai.com", href: "https://openai.com", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_r2_link", role: "link", label: "OpenAI - Wikipedia", href: "https://en.wikipedia.org/wiki/OpenAI", isActionable: true, boundingVisible: true, text: "OpenAI is an American artificial intelligence research laboratory.", landmark: "main" },
+      { id: "e_r3_link", role: "link", label: "OpenAI Platform", href: "https://platform.openai.com", isActionable: true, boundingVisible: true, text: "Explore developer resources, tutorials, API docs.", landmark: "main" },
+
+      // People also ask
+      { id: "e_paa_1", role: "button", label: "What does OpenAI do?", isActionable: true, boundingVisible: true, expanded: false, landmark: "main" },
+      { id: "e_paa_2", role: "button", label: "Is ChatGPT made by OpenAI?", isActionable: true, boundingVisible: true, expanded: false, landmark: "main" },
+      { id: "e_paa_3", role: "button", label: "Is OpenAI free to use?", isActionable: true, boundingVisible: true, expanded: false, landmark: "main" },
+
+      // Related searches
+      { id: "e_rel_1", role: "link", label: "openai chatgpt", href: "https://www.google.com/search?q=openai+chatgpt", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_rel_2", role: "link", label: "openai stock", href: "https://www.google.com/search?q=openai+stock", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_rel_3", role: "link", label: "openai api", href: "https://www.google.com/search?q=openai+api", isActionable: true, boundingVisible: true, landmark: "main" },
+
+      // Pagination
+      { id: "e_next", role: "link", label: "Next", href: "https://www.google.com/search?q=openai&start=10", isActionable: true, boundingVisible: true, landmark: "navigation" },
+
+      // Cookie banner
+      { id: "e_cookie_accept", role: "button", label: "Accept all", isActionable: true, boundingVisible: true },
+      { id: "e_cookie_reject", role: "button", label: "Reject all", isActionable: true, boundingVisible: true },
+      { id: "e_cookie_customize", role: "button", label: "Customize", isActionable: true, boundingVisible: true }
+    ],
+    createdAt: "2026-03-16T00:00:00Z"
+  };
+}
+
+test("T4-A: Google SERP — prompt well-formedness and element surfacing", () => {
+  const pm = makeGoogleSERPPageModel();
+  const run = makeRun({
+    goal: "Search for OpenAI",
+    constraints: [],
+    checkpoint: { summary: "Run started.", notes: [], stepCount: 0, actionHistory: [], consecutiveSoftFailures: 0 }
+  });
+
+  const { system, user } = buildPlannerPrompt(run, pm);
+  const totalChars = system.length + user.length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const pctOfContext = ((estimatedTokens / 200_000) * 100).toFixed(2);
+
+  console.log(`\n=== T4-A: GOOGLE SERP PROMPT ===`);
+  console.log(`Total: ${totalChars} chars, ~${estimatedTokens} tokens, ${pctOfContext}% of 200k`);
+  console.log(`Elements: ${pm.elements.length}`);
+  console.log(`================================\n`);
+
+  // Prompt structure
+  assert.match(system, /OpenBrowse/, "system prompt identifies the agent");
+  assert.match(system, /ReAct/, "system prompt mentions ReAct framework");
+  assert.match(user, /Goal: Search for OpenAI/, "task goal embedded");
+  assert.match(user, /google\.com\/search/, "current URL present");
+  assert.match(user, /openai - Google Search/, "page title present");
+
+  // Page type
+  assert.match(user, /Page type: search_results/, "page type surfaced");
+
+  // Search box with correct properties
+  assert.match(user, /\[e_search_box\] combobox "Search"/, "search box present with role and label");
+  assert.match(user, /autocomplete=both/, "search box autocomplete surfaced");
+  assert.match(user, /haspopup=listbox/, "search box hasPopup surfaced");
+  assert.match(user, /value="openai"/, "search box current value surfaced");
+
+  // Result links with hrefs
+  assert.match(user, /\[e_r1_link\] link "OpenAI".*href="https:\/\/openai\.com"/, "first result link with href");
+  assert.match(user, /\[e_r2_link\] link "OpenAI - Wikipedia".*href="https:\/\/en\.wikipedia\.org\/wiki\/OpenAI"/, "second result with href");
+  assert.match(user, /\[e_r3_link\] link "OpenAI Platform".*href="https:\/\/platform\.openai\.com"/, "third result with href");
+
+  // People Also Ask expandable buttons
+  assert.match(user, /\[e_paa_1\] button "What does OpenAI do\?".*\(collapsed\)/, "PAA button with collapsed state");
+
+  // Navigation links with current page indicator
+  assert.match(user, /\[e_nav_all\] link "All".*\(current=page\)/, "current nav tab marked");
+
+  // Cookie banner hint
+  assert.match(user, /COOKIE BANNER DETECTED/, "cookie banner hint present");
+  assert.match(user, /\[e_cookie_accept\] button "Accept all"/, "cookie accept button surfaced");
+
+  // Landmarks
+  assert.match(user, /Page regions:/, "landmarks section present");
+  assert.match(user, /banner/, "banner landmark");
+  assert.match(user, /navigation "Search navigation"/, "navigation landmark with label");
+  assert.match(user, /main "Search results"/, "main landmark with label");
+
+  // Landmark annotation on elements
+  assert.match(user, /\[e_search_box\].*in=banner/, "search box annotated with banner landmark");
+  assert.match(user, /\[e_r1_link\].*in=main/, "result link annotated with main landmark");
+
+  // Focused element
+  assert.match(user, /Focused element: \[e_search_box\]/, "focused element surfaced");
+
+  // Visible text excerpt
+  assert.match(user, /OpenAI is an AI research/, "visible text excerpt present");
+
+  // Actionable markers
+  assert.match(user, /\[e_search_box\].*\*/, "search box marked actionable");
+  assert.match(user, /\[e_r1_link\].*\*/, "result link marked actionable");
+
+  // Character count within budget
+  assert.ok(totalChars < 30_000, `SERP prompt should be under 30k chars (got ${totalChars})`);
+});
+
+// --- T4-B: Wikipedia Article Page ---
+
+function makeWikipediaPageModel() {
+  return {
+    id: "pm_wiki_1",
+    url: "https://en.wikipedia.org/wiki/Electron_(software)",
+    title: "Electron (software) - Wikipedia",
+    summary: "Wikipedia article about the Electron software framework",
+    pageType: "article",
+    visibleText: "Electron (software)\nFrom Wikipedia, the free encyclopedia\n\nElectron (formerly known as Atom Shell) is a free and open-source software framework developed and maintained by OpenJS Foundation. The framework is designed to create desktop applications using web technologies that are rendered using a version of the Chromium browser engine and a back end using the Node.js runtime environment.\n\nElectron has been used to create many popular applications, including Visual Studio Code, Slack, Discord, and many more.\n\nContents\n1 History\n2 Architecture\n3 Applications\n4 Reception\n5 See also\n6 References\n7 External links\n\nHistory\nElectron was created by Cheng Zhao at GitHub in 2013. It was initially developed as a framework for building the Atom text editor.\n\nArchitecture\nElectron combines the Chromium rendering engine and the Node.js runtime. Applications are packaged with a minimal Chromium browser.\n\nApplications\nNotable applications built with Electron include:\n- Visual Studio Code\n- Slack\n- Discord\n- WhatsApp Desktop\n- Microsoft Teams",
+    scrollY: 0,
+    landmarks: [
+      { role: "banner", label: "" },
+      { role: "navigation", label: "Site navigation" },
+      { role: "main", label: "" },
+      { role: "complementary", label: "Article sidebar" },
+      { role: "contentinfo", label: "" }
+    ],
+    elements: [
+      // Banner
+      { id: "e_wp_logo", role: "link", label: "Wikipedia", href: "https://en.wikipedia.org/wiki/Main_Page", isActionable: true, boundingVisible: true, landmark: "banner" },
+      { id: "e_wp_search", role: "searchbox", label: "Search Wikipedia", isActionable: true, boundingVisible: true, inputType: "search", landmark: "banner" },
+      { id: "e_wp_search_btn", role: "button", label: "Search", isActionable: true, boundingVisible: true, landmark: "banner" },
+
+      // Navigation
+      { id: "e_wp_main_page", role: "link", label: "Main page", href: "https://en.wikipedia.org/wiki/Main_Page", isActionable: true, boundingVisible: true, landmark: "navigation" },
+      { id: "e_wp_contents", role: "link", label: "Contents", href: "https://en.wikipedia.org/wiki/Wikipedia:Contents", isActionable: true, boundingVisible: true, landmark: "navigation" },
+      { id: "e_wp_random", role: "link", label: "Random article", href: "https://en.wikipedia.org/wiki/Special:Random", isActionable: true, boundingVisible: true, landmark: "navigation" },
+
+      // Article headings
+      { id: "e_h1", role: "heading", label: "Electron (software)", isActionable: false, boundingVisible: true, level: 1, landmark: "main" },
+      { id: "e_h2_history", role: "heading", label: "History", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+      { id: "e_h2_arch", role: "heading", label: "Architecture", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+      { id: "e_h2_apps", role: "heading", label: "Applications", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+      { id: "e_h2_reception", role: "heading", label: "Reception", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+      { id: "e_h2_seealso", role: "heading", label: "See also", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+      { id: "e_h2_refs", role: "heading", label: "References", isActionable: false, boundingVisible: true, level: 2, landmark: "main" },
+
+      // Table of contents links
+      { id: "e_toc_history", role: "link", label: "1 History", href: "#History", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_toc_arch", role: "link", label: "2 Architecture", href: "#Architecture", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_toc_apps", role: "link", label: "3 Applications", href: "#Applications", isActionable: true, boundingVisible: true, landmark: "main" },
+
+      // Internal article links
+      { id: "e_link_openjs", role: "link", label: "OpenJS Foundation", href: "https://en.wikipedia.org/wiki/OpenJS_Foundation", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_chromium", role: "link", label: "Chromium", href: "https://en.wikipedia.org/wiki/Chromium_(web_browser)", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_nodejs", role: "link", label: "Node.js", href: "https://en.wikipedia.org/wiki/Node.js", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_vscode", role: "link", label: "Visual Studio Code", href: "https://en.wikipedia.org/wiki/Visual_Studio_Code", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_slack", role: "link", label: "Slack", href: "https://en.wikipedia.org/wiki/Slack_(software)", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_discord", role: "link", label: "Discord", href: "https://en.wikipedia.org/wiki/Discord", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_link_github", role: "link", label: "GitHub", href: "https://en.wikipedia.org/wiki/GitHub", isActionable: true, boundingVisible: true, landmark: "main" },
+
+      // Sidebar
+      { id: "e_sidebar_edit", role: "link", label: "Edit", href: "https://en.wikipedia.org/w/index.php?title=Electron_(software)&action=edit", isActionable: true, boundingVisible: true, landmark: "complementary" },
+      { id: "e_sidebar_history", role: "link", label: "View history", href: "https://en.wikipedia.org/w/index.php?title=Electron_(software)&action=history", isActionable: true, boundingVisible: true, landmark: "complementary" },
+
+      // Language links
+      { id: "e_lang_switch", role: "button", label: "Languages", isActionable: true, boundingVisible: true, expanded: false, hasPopup: "menu" }
+    ],
+    tables: [
+      {
+        caption: "Electron",
+        headers: ["Developer(s)", "Initial release", "Stable release", "Repository", "License"],
+        rowCount: 1,
+        sampleRows: [["OpenJS Foundation", "July 15, 2013", "v33.2.0 / March 2026", "github.com/electron/electron", "MIT License"]]
+      }
+    ],
+    createdAt: "2026-03-16T00:00:00Z"
+  };
+}
+
+test("T4-B: Wikipedia article — headings, landmarks, links, and table structure", () => {
+  const pm = makeWikipediaPageModel();
+  const run = makeRun({
+    goal: "Find the first paragraph about Electron",
+    constraints: [],
+    checkpoint: { summary: "Run started.", notes: [], stepCount: 0, actionHistory: [], consecutiveSoftFailures: 0 }
+  });
+
+  const { system, user } = buildPlannerPrompt(run, pm);
+  const totalChars = system.length + user.length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const pctOfContext = ((estimatedTokens / 200_000) * 100).toFixed(2);
+
+  console.log(`\n=== T4-B: WIKIPEDIA ARTICLE PROMPT ===`);
+  console.log(`Total: ${totalChars} chars, ~${estimatedTokens} tokens, ${pctOfContext}% of 200k`);
+  console.log(`Elements: ${pm.elements.length}`);
+  console.log(`======================================\n`);
+
+  // Task goal
+  assert.match(user, /Goal: Find the first paragraph about Electron/, "task goal embedded");
+
+  // Page type
+  assert.match(user, /Page type: article/, "page type surfaced as article");
+
+  // URL and title
+  assert.match(user, /en\.wikipedia\.org\/wiki\/Electron/, "Wikipedia URL present");
+  assert.match(user, /Electron \(software\) - Wikipedia/, "page title present");
+
+  // Heading hierarchy
+  assert.match(user, /\[e_h1\] heading "Electron \(software\)" in=main level=1/, "h1 with level=1 and main landmark");
+  assert.match(user, /\[e_h2_history\] heading "History" in=main level=2/, "h2 History with level=2");
+  assert.match(user, /\[e_h2_arch\] heading "Architecture" in=main level=2/, "h2 Architecture with level=2");
+
+  // Internal links with hrefs
+  assert.match(user, /\[e_link_chromium\] link "Chromium".*href="https:\/\/en\.wikipedia\.org\/wiki\/Chromium/, "internal link with href");
+  assert.match(user, /\[e_link_nodejs\] link "Node\.js".*href=/, "Node.js internal link");
+  assert.match(user, /\[e_link_vscode\] link "Visual Studio Code".*href=/, "VS Code internal link");
+
+  // Table of contents links
+  assert.match(user, /\[e_toc_history\] link "1 History".*href="#History"/, "TOC link for History");
+
+  // Landmarks
+  assert.match(user, /Page regions:/, "landmarks section");
+  assert.match(user, /navigation "Site navigation"/, "site navigation landmark");
+  assert.match(user, /main/, "main landmark");
+  assert.match(user, /complementary "Article sidebar"/, "sidebar complementary landmark");
+
+  // Landmark annotation on elements
+  assert.match(user, /\[e_wp_logo\].*in=banner/, "logo annotated with banner");
+  assert.match(user, /\[e_sidebar_edit\].*in=complementary/, "sidebar edit annotated with complementary");
+
+  // Table structure
+  assert.match(user, /Data tables on page:/, "tables section present");
+  assert.match(user, /TABLE "Electron"/, "table caption surfaced");
+  assert.match(user, /Developer\(s\).*Initial release/, "table headers surfaced");
+  assert.match(user, /OpenJS Foundation.*MIT License/, "table sample row surfaced");
+  assert.match(user, /1 row/, "table row count");
+
+  // Language button with hasPopup
+  assert.match(user, /\[e_lang_switch\] button "Languages".*\(collapsed\).*haspopup=menu/, "language button with collapsed+hasPopup");
+
+  // Visible text excerpt (first paragraph)
+  assert.match(user, /Electron \(formerly known as Atom Shell\)/, "first paragraph visible in text excerpt");
+  assert.match(user, /free and open-source software framework/, "article content in visible text");
+
+  // Search box
+  assert.match(user, /\[e_wp_search\] searchbox "Search Wikipedia"/, "search box present");
+
+  // Character count within budget
+  assert.ok(totalChars < 30_000, `Wikipedia prompt should be under 30k chars (got ${totalChars})`);
+});
+
+// --- T4-C: Login Form Page ---
+
+function makeLoginFormPageModel() {
+  return {
+    id: "pm_login_1",
+    url: "https://github.com/login",
+    title: "Sign in to GitHub",
+    summary: "GitHub login page with email and password form",
+    pageType: "login",
+    visibleText: "Sign in to GitHub\n\nUsername or email address\nPassword\nForgot password?\nSign in\n\nNew to GitHub? Create an account\n\nOr sign in with:\nSign in with Google\nSign in with Microsoft",
+    scrollY: 0,
+    forms: [
+      {
+        action: "https://github.com/session",
+        method: "POST",
+        fieldCount: 2,
+        fields: [
+          { ref: "e_email", label: "Username or email address", type: "text", required: true, currentValue: "", validationMessage: "" },
+          { ref: "e_password", label: "Password", type: "password", required: true, currentValue: "", validationMessage: "" }
+        ],
+        submitRef: "e_submit"
+      }
+    ],
+    landmarks: [
+      { role: "banner", label: "" },
+      { role: "main", label: "" }
+    ],
+    elements: [
+      // Banner
+      { id: "e_gh_logo", role: "link", label: "GitHub", href: "https://github.com", isActionable: true, boundingVisible: true, landmark: "banner" },
+
+      // Login form fields
+      { id: "e_email", role: "textbox", label: "Username or email address", isActionable: true, boundingVisible: true, inputType: "text", required: true, value: "", landmark: "main" },
+      { id: "e_password", role: "textbox", label: "Password", isActionable: true, boundingVisible: true, inputType: "password", required: true, value: "", landmark: "main" },
+      { id: "e_forgot", role: "link", label: "Forgot password?", href: "https://github.com/password_reset", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_submit", role: "button", label: "Sign in", isActionable: true, boundingVisible: true, landmark: "main" },
+
+      // Social login
+      { id: "e_google_sso", role: "button", label: "Sign in with Google", isActionable: true, boundingVisible: true, landmark: "main" },
+      { id: "e_ms_sso", role: "button", label: "Sign in with Microsoft", isActionable: true, boundingVisible: true, landmark: "main" },
+
+      // Create account
+      { id: "e_signup", role: "link", label: "Create an account", href: "https://github.com/signup", isActionable: true, boundingVisible: true, landmark: "main" }
+    ],
+    createdAt: "2026-03-16T00:00:00Z"
+  };
+}
+
+test("T4-C: Login form — form fields, validation, submit, and social login", () => {
+  const pm = makeLoginFormPageModel();
+  const run = makeRun({
+    goal: "Log in with email test@example.com",
+    constraints: [],
+    checkpoint: { summary: "Run started.", notes: [], stepCount: 0, actionHistory: [], consecutiveSoftFailures: 0 }
+  });
+
+  const { system, user } = buildPlannerPrompt(run, pm);
+  const totalChars = system.length + user.length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const pctOfContext = ((estimatedTokens / 200_000) * 100).toFixed(2);
+
+  console.log(`\n=== T4-C: LOGIN FORM PROMPT ===`);
+  console.log(`Total: ${totalChars} chars, ~${estimatedTokens} tokens, ${pctOfContext}% of 200k`);
+  console.log(`Elements: ${pm.elements.length}`);
+  console.log(`===============================\n`);
+
+  // Task goal
+  assert.match(user, /Goal: Log in with email test@example\.com/, "task goal with email embedded");
+
+  // Page type
+  assert.match(user, /Page type: login/, "page type surfaced as login");
+
+  // URL and title
+  assert.match(user, /github\.com\/login/, "login URL present");
+  assert.match(user, /Sign in to GitHub/, "page title present");
+
+  // Form summary section
+  assert.match(user, /Forms on page:/, "forms section present");
+  assert.match(user, /FORM: POST https:\/\/github\.com\/session/, "form action and method");
+  assert.match(user, /2 fields/, "field count in form summary");
+
+  // Form field details
+  assert.match(user, /\[e_email\] "Username or email address" type=text REQUIRED/, "email field with type and REQUIRED");
+  assert.match(user, /\[e_password\] "Password" type=password REQUIRED/, "password field with type and REQUIRED");
+
+  // Submit reference
+  assert.match(user, /Submit button: \[e_submit\]/, "submit button ref in form summary");
+
+  // Element list — email field
+  assert.match(user, /\[e_email\] textbox "Username or email address"/, "email field in element list");
+  assert.match(user, /\[e_email\].*\(required\)/, "email field marked required in elements");
+  assert.match(user, /\[e_email\].*\*/, "email field marked actionable");
+
+  // Element list — password field
+  assert.match(user, /\[e_password\] textbox "Password".*type="password"/, "password field with inputType");
+  assert.match(user, /\[e_password\].*\(required\)/, "password field marked required");
+
+  // Submit button
+  assert.match(user, /\[e_submit\] button "Sign in".*\*/, "sign in button present and actionable");
+
+  // Social login buttons
+  assert.match(user, /\[e_google_sso\] button "Sign in with Google".*\*/, "Google SSO button");
+  assert.match(user, /\[e_ms_sso\] button "Sign in with Microsoft".*\*/, "Microsoft SSO button");
+
+  // Forgot password link
+  assert.match(user, /\[e_forgot\] link "Forgot password\?".*href="https:\/\/github\.com\/password_reset"/, "forgot password link with href");
+
+  // Create account link
+  assert.match(user, /\[e_signup\] link "Create an account".*href="https:\/\/github\.com\/signup"/, "signup link with href");
+
+  // Landmarks
+  assert.match(user, /Page regions:/, "landmarks section");
+  assert.match(user, /main/, "main landmark");
+
+  // Landmark annotation
+  assert.match(user, /\[e_email\].*in=main/, "email annotated with main landmark");
+
+  // Visible text
+  assert.match(user, /Sign in to GitHub/, "visible text present");
+
+  // Character count within budget
+  assert.ok(totalChars < 30_000, `Login prompt should be under 30k chars (got ${totalChars})`);
+});
+
+// T4-C variant: Login form with validation errors
+
+test("T4-C2: Login form with validation errors — error states surfaced in prompt", () => {
+  const pm = makeLoginFormPageModel();
+  // Override form fields with validation errors
+  pm.forms[0].fields[0].validationMessage = "Please enter a valid email address";
+  pm.forms[0].fields[0].currentValue = "invalid-email";
+  pm.forms[0].fields[1].validationMessage = "Password is required";
+
+  // Also mark the email element as invalid
+  const emailEl = pm.elements.find(e => e.id === "e_email");
+  emailEl.invalid = true;
+  emailEl.value = "invalid-email";
+
+  const run = makeRun({
+    goal: "Log in with email test@example.com",
+    constraints: [],
+    checkpoint: { summary: "Run started.", notes: [], stepCount: 0, actionHistory: [], consecutiveSoftFailures: 0 }
+  });
+
+  const { user } = buildPlannerPrompt(run, pm);
+
+  // Validation messages in form summary
+  assert.match(user, /INVALID: "Please enter a valid email address"/, "email validation error surfaced in form");
+  assert.match(user, /INVALID: "Password is required"/, "password validation error surfaced in form");
+
+  // Current value in form summary
+  assert.match(user, /value="invalid-email"/, "current field value in form summary");
+
+  // Invalid state on element
+  assert.match(user, /\[e_email\].*\(invalid\)/, "email element marked invalid");
+});
+
+// T4 summary: all three scenarios produce well-formed, actionable prompts
+
+test("T4: all three realistic page models produce prompts under 30k chars", () => {
+  const scenarios = [
+    { name: "Google SERP", pm: makeGoogleSERPPageModel(), goal: "Search for OpenAI" },
+    { name: "Wikipedia", pm: makeWikipediaPageModel(), goal: "Find the first paragraph about Electron" },
+    { name: "Login Form", pm: makeLoginFormPageModel(), goal: "Log in with email test@example.com" }
+  ];
+
+  console.log(`\n=== T4: ALL SCENARIOS SUMMARY ===`);
+  for (const { name, pm, goal } of scenarios) {
+    const run = makeRun({
+      goal,
+      constraints: [],
+      checkpoint: { summary: "Run started.", notes: [], stepCount: 0, actionHistory: [], consecutiveSoftFailures: 0 }
+    });
+    const { system, user } = buildPlannerPrompt(run, pm);
+    const total = system.length + user.length;
+    const tokens = Math.ceil(total / 4);
+    console.log(`  ${name}: ${total} chars, ~${tokens} tokens, ${((tokens / 200_000) * 100).toFixed(2)}% of 200k, ${pm.elements.length} elements`);
+    assert.ok(total < 30_000, `${name} prompt should be under 30k chars`);
+  }
+  console.log(`=================================\n`);
+});

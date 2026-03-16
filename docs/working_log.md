@@ -5248,4 +5248,104 @@ Added 3 tests to `tests/planner-prompt.test.mjs` (161 → 164):
 
 *Session log entry written: 2026-03-16 (Session 91)*
 
+---
+
+### Session 92 — 2026-03-16: T4 — Planner Input Pipeline Integration Test
+
+#### Mode: feature
+
+Rationale: T4 is the next P1 product validation task from the PM backlog. It validates whether realistic page model snapshots produce correct, actionable planner prompts — the last automated validation gate before manual end-to-end testing (T9). This is feature-mode work: validating product capability with realistic content, not framework refactoring.
+
+#### Context
+
+PM directive (T4): Write 3 integration tests using realistic page model snapshots (Google-like SERP, Wikipedia article, login form). For each, call `buildPlannerPrompt()` with a task goal and verify: prompt well-formedness, correct element surfacing with roles/properties, form field validation state, landmarks, task goal embedding, and document prompt character count.
+
+T3 confirmed the prompt is well-sized (~4% of context worst case). T4 now validates content quality.
+
+#### Plan
+
+1. Add 3 integration tests to `tests/planner-prompt.test.mjs`:
+   - **T4-A: Google-like SERP** — search box, result links with titles/descriptions, navigation elements, cookie banner. Goal: "Search for OpenAI". Verify search box has correct role/type, result links have hrefs, cookie banner hint appears, landmarks annotated.
+   - **T4-B: Wikipedia article** — headings, paragraphs, sidebar nav, internal links, table of contents. Goal: "Find the first paragraph about Electron". Verify heading levels, article landmarks, link elements with hrefs.
+   - **T4-C: Login form** — email/password fields, submit button, social login buttons, error states. Goal: "Log in with email test@example.com". Verify form fields with types/required/validation, submit ref, form summary in prompt.
+2. For each test, verify prompt structure and document character count.
+3. Run typecheck + tests.
+4. Update this log and commit.
+
+#### Implementation
+
+Added 5 tests to `tests/planner-prompt.test.mjs` (164 → 169):
+
+1. **`T4-A: Google SERP — prompt well-formedness and element surfacing`** — Constructs a realistic Google search results page with:
+   - 22 elements: search combobox, result links with hrefs and text, "People Also Ask" expandable buttons, navigation tabs with `current` marker, pagination, cookie banner buttons
+   - Cookie banner detection
+   - 4 landmarks (banner, navigation, main, contentinfo) with element-to-landmark annotations
+   - Focused element indicator
+   - Page type `search_results`
+   - Verifies: goal embedding, search box properties (autocomplete, hasPopup, value), result link hrefs, collapsed PAA states, current nav marker, cookie banner hint, landmark annotations, actionable markers
+
+2. **`T4-B: Wikipedia article — headings, landmarks, links, and table structure`** — Constructs a Wikipedia article page with:
+   - 26 elements: headings with levels (h1, h2), internal links with hrefs, TOC links, sidebar actions, search box, language button with hasPopup
+   - 5 landmarks (banner, navigation, main, complementary, contentinfo)
+   - 1 table with caption, headers, and sample row
+   - Page type `article`
+   - Verifies: heading hierarchy (level=1, level=2), internal links, TOC links, table structure (caption, headers, sample data, row count), complementary landmark annotation, first paragraph in visible text
+
+3. **`T4-C: Login form — form fields, validation, submit, and social login`** — Constructs a GitHub login page with:
+   - 8 elements: email textbox, password textbox, submit button, social SSO buttons, forgot password link, signup link
+   - 1 form with 2 fields (email/password), both required, with submit ref
+   - Page type `login`
+   - Verifies: form summary (action, method, field count), field types and REQUIRED markers, submit button ref, social login buttons, forgot password href, element required flags
+
+4. **`T4-C2: Login form with validation errors — error states surfaced in prompt`** — Same page but with validation errors:
+   - Email field: `invalid=true`, value `"invalid-email"`, validation message `"Please enter a valid email address"`
+   - Password field: validation message `"Password is required"`
+   - Verifies: `INVALID:` messages appear in form summary, current field values appear, `(invalid)` flag on element
+
+5. **`T4: all three realistic page models produce prompts under 30k chars`** — Summary test confirming all three scenarios are well within budget.
+
+#### Findings
+
+| Scenario | Chars | Est. Tokens | % of 200k | Elements |
+|----------|-------|-------------|-----------|----------|
+| Google SERP | 5,512 | ~1,378 | 0.69% | 22 |
+| Wikipedia Article | 6,048 | ~1,512 | 0.76% | 26 |
+| Login Form | 3,487 | ~872 | 0.44% | 8 |
+
+**Analysis:**
+
+- All three realistic scenarios produce prompts **well under 30k chars** — the largest is 6,048 chars (~1.5k tokens, 0.76% of context).
+- These are representative real-world pages with 8-26 elements. The T3 heavy page model (150 elements, 5 forms, 3 tables) at 30k chars remains the worst case.
+- The planner prompt correctly surfaces all key interactive affordances:
+  - **SERP:** search box with autocomplete/hasPopup, result links with hrefs and text, expandable "People Also Ask" buttons, current navigation marker, cookie banner hint
+  - **Wikipedia:** heading hierarchy with levels, internal links with hrefs, TOC links, table with caption/headers/data, sidebar as complementary landmark
+  - **Login form:** form summary with action/method/fields, REQUIRED markers, password type, submit button ref, validation error messages, social login alternatives
+- Landmark annotations (`in=main`, `in=banner`, etc.) appear correctly on elements within landmark regions.
+- Form field validation state (required, invalid, validation messages) surfaces correctly in both the form summary and element list.
+- The `pageType` field surfaces correctly for all three types (search_results, article, login).
+- The prompt structure is consistent and well-formed across all scenarios.
+
+**Conclusion:** The planner input pipeline produces correct, complete, actionable prompts for realistic web pages. Elements, forms, tables, landmarks, and validation states all surface with appropriate properties. The prompt is compact and well within context budget. The pipeline is ready for end-to-end testing (T9).
+
+#### Files Changed
+
+- `tests/planner-prompt.test.mjs` — added 5 T4 integration tests with realistic page model snapshots (Google SERP, Wikipedia article, GitHub login form, login form with validation errors, summary)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (was 164, +5 new)
+- `node --test tests/*.test.mjs` — 1004/1004 pass (was 999, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T4 is complete. The planner input pipeline produces correct, actionable prompts for realistic page models.
+- T9 (manual end-to-end testing) is the next validation gate and requires user action — launching the Electron app and testing real tasks.
+- Design system work is next for the overnight loop: T5/D1 (atmospheric background), T6/D2 (chrome band), T7/D3 (home page), T8/D4 (card borders).
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 92)*
+
 *Session log entry written: 2026-03-16 (Session 89)*
