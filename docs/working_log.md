@@ -3044,3 +3044,60 @@ Same extraction pattern as Sessions 36–37.
 - Consider integration testing under Electron test harness
 
 *Session log entry written: 2026-03-16 (Session 53)*
+
+---
+
+### Session 54 — 2026-03-16: Extract parseApprovalAnswer from OpenBrowseRuntime + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (824 tests). `OpenBrowseRuntime.ts` contains `parseApprovalAnswer(answer: string): boolean | null` — a pure function that maps user text to approve/deny/unknown. It's used in the approval flow (`resumeTaskFromMessage` and `resumeTaskFromMessageDetached`) but is a private module-scoped function, untestable in isolation. Same extraction pattern as Sessions 36–37, 53.
+
+#### Plan
+
+1. Extract `parseApprovalAnswer` from `OpenBrowseRuntime.ts` into a new `approvalParsing.ts` file (no Electron deps)
+2. Export from `index.ts`
+3. Update `OpenBrowseRuntime.ts` to import from `./approvalParsing.js`
+4. Run typecheck + build
+5. Write comprehensive test suite for `parseApprovalAnswer`
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Extracted `packages/runtime-core/src/approvalParsing.ts`:**
+- Moved `parseApprovalAnswer(answer: string): boolean | null` out of `OpenBrowseRuntime.ts`
+- Pure function, no dependencies — maps user free-text to approve (true), deny (false), or ambiguous (null)
+- Used in the approval flow by `resumeTaskFromMessage` and `resumeTaskFromMessageDetached`
+
+**Updated `OpenBrowseRuntime.ts`:**
+- Removed inline `parseApprovalAnswer` function (lines 150–155)
+- Added `import { parseApprovalAnswer } from "./approvalParsing.js"`
+
+**Updated `index.ts`:**
+- Added `export * from "./approvalParsing.js"` to preserve public API
+
+**Created `tests/approvalParsing.test.mjs` — 25 tests:**
+- Affirmative answers (7 tests): approve, approved, yes, y, ok, allow, go → true
+- Negative answers (7 tests): deny, denied, no, n, block, cancel, stop → false
+- Ambiguous/unrecognized (4 tests): empty string, random text, partial match, full sentence → null
+- Case insensitivity (4 tests): APPROVE, Yes, DENY, No
+- Whitespace handling (3 tests): trimmed approve, trimmed deny, whitespace-only → null
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/approvalParsing.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 849/849 pass (was 824, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (849 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 54)*
