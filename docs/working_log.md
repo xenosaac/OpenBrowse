@@ -6475,3 +6475,69 @@ Rationale: Critical correctness bug. The `capturePageModel` method in `ElectronB
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 108)*
+
+---
+
+### Session 109 — 2026-03-16: Auto-Dismiss Cookie Banners at Runtime Level
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) complete. All UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3 deferred. T9 requires user action. The planner currently wastes 1-2 steps per website that shows a cookie consent banner — it receives a "COOKIE BANNER DETECTED" hint and must find and click the dismiss button manually. Auto-dismissing cookie banners at the runtime level (before the page model reaches the planner) saves planner steps and improves task reliability. This is a real product feature leveraging existing cookie banner detection infrastructure.
+
+#### Plan
+
+1. **Create `packages/browser-runtime/src/cdp/dismissCookieBanner.ts`**: CDP JavaScript script that finds and clicks common cookie consent accept/dismiss buttons using well-known selectors and text-matching heuristics.
+2. **Update `ElectronBrowserKernel.ts`**: In `capturePageModel`, after initial extraction, if `cookieBannerDetected` is true and we haven't already attempted for this session+hostname, run the dismiss script. If successful, wait briefly and re-extract. Track attempts per session+hostname to avoid repeated failed attempts.
+3. **Add tests** in `tests/dismissCookieBanner.test.mjs`.
+4. Run typecheck and tests.
+5. Update log and commit.
+
+#### Implementation
+
+**1. `packages/browser-runtime/src/cdp/dismissCookieBanner.ts`** (new file):
+- CDP JavaScript IIFE that attempts to auto-dismiss cookie consent banners
+- **Strategy 1 — Direct selectors:** Tries 20+ well-known CMP accept button selectors: OneTrust (`#onetrust-accept-btn-handler`), CookieBot (`#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll`, `#CybotCookiebotDialogBodyButtonAccept`), Cookie Consent/Osano (`.cc-btn.cc-allow`), CookieFirst, Quantcast Choice, Didomi, TrustArc, Termly, plus generic cookie-accept IDs/classes
+- **Strategy 2 — Text matching:** Searches inside 17 cookie/consent container selectors for buttons with text matching `/^(accept|agree|allow|ok|got it|i agree|accept all|allow all|accept cookies|allow cookies|i understand|continue|close|dismiss|acknowledge)$/i`. For generic `[role="dialog"]` containers, requires cookie-related text in the container before attempting
+- All click attempts check `isClickable()` (visible, non-zero dimensions) before clicking
+- Returns `{ dismissed: true, method, detail }` on success, `{ dismissed: false }` on failure
+
+**2. `packages/browser-runtime/src/ElectronBrowserKernel.ts`**:
+- Added `cookieDismissAttempted: Map<string, Set<string>>` — tracks which session+hostname pairs have already been attempted to avoid repeated failed attempts
+- In `capturePageModel`, after initial `extractPageModel` evaluation, checks `raw.cookieBannerDetected`. If true and not yet attempted for this session+hostname:
+  1. Records the attempt
+  2. Runs `DISMISS_COOKIE_BANNER_SCRIPT` via CDP
+  3. If `dismissed: true`, waits 500ms for banner animation, invalidates CDP context, re-extracts page model, returns the fresh (banner-free) model
+  4. If dismissed is false or script throws, returns the original page model (planner still sees the "COOKIE BANNER DETECTED" hint as a fallback)
+- Session cleanup: `destroySession` and `destroyAllSessions` clean up the tracking map
+
+**3. `tests/dismissCookieBanner.test.mjs`** (new file, 12 tests):
+- Script structure: non-empty string, valid IIFE pattern
+- CMP coverage: OneTrust, CookieBot, Didomi, Quantcast selectors present
+- Text patterns: accept/agree/allow matching
+- Return contracts: `dismissed: false` fallback, `dismissed: true` with method
+- Resilience: visibility checks, try-catch blocks, cookie-relatedness check for generic dialogs
+
+#### Files Changed
+
+- `packages/browser-runtime/src/cdp/dismissCookieBanner.ts` — New CDP script for cookie banner auto-dismissal
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Auto-dismiss in capturePageModel + hostname tracking
+- `tests/dismissCookieBanner.test.mjs` — 12 tests for dismiss script structure and behavior
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/dismissCookieBanner.test.mjs` — 12/12 pass
+- `node --test tests/*.test.mjs` — 1037/1037 pass (was 1025, +12 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The runtime now auto-dismisses cookie banners before the page model reaches the planner. This saves 1-2 planner steps per website with a consent banner.
+- If auto-dismiss fails, the planner still receives the "COOKIE BANNER DETECTED" hint and can handle it manually (graceful fallback).
+- Auto-dismiss is attempted once per session+hostname — if it fails, subsequent page model captures for the same hostname won't retry (avoids wasted time).
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action. T9 should now observe whether cookie banners are auto-dismissed in the Electron app.
+- Next potential features: `browser_clear_field` (explicit field clearing before re-typing), enhanced planner guidance for multi-step form workflows, or planner memory for cross-page context.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 109)*
