@@ -1479,6 +1479,50 @@ All P0 items are done. P1 items 3, 4, 5 are done. Next P1 item is **P1-6: Cookie
 
 ---
 
+### Session 24 — 2026-03-16: Code Review Gap Analysis — Validation Tests
+
+#### Context
+
+All P0–P2 backlog items are done, known bugs resolved. P3-10 (profile system) is explicitly deferred. Performing code review / gap analysis.
+
+#### Gap Found
+
+`packages/browser-runtime/src/validation.ts` has **zero test coverage**. It contains three security-critical pure functions:
+- `validateElementTargetId(targetId)` — parses `el_<N>` format
+- `validateUrl(url)` — blocks `javascript:`, `data:`, `file:` schemes (only allows http, https, about)
+- `validateScrollDirection(value)` — normalizes scroll direction
+
+These are used by `ElectronBrowserKernel` when executing browser actions. URL validation is a security boundary — an untested gap here could let malicious URLs through.
+
+#### Plan
+
+1. Add `tests/validation.test.mjs` with comprehensive tests for all three functions
+2. Run `pnpm test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+Added `tests/validation.test.mjs` with 26 tests covering:
+- `validateElementTargetId`: 8 tests (valid parsing el_0/el_42/el_999, rejects empty/missing prefix/wrong prefix/negative/non-numeric/trailing chars)
+- `validateUrl`: 9 tests (accepts http/https/about:blank, rejects javascript:/data:/file:/ftp:/invalid/empty)
+- `validateScrollDirection`: 9 tests (accepts up/down, normalizes case/whitespace, rejects left/empty/arbitrary)
+
+Import uses `dist/validation.js` directly (not `dist/index.js`) to avoid pulling in `ElectronBrowserKernel` which requires the `electron` module.
+
+#### Verification
+
+- `pnpm test` — 173/173 pass (was 147, +26 new validation tests)
+- `pnpm run typecheck` — clean
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider adding tests for `CancellationController`, `HandoffManager`, or `workflowEvents` utilities
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
