@@ -269,6 +269,9 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       inputType: el.tagName === 'INPUT' ? (el.type || 'text') : undefined,
       disabled: el.disabled || undefined,
       readonly: el.readOnly || undefined,
+      checked: (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : (el.getAttribute('aria-checked') === 'true' ? true : undefined),
+      selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
+      expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });

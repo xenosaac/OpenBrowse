@@ -754,3 +754,72 @@ test("totalSoftWarning absent when totalSoftFailures undefined", () => {
   const { user } = buildPlannerPrompt(run, makePageModel());
   assert.doesNotMatch(user, /total soft failures/);
 });
+
+// --- ARIA state attributes ---
+
+test("checked attribute renders (checked) for checkbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "checkbox", label: "Accept terms", isActionable: true, checked: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(checked\)/);
+});
+
+test("checked attribute absent when not set", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "checkbox", label: "Accept terms", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(checked\)/);
+});
+
+test("selected attribute renders (selected) for tab", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "tab", label: "Overview", isActionable: true, selected: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(selected\)/);
+});
+
+test("selected attribute absent when not set", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "tab", label: "Overview", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(selected\)/);
+});
+
+test("expanded=true renders (expanded) for dropdown", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true, expanded: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(expanded\)/);
+});
+
+test("expanded=false renders (collapsed) for dropdown", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true, expanded: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(collapsed\)/);
+});
+
+test("expanded absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(expanded\)/);
+  assert.doesNotMatch(user, /\(collapsed\)/);
+});
+
+test("multiple ARIA state attributes render together", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "option", label: "Choice A", isActionable: true, selected: true, checked: true, expanded: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(checked\)/);
+  assert.match(user, /\(selected\)/);
+  assert.match(user, /\(expanded\)/);
+});
