@@ -1851,3 +1851,292 @@ test("iframe hint includes sources when iframeSources provided", () => {
   assert.match(user, /maps\.example\.com/);
   assert.match(user, /navigating directly to the iframe source URL/);
 });
+
+// ---------------------------------------------------------------------------
+// T3: Planner prompt token budget audit (Session 91)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a "heavy" page model: 150 elements with varied properties,
+ * 5 forms with fields, 3 tables with sample rows, 4 landmarks,
+ * alerts, dialog, cookie banner, iframes, visible text.
+ */
+function makeHeavyPageModel() {
+  const elements = [];
+  const roles = ["button", "link", "textbox", "checkbox", "radio", "combobox", "slider", "tab", "menuitem", "img"];
+  for (let i = 0; i < 150; i++) {
+    const role = roles[i % roles.length];
+    const el = {
+      id: `el_${i}`,
+      role,
+      label: `Element ${i} — ${role} with a descriptive label for testing`,
+      isActionable: i % 2 === 0,
+      boundingVisible: i % 3 !== 0,
+    };
+    // Populate various properties on subsets of elements
+    if (role === "link") {
+      el.href = `https://example.com/page/${i}`;
+      el.text = `Link text for item ${i} with some additional context`;
+    }
+    if (role === "textbox") {
+      el.inputType = "email";
+      el.value = `user${i}@example.com`;
+      el.required = true;
+      el.autocomplete = "list";
+      el.description = `Enter your email address for field ${i}`;
+    }
+    if (role === "checkbox") {
+      el.checked = i % 4 === 0;
+      el.description = `Toggle option ${i}`;
+    }
+    if (role === "radio") {
+      el.selected = i % 5 === 0;
+      el.required = true;
+    }
+    if (role === "combobox") {
+      el.expanded = i % 2 === 0;
+      el.hasPopup = "listbox";
+      el.options = [
+        { value: `opt_a_${i}`, label: `Option A for ${i}` },
+        { value: `opt_b_${i}`, label: `Option B for ${i}` },
+        { value: `opt_c_${i}`, label: `Option C for ${i}` },
+      ];
+    }
+    if (role === "slider") {
+      el.valueNow = 50;
+      el.valueMin = 0;
+      el.valueMax = 100;
+      el.orientation = "horizontal";
+    }
+    if (role === "tab") {
+      el.current = i % 3 === 0 ? "true" : undefined;
+      el.sort = i % 6 === 0 ? "ascending" : undefined;
+    }
+    if (role === "menuitem") {
+      el.keyShortcuts = "Ctrl+Shift+K";
+      el.roleDescription = "custom menu action";
+    }
+    if (role === "button") {
+      el.pressed = i % 7 === 0 ? true : i % 7 === 1 ? false : undefined;
+      el.disabled = i % 10 === 0;
+      el.busy = i % 15 === 0;
+    }
+    if (i % 8 === 0) el.landmark = "main";
+    if (i % 12 === 0) el.landmark = "navigation";
+    if (i % 20 === 0) el.inShadowDom = true;
+    if (i % 9 === 0) el.live = "polite";
+    if (i % 11 === 0) el.multiselectable = true;
+    if (i % 13 === 0) el.invalid = true;
+    if (i % 14 === 0) el.readonly = true;
+    if (i % 16 === 0) el.level = Math.floor(i / 16) + 1;
+    if (i % 17 === 0) el.valueText = `${i} percent`;
+    elements.push(el);
+  }
+
+  const forms = [];
+  for (let f = 0; f < 5; f++) {
+    const fields = [];
+    for (let fi = 0; fi < 6; fi++) {
+      fields.push({
+        ref: `form${f}_field${fi}`,
+        label: `Field ${fi} in form ${f}`,
+        type: fi % 3 === 0 ? "text" : fi % 3 === 1 ? "email" : "password",
+        required: fi < 3,
+        currentValue: fi === 0 ? "prefilled@example.com" : "",
+        validationMessage: fi === 2 ? "This field is required" : undefined,
+      });
+    }
+    forms.push({
+      action: `https://example.com/submit-form-${f}`,
+      method: f % 2 === 0 ? "POST" : "GET",
+      fieldCount: 6,
+      fields,
+      submitRef: `form${f}_submit`,
+    });
+  }
+
+  const tables = [
+    {
+      caption: "Quarterly Results",
+      headers: ["Quarter", "Revenue", "Expenses", "Profit", "Growth %"],
+      rowCount: 12,
+      sampleRows: [
+        ["Q1 2025", "$1,234,567", "$987,654", "$246,913", "+12.3%"],
+        ["Q2 2025", "$1,345,678", "$1,012,345", "$333,333", "+15.1%"],
+        ["Q3 2025", "$1,456,789", "$1,123,456", "$333,333", "+8.2%"],
+      ],
+    },
+    {
+      caption: "Employee Directory",
+      headers: ["Name", "Department", "Title", "Location", "Email"],
+      rowCount: 50,
+      sampleRows: [
+        ["Jane Doe", "Engineering", "Staff Engineer", "San Francisco", "jane@example.com"],
+        ["John Smith", "Product", "Senior PM", "New York", "john@example.com"],
+      ],
+    },
+    {
+      headers: ["Product", "SKU", "Price", "Stock"],
+      rowCount: 200,
+      sampleRows: [
+        ["Widget Pro", "WP-001", "$29.99", "In Stock"],
+        ["Widget Basic", "WB-002", "$14.99", "Low Stock"],
+        ["Widget Ultra", "WU-003", "$49.99", "Out of Stock"],
+      ],
+    },
+  ];
+
+  const landmarks = [
+    { role: "banner", label: "Site Header" },
+    { role: "navigation", label: "Main Navigation" },
+    { role: "main", label: "Primary Content" },
+    { role: "contentinfo", label: "Site Footer" },
+  ];
+
+  const visibleText = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ".repeat(50)
+    + "This is a realistic page with multiple sections, forms, tables, and interactive elements. "
+    + "Navigation links, search results, product listings, and user profile sections are all present. "
+    + "The page includes cookie consent banners, advertising iframes, and modal dialogs. ".repeat(5);
+
+  return makePageModel({
+    url: "https://complex-webapp.example.com/dashboard/analytics?view=quarterly&region=all",
+    title: "Analytics Dashboard — Complex Web Application — Quarterly Overview",
+    pageType: "form",
+    elements,
+    forms,
+    tables,
+    landmarks,
+    alerts: ["Your session will expire in 5 minutes", "3 new notifications"],
+    captchaDetected: false,
+    cookieBannerDetected: true,
+    iframeCount: 4,
+    iframeSources: [
+      "https://ads.doubleclick.net/pagead/ads?client=ca-pub-12345",
+      "https://maps.googleapis.com/maps/api/js?key=abc123&embed=true",
+      "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "https://analytics.example.com/tracker.html",
+    ],
+    activeDialog: { label: "Confirm Changes" },
+    scrollY: 450,
+    focusedElementId: "el_42",
+    visibleText,
+  });
+}
+
+/**
+ * Build a "light" page model: 20 simple elements, no forms/tables/landmarks.
+ */
+function makeLightPageModel() {
+  const elements = [];
+  for (let i = 0; i < 20; i++) {
+    elements.push({
+      id: `el_${i}`,
+      role: i < 5 ? "link" : i < 10 ? "button" : i < 15 ? "textbox" : "img",
+      label: `Element ${i}`,
+      isActionable: i < 15,
+      boundingVisible: true,
+      href: i < 5 ? `https://example.com/page/${i}` : undefined,
+    });
+  }
+  return makePageModel({
+    url: "https://simple.example.com/page",
+    title: "Simple Page",
+    elements,
+    visibleText: "This is a simple page with minimal content.",
+  });
+}
+
+test("T3: prompt token budget — heavy page model measurement", () => {
+  const heavyPM = makeHeavyPageModel();
+  const run = makeRun({
+    goal: "Extract quarterly revenue data from the analytics dashboard, compare Q1-Q3 growth rates, and summarize findings",
+    constraints: ["only use data visible on the current page", "do not navigate away"],
+    checkpoint: {
+      summary: "Navigated to dashboard, dismissed cookie banner, now analyzing data tables.",
+      notes: ["User confirmed: focus on 2025 data only", "User said: ignore advertising revenue"],
+      stepCount: 8,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to analytics dashboard", ok: true, createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "click", description: "Dismiss cookie banner", ok: true, createdAt: "2026-03-15T00:00:10Z" },
+        { step: 2, type: "click", description: "Select quarterly view", ok: true, createdAt: "2026-03-15T00:00:20Z" },
+        { step: 3, type: "click", description: "Expand all regions filter", ok: true, createdAt: "2026-03-15T00:00:30Z" },
+        { step: 4, type: "scroll", description: "Scroll to data tables", ok: true, createdAt: "2026-03-15T00:00:40Z" },
+        { step: 5, type: "click", description: "Click revenue column header to sort", ok: false, failureClass: "element_not_found", createdAt: "2026-03-15T00:00:50Z" },
+        { step: 6, type: "scroll", description: "Scroll down to see more rows", ok: true, createdAt: "2026-03-15T00:01:00Z" },
+        { step: 7, type: "extract", description: "Extract table data", ok: true, createdAt: "2026-03-15T00:01:10Z" },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: 1,
+    },
+  });
+
+  const { system, user } = buildPlannerPrompt(run, heavyPM);
+  const totalChars = system.length + user.length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const pctOfContext = ((estimatedTokens / 200_000) * 100).toFixed(2);
+
+  // Log measurements (visible in test output)
+  console.log(`\n=== T3 HEAVY PAGE MODEL PROMPT BUDGET ===`);
+  console.log(`System prompt: ${system.length} chars`);
+  console.log(`User prompt:   ${user.length} chars`);
+  console.log(`Total:         ${totalChars} chars`);
+  console.log(`Estimated tokens (chars/4): ${estimatedTokens}`);
+  console.log(`% of 200k context window:   ${pctOfContext}%`);
+  console.log(`Element count in model:     ${heavyPM.elements.length}`);
+  console.log(`Forms: ${heavyPM.forms.length}, Tables: ${heavyPM.tables.length}, Landmarks: ${heavyPM.landmarks.length}`);
+  console.log(`==========================================\n`);
+
+  // The prompt must be well-formed
+  assert.ok(totalChars > 0, "prompt should not be empty");
+  assert.match(user, /quarterly revenue data/);
+  assert.match(user, /Interactive elements/);
+
+  // Record the actual measurement for documentation
+  // If this exceeds 120k chars (~30k tokens, 15% of context), the test still passes
+  // but the measurement will trigger a condensation strategy proposal
+  assert.ok(totalChars < 500_000, `prompt is unreasonably large: ${totalChars} chars`);
+});
+
+test("T3: prompt token budget — light page model measurement", () => {
+  const lightPM = makeLightPageModel();
+  const run = makeRun();
+
+  const { system, user } = buildPlannerPrompt(run, lightPM);
+  const totalChars = system.length + user.length;
+  const estimatedTokens = Math.ceil(totalChars / 4);
+  const pctOfContext = ((estimatedTokens / 200_000) * 100).toFixed(2);
+
+  console.log(`\n=== T3 LIGHT PAGE MODEL PROMPT BUDGET ===`);
+  console.log(`System prompt: ${system.length} chars`);
+  console.log(`User prompt:   ${user.length} chars`);
+  console.log(`Total:         ${totalChars} chars`);
+  console.log(`Estimated tokens (chars/4): ${estimatedTokens}`);
+  console.log(`% of 200k context window:   ${pctOfContext}%`);
+  console.log(`Element count in model:     ${lightPM.elements.length}`);
+  console.log(`==========================================\n`);
+
+  assert.ok(totalChars > 0, "prompt should not be empty");
+  assert.match(user, /Simple Page/);
+  assert.ok(totalChars < 500_000, `prompt is unreasonably large: ${totalChars} chars`);
+});
+
+test("T3: heavy prompt is significantly larger than light prompt", () => {
+  const heavyPM = makeHeavyPageModel();
+  const lightPM = makeLightPageModel();
+  const run = makeRun();
+
+  const heavy = buildPlannerPrompt(run, heavyPM);
+  const light = buildPlannerPrompt(run, lightPM);
+
+  const heavyTotal = heavy.system.length + heavy.user.length;
+  const lightTotal = light.system.length + light.user.length;
+  const ratio = (heavyTotal / lightTotal).toFixed(1);
+
+  console.log(`\n=== T3 PROMPT SIZE COMPARISON ===`);
+  console.log(`Heavy: ${heavyTotal} chars, Light: ${lightTotal} chars`);
+  console.log(`Ratio: ${ratio}x`);
+  console.log(`=================================\n`);
+
+  // Heavy should be meaningfully larger due to 150 elements + forms + tables + etc.
+  assert.ok(heavyTotal > lightTotal * 2, `heavy prompt should be at least 2x light (got ${ratio}x)`);
+});

@@ -5165,4 +5165,87 @@ Files changed:
 
 *Session log entry written: 2026-03-16 (Session 90)*
 
+---
+
+### Session 91 — 2026-03-16: T3 — Planner Prompt Token Budget Audit
+
+#### Mode: framework
+
+Rationale: T3 is a P1 planner quality validation task from the PM backlog. It measures whether the 30 sessions of page model work are helping or hurting planner performance by auditing prompt size. This is high-leverage framework measurement, not speculative attribute work.
+
+#### Context
+
+PM directive (T3): The page model now has 38 element properties and 14 page-level fields. The planner prompt may be consuming a large fraction of the context window with rarely-used attributes, diluting reasoning quality with noise. Write a test that measures prompt size for heavy and light page models, document findings, and propose condensation strategy if needed.
+
+#### Plan
+
+1. Write a test in `tests/planner-prompt.test.mjs` that constructs a "heavy" page model: 150 elements with a mix of properties populated, 5 forms, 3 tables, 4 landmarks, alerts, dialog, cookie banner, iframes
+2. Call `buildPlannerPrompt()` and measure the resulting prompt size in characters
+3. Estimate token count (chars / 4)
+4. Write a second test with a "light" page model: 20 elements, no tables/forms/landmarks
+5. Document character counts, token estimates, and percentage of 200k context window
+6. If heavy prompt exceeds ~30k tokens (~15% of context), propose condensation strategy
+7. Run typecheck + tests
+8. Update this log and commit
+
+#### Implementation
+
+Added 3 tests to `tests/planner-prompt.test.mjs` (161 → 164):
+
+1. **`T3: prompt token budget — heavy page model measurement`** — Constructs a realistic heavy page model with:
+   - 150 elements with varied properties (buttons, links, textboxes, checkboxes, radios, comboboxes, sliders, tabs, menuitems, images)
+   - Properties populated across subsets: href, inputType, value, required, autocomplete, checked, selected, expanded, pressed, disabled, busy, options, landmark, inShadowDom, live, multiselectable, invalid, readonly, level, valueText, description, keyShortcuts, roleDescription, orientation, hasPopup, valueNow/Min/Max
+   - 5 forms with 6 fields each (including validation messages, required fields, submit refs)
+   - 3 tables with headers and sample rows (12, 50, 200 rows)
+   - 4 landmarks (banner, navigation, main, contentinfo)
+   - Alerts, cookie banner, active dialog, 4 iframes with sources
+   - 8-step action history with mixed success/failure
+   - Visible text ~3000 chars
+   - Measures and logs system+user prompt character count, estimated token count, and % of 200k context
+
+2. **`T3: prompt token budget — light page model measurement`** — 20 simple elements with minimal properties, no forms/tables/landmarks. Measures same metrics.
+
+3. **`T3: heavy prompt is significantly larger than light prompt`** — Verifies the heavy model produces at least 2x the prompt of the light model (actual: 9.1x).
+
+#### Findings
+
+| Metric | Heavy Page | Light Page |
+|--------|-----------|------------|
+| System prompt | 2,091 chars | 2,091 chars |
+| User prompt | 28,493 chars | 1,220 chars |
+| **Total** | **30,584 chars** | **3,311 chars** |
+| Estimated tokens (chars/4) | **7,646** | **828** |
+| % of 200k context window | **3.82%** | **0.41%** |
+| Elements | 150 | 20 |
+| Forms/Tables/Landmarks | 5/3/4 | 0/0/0 |
+
+**Analysis:**
+- The heavy prompt (worst-case realistic scenario) uses only **3.82% of the context window** (~7.6k tokens of 200k).
+- This is well under the 15% (30k tokens) threshold that would trigger a condensation strategy.
+- The 30 sessions of page model attribute surfacing have **NOT created a prompt bloat problem**.
+- The element list is the dominant contributor to prompt size, as expected. The 150-element cap is an effective budget control.
+- Forms, tables, and landmarks add meaningful context at modest cost.
+- The system prompt is a constant ~2k chars regardless of page complexity.
+- **No condensation strategy is needed at this time.**
+
+**Conclusion:** The extensive page model work (38 element properties, forms, tables, landmarks, iframes, dialogs, etc.) adds high-signal context at a very modest cost (~4% of context window in the worst case). The planner has ample room for its reasoning and multi-turn conversations.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 164/164 pass (was 161, +3 new)
+- `node --test tests/*.test.mjs` — 999/999 pass (was 996, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T3 is complete. The page model is well within token budget — no condensation needed.
+- T4 (planner integration test with realistic page model snapshots) is the next PM priority.
+- Then design system work: D1 (atmospheric background), D2 (chrome band), D3 (home page), D4 (card borders).
+- The page model fidelity phase remains declared complete.
+
+*Session log entry written: 2026-03-16 (Session 91)*
+
 *Session log entry written: 2026-03-16 (Session 89)*
