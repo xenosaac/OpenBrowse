@@ -2014,6 +2014,14 @@ This section tracks planned features, prioritized for iterative implementation.
 
 Fixed by including `description` in cycle keys (differentiates clicks on different buttons) and requiring 4 full repetitions for 2-step cycles (was 3). Also extended cycle detection to 2–5 step patterns (was 2–3).
 
+**12. Hamburger menu dropdown clipped by browser tabs (z-index)** — OPEN (reported 2026-03-16)
+
+The hamburger menu (☰) dropdown renders behind browser tab elements. When one or more tabs are open, the tab bar overlaps and fully obscures the middle portion of the dropdown (around "DevTools" and "Print Page" items). Root cause is likely a `z-index` stacking issue — the dropdown's z-index is lower than the tab bar's, or the dropdown is rendered inside a stacking context that cannot escape the tab bar layer. Fix requires ensuring the hamburger dropdown has a higher z-index than the tab bar, or rendering the dropdown in a portal above all chrome layers.
+
+**13. Runtime panel text overflow in ManagementPanel** — OPEN (reported 2026-03-16)
+
+In the ManagementPanel → Runtime tab, the STORAGE card's Detail text overflows its card boundary. The long SQLite path (`/Users/isaaczhang/Library/Application Support/@openbrowse/desktop/openbrowse.db`) is not truncated or wrapped and visually bleeds past the card edge into the adjacent CHAT BRIDGE card. Fix requires adding `overflow: hidden; text-overflow: ellipsis` or `word-break: break-all` to the Detail value in the RuntimePanel card component.
+
 ### P3 — Future
 
 **10. Profile system / Google login**
