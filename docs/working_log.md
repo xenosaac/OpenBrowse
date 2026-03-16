@@ -6411,3 +6411,67 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 - P3-10 (profile system) remains deferred.
 
 *Session log entry written: 2026-03-16 (Session 107)*
+
+---
+
+### Session 108 — 2026-03-16: Fix capturePageModel Field Dropout — Cookie Banners, Tables, Landmarks, Dialogs, Iframes Lost
+
+#### Mode: repair
+
+Rationale: Critical correctness bug. The `capturePageModel` method in `ElectronBrowserKernel.ts` does not pass through `cookieBannerDetected`, `activeDialog`, `tables`, `landmarks`, `iframeCount`, or `iframeSources` from the CDP extraction script. These fields ARE computed by `extractPageModel.ts` and ARE used by `buildPlannerPrompt.ts` to generate planner hints (cookie banner warnings, iframe notices, dialog context, table structure, landmark regions). But the kernel's raw TypeScript type annotation and return mapping both omit them. This means 30+ sessions of page model work (Sessions 40-89) — including landmark regions, table extraction, cookie banner detection, dialog detection, and iframe enumeration — never actually reach the planner in the real Electron app. Tests pass because they use mock PageModel objects that set these fields directly, bypassing the kernel.
+
+#### Plan
+
+1. **ElectronBrowserKernel.ts**: Update the `capturePageModel` raw type annotation to include all missing fields: `cookieBannerDetected`, `activeDialog`, `tables`, `landmarks`, `iframeCount`, `iframeSources`.
+2. **ElectronBrowserKernel.ts**: Update the return mapping to pass all these fields through to the PageModel object.
+3. Run typecheck.
+4. Run tests.
+
+#### Implementation
+
+**`packages/browser-runtime/src/ElectronBrowserKernel.ts`** — Updated `capturePageModel`:
+
+1. Added 6 missing fields to the CDP `evaluate` raw type annotation:
+   - `cookieBannerDetected?: boolean`
+   - `activeDialog?: { label: string }`
+   - `tables?: Array<{ caption?: string; headers: string[]; rowCount: number; sampleRows?: string[][] }>`
+   - `landmarks?: Array<{ role: string; label: string }>`
+   - `iframeCount?: number`
+   - `iframeSources?: string[]`
+
+2. Added 6 corresponding fields to the return mapping:
+   - `cookieBannerDetected: raw.cookieBannerDetected`
+   - `activeDialog: raw.activeDialog`
+   - `tables: raw.tables`
+   - `landmarks: raw.landmarks`
+   - `iframeCount: raw.iframeCount`
+   - `iframeSources: raw.iframeSources`
+
+**Root cause:** When these page model features were added during Sessions 40-89, they were added to: (a) the `extractPageModel.ts` CDP script, (b) the `PageModel` contract interface, and (c) the `buildPlannerPrompt.ts` planner prompt. But step (d) — updating the kernel's type annotation and return mapping — was missed. Tests didn't catch this because they use mock PageModel objects that bypass the kernel.
+
+**Impact of fix:** The planner will now receive:
+- Cookie banner detection → triggers "COOKIE BANNER DETECTED" warning in planner prompt
+- Active dialog detection → triggers "DIALOG OPEN" warning in planner prompt
+- Table structure → tables section with captions, headers, row counts, sample data
+- Landmark regions → page regions section for navigation context
+- Iframe detection → triggers "IFRAMES DETECTED" warning in planner prompt
+
+#### Files Changed
+
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Added 6 missing PageModel fields to capturePageModel raw type + return mapping
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1025/1025 pass (unchanged count — no new tests needed, this is a pass-through fix)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now receives the full page model in real Electron execution, matching what tests validate.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action. T9 should now reveal whether cookie banner warnings, dialog context, table structure, and landmark navigation actually improve planner behavior on real websites.
+- Next potential features: auto-dismiss cookie banners at runtime level (save 1-2 planner steps per site), `browser_clear_field` (explicit field clearing before re-typing), or enhanced planner guidance for multi-step form workflows.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 108)*
