@@ -1568,6 +1568,52 @@ Added two test files:
 
 ---
 
+### Session 26 — 2026-03-16: Gap Analysis — EventBus + RunHandoff Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two pure-function modules in `packages/observability` have zero test coverage:
+
+1. `EventBus` — pub/sub event system. Pure class, no dependencies. Untested = risk of silent handler failures or missed subscriptions.
+2. `RunHandoff` — `buildHandoffArtifact` and `renderHandoffMarkdown` construct the canonical handoff surface. Pure functions, no I/O. Untested = risk of malformed handoff documents.
+
+#### Plan
+
+1. Add `tests/eventBus.test.mjs` — test subscribe, publish, multiple handlers, async handlers, no-handler-noop, ordering
+2. Add `tests/runHandoff.test.mjs` — test buildHandoffArtifact field mapping, renderHandoffMarkdown sections (goal, constraints, page context, action history, suspension, failure, notes, outcome)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/eventBus.test.mjs`** — 10 tests:
+- Subscribe + publish: single handler, multiple handlers, subscription order
+- No-subscriber publish is a no-op
+- Independent event names
+- Exact payload reference passing
+- Async handlers awaited sequentially
+- Multiple publishes accumulate
+- Sync and async handler errors propagate
+
+**`tests/runHandoff.test.mjs`** — 26 tests:
+- `buildHandoffArtifact` (11 tests): core field mapping, page context, constraints, suspension info, failure info, outcome, missing outcome, notes, action history, optional pageModelSnapshot, stepCount default
+- `renderHandoffMarkdown` (15 tests): title with goal, status emojis for all statuses, run metadata, constraints section present/absent, current page section, action history table, long description truncation, suspension section, failure section, notes section, outcome section, typed text as target, dash when no target
+
+#### Verification
+
+- `pnpm test` — 253/253 pass (was 217, +36 new tests for EventBus and RunHandoff)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `AuditTrail` edge cases, `LogReplayer`, or `workflowEvents` utilities
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
