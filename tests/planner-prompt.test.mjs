@@ -1550,3 +1550,41 @@ test("hasPopup renders after required and before invalid", () => {
   assert.ok(reqIdx < hpIdx, "hasPopup should come after required");
   assert.ok(hpIdx < invIdx, "hasPopup should come before invalid");
 });
+
+// --- busy tests ---
+
+test("busy renders (busy) for element with aria-busy=true", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(busy\)/);
+});
+
+test("busy absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(busy\)/);
+});
+
+test("busy absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(busy\)/);
+});
+
+test("busy renders after haspopup and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", hasPopup: "listbox", busy: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const hpIdx = user.indexOf("(haspopup=listbox)");
+  const busyIdx = user.indexOf("(busy)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(hpIdx < busyIdx, "busy should come after haspopup");
+  assert.ok(busyIdx < invIdx, "busy should come before invalid");
+});

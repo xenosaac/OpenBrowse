@@ -434,6 +434,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       multiselectable: el.getAttribute('aria-multiselectable') === 'true' ? true : undefined,
       required: (el.required || el.getAttribute('aria-required') === 'true') ? true : undefined,
       hasPopup: (function() { var hp = el.getAttribute('aria-haspopup'); if (!hp || hp === 'false') return undefined; return hp === 'true' ? 'menu' : hp; })(),
+      busy: el.getAttribute('aria-busy') === 'true' ? true : undefined,
       invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;
