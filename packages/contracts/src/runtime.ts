@@ -11,7 +11,7 @@ export interface RuntimeConfig {
 export type RuntimePhase = "phase1" | "phase2" | "phase3" | "phase4" | "phase5" | "phase6" | "phase7";
 export type RuntimeMode = "desktop_skeleton" | "desktop_runtime";
 
-export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6";
 export const OPUS_ANTHROPIC_MODEL = "claude-opus-4-6";
 
 export interface RuntimeAdapterStatus {

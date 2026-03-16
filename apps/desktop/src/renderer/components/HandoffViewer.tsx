@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface Props {
   selectedRunId: string | null;
@@ -66,6 +67,7 @@ export function HandoffViewer({ selectedRunId, runs, onSelectRun }: Props) {
         {markdown && (
           <button
             onClick={handleCopy}
+            className="ob-btn"
             style={{
               ...styles.copyBtn,
               ...(copied ? styles.copyBtnCopied : {})
@@ -112,17 +114,17 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   select: {
-    background: "#1e1e2e",
+    ...glass.input,
     color: "#f5f5ff",
-    border: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 8,
     padding: "4px 8px",
     fontSize: "0.85rem"
-  },
+  } as React.CSSProperties,
   copyBtn: {
-    background: "#151522",
-    border: "1px solid #2a2a3e",
-    color: "#9090a8",
+    background: colors.bgElevated,
+    border: "1px solid " + colors.borderDefault,
+    color: colors.textSecondary,
     borderRadius: 8,
     padding: "6px 14px",
     cursor: "pointer",
@@ -139,15 +141,15 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0
   },
   pre: {
-    background: "#151522",
-    border: "1px solid #2a2a3e",
+    ...glass.input,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 14,
     padding: "14px 16px",
     fontFamily: "monospace",
     fontSize: "0.84rem",
-    color: "#e5e7eb",
+    color: colors.textPrimary,
     whiteSpace: "pre-wrap",
     overflow: "auto",
     margin: 0
-  }
+  } as React.CSSProperties
 };

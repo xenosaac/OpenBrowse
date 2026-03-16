@@ -35,17 +35,26 @@ export class SqliteRunCheckpointStore implements RunCheckpointStore {
 
   async load(runId: string): Promise<TaskRun | null> {
     const row = this.stmtLoad.get(runId) as { data: string } | undefined;
-    return row ? (JSON.parse(row.data) as TaskRun) : null;
+    if (!row) return null;
+    try { return JSON.parse(row.data) as TaskRun; } catch { return null; }
   }
 
   async listByStatus(status: TaskStatus): Promise<TaskRun[]> {
     const rows = this.stmtListByStatus.all(status) as Array<{ data: string }>;
-    return rows.map((r) => JSON.parse(r.data) as TaskRun);
+    return this.parseRows(rows);
   }
 
   async listAll(): Promise<TaskRun[]> {
     const rows = this.stmtListAll.all() as Array<{ data: string }>;
-    return rows.map((r) => JSON.parse(r.data) as TaskRun);
+    return this.parseRows(rows);
+  }
+
+  private parseRows(rows: Array<{ data: string }>): TaskRun[] {
+    const results: TaskRun[] = [];
+    for (const r of rows) {
+      try { results.push(JSON.parse(r.data) as TaskRun); } catch { /* skip corrupted row */ }
+    }
+    return results;
   }
 
   async delete(runId: string): Promise<boolean> {

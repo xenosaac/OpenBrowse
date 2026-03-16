@@ -1,5 +1,6 @@
 import React from "react";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
+import { colors, radii, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   shellTabs: BrowserShellTabDescriptor[];
@@ -23,7 +24,7 @@ export function HomePage({ shellTabs, tabFavicons, onOpenTab }: Props) {
         ) : (
           <div style={styles.recentGrid}>
             {recentTabs.map((tab) => (
-              <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={styles.recentCard}>
+              <button key={tab.groupId} onClick={() => onOpenTab(tab)} style={styles.recentCard} className="ob-card ob-glass-panel">
                 <div style={styles.recentFavicon}>
                   {tabFavicons[tab.id] ? (
                     <img
@@ -52,38 +53,38 @@ export function HomePage({ shellTabs, tabFavicons, onOpenTab }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   page: {
     height: "100%", overflow: "auto", padding: "40px 32px 32px",
-    background: "linear-gradient(180deg, #0a0a12 0%, #12121a 100%)"
+    background: colors.bgBase
   },
   recentSection: { maxWidth: 860, margin: "0 auto" },
   eyebrow: {
-    fontSize: "0.78rem", color: "#9090a8",
+    fontSize: "0.78rem", color: colors.textSecondary,
     textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14
   },
   emptyHint: {
-    background: "#12121a", border: "1px solid #2a2a3e",
-    borderRadius: 14, padding: "18px 20px", color: "#9090a8", fontSize: "0.9rem"
-  },
+    ...glass.card, border: "1px solid " + colors.borderGlass,
+    borderRadius: 14, padding: "18px 20px", color: colors.textSecondary, fontSize: "0.9rem"
+  } as React.CSSProperties,
   recentGrid: {
     display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10
   },
   recentCard: {
-    display: "flex", alignItems: "center", gap: 12,
-    background: "#12121a", border: "1px solid #2a2a3e",
+    ...glass.card, display: "flex", alignItems: "center", gap: 12,
+    border: "1px solid " + colors.borderGlass, boxShadow: shadows.glassSubtle,
     borderRadius: 14, padding: "12px 16px", cursor: "pointer",
-    textAlign: "left", color: "#e5e7eb"
-  },
-  recentFavicon: { fontSize: "1.1rem", color: "#8b5cf6", flexShrink: 0 },
+    textAlign: "left", color: colors.textPrimary
+  } as React.CSSProperties,
+  recentFavicon: { fontSize: "1.1rem", color: colors.emerald, flexShrink: 0 },
   recentInfo: { minWidth: 0 },
   recentTitle: {
-    fontSize: "0.9rem", fontWeight: 600, color: "#ffffff",
+    fontSize: "0.9rem", fontWeight: 600, color: colors.textWhite,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
   },
   recentUrl: {
-    fontSize: "0.78rem", color: "#9090a8", marginTop: 3,
+    fontSize: "0.78rem", color: colors.textSecondary, marginTop: 3,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
   },
   kbd: {
-    background: "#1e1e2e", border: "1px solid #2a2a3e",
-    borderRadius: 4, padding: "1px 5px", fontSize: "0.82rem", color: "#e5e7eb"
-  }
+    ...glass.input, border: "1px solid " + colors.borderGlass,
+    borderRadius: 4, padding: "1px 5px", fontSize: "0.82rem", color: colors.textPrimary
+  } as React.CSSProperties
 };

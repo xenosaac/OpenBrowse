@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
 import type { RuntimeDescriptor } from "../../shared/runtime";
+import { colors } from "../styles/tokens";
 
 interface Props {
   onStarted: (run: TaskRun) => void | Promise<void>;
@@ -58,7 +59,7 @@ export function TaskStartForm({ onStarted, onOpenSettings, runtime }: Props) {
           style={styles.input}
           onKeyDown={(e) => e.key === "Enter" && handleStart()}
         />
-        <button onClick={handleStart} disabled={busy || !runtimeReady} style={styles.button}>
+        <button onClick={handleStart} disabled={busy || !runtimeReady} style={styles.button} className="ob-btn-primary">
           {busy ? "Starting..." : plannerReady ? "Start" : "Configure AI"}
         </button>
       </div>
@@ -80,17 +81,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     width: "100%",
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
+    background: colors.bgInput,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 14,
     padding: "12px 14px",
     color: "#f5f5ff",
     fontSize: "0.92rem"
   },
   button: {
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+    background: colors.emerald,
     color: "#fffdf9",
-    border: "1px solid #8b5cf6",
+    border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 14,
     padding: "12px 16px",
     cursor: "pointer",

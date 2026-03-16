@@ -61,16 +61,53 @@ export interface PageElementModel {
   inputType?: string;
   disabled?: boolean;
   readonly?: boolean;
+  checked?: boolean;
+  selected?: boolean;
+  expanded?: boolean;
+  pressed?: boolean | "mixed";
+  invalid?: boolean;
+  text?: string;
+  description?: string;
+  level?: number;
+  current?: string;
+  sort?: string;
+  roleDescription?: string;
+  valueNow?: number;
+  valueMin?: number;
+  valueMax?: number;
+  valueText?: string;
+  orientation?: "horizontal" | "vertical";
+  autocomplete?: "inline" | "list" | "both";
+  multiselectable?: boolean;
+  required?: boolean;
+  hasPopup?: string;
+  busy?: boolean;
+  live?: string;
+  options?: Array<{ value: string; label: string }>;
+  keyShortcuts?: string;
+  landmark?: string;
+  inShadowDom?: boolean;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }
 
 export type PageType = "search_results" | "form" | "login" | "checkout" | "article" | "unknown";
 
+export interface PageFormField {
+  ref: string;
+  label: string;
+  type: string;
+  required: boolean;
+  currentValue: string;
+  validationMessage?: string;
+}
+
 export interface PageFormSummary {
   action: string;
   method: string;
   fieldCount: number;
+  fields?: PageFormField[];
+  submitRef?: string;
 }
 
 export interface PageModel {
@@ -86,7 +123,18 @@ export interface PageModel {
   forms?: PageFormSummary[];
   alerts?: string[];
   captchaDetected?: boolean;
+  cookieBannerDetected?: boolean;
   scrollY?: number;
+  activeDialog?: { label: string };
+  tables?: Array<{
+    caption?: string;
+    headers: string[];
+    rowCount: number;
+    sampleRows?: string[][];
+  }>;
+  landmarks?: Array<{ role: string; label: string }>;
+  iframeCount?: number;
+  iframeSources?: string[];
 }
 
 export interface BrowserAction {

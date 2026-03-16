@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { BrowserProfile, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 import type { ReplayStep } from "@openbrowse/observability";
 import type { RuntimeDescriptor, RuntimeSettings } from "../../shared/runtime";
 import { DemoPanel } from "./DemoPanel";
@@ -8,8 +9,11 @@ import { ManagedProfiles } from "./ManagedProfiles";
 import { SettingsPanel } from "./SettingsPanel";
 import { HandoffViewer } from "./HandoffViewer";
 import { WorkflowLog } from "./WorkflowLog";
+import { BookmarkPanel } from "./BookmarkPanel";
+import { HistoryPanel } from "./HistoryPanel";
+import { CookiePanel } from "./CookiePanel";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -20,6 +24,7 @@ interface Props {
   replaySteps: ReplayStep[];
   profiles: BrowserProfile[];
   selectedRunId: string | null;
+  activeSessionId: string | null;
   initialTab: ManagementTab;
   onSaved: (settings: RuntimeSettings) => Promise<void>;
   onSelectRun: (runId: string) => void;
@@ -33,6 +38,9 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "demos", label: "Demos" },
   { key: "sessions", label: "Sessions" },
   { key: "profiles", label: "Profiles" },
+  { key: "bookmarks", label: "Bookmarks" },
+  { key: "history", label: "History" },
+  { key: "cookies", label: "Cookies" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -44,6 +52,7 @@ export function ManagementPanel({
   replaySteps,
   profiles,
   selectedRunId,
+  activeSessionId,
   initialTab,
   onSaved,
   onSelectRun,
@@ -56,7 +65,7 @@ export function ManagementPanel({
 
   return (
     <div style={styles.backdrop} onClick={onClose}>
-      <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.sheet} className="ob-glass-panel" onClick={(e) => e.stopPropagation()}>
         <div style={styles.header}>
           <div style={styles.headerLeft}>
             <span style={styles.headerTitle}>Manage</span>
@@ -75,7 +84,7 @@ export function ManagementPanel({
               ))}
             </div>
           </div>
-          <button style={styles.closeBtn} onClick={onClose}>✕</button>
+          <button style={styles.closeBtn} className="ob-btn" onClick={onClose}>✕</button>
         </div>
 
         <div style={styles.body}>
@@ -96,6 +105,7 @@ export function ManagementPanel({
               <div style={styles.subTabBar}>
                 <button
                   onClick={() => setSessionsSubTab("tasks")}
+                  className={sessionsSubTab === "tasks" ? undefined : "ob-btn"}
                   style={{
                     ...styles.subTabBtn,
                     ...(sessionsSubTab === "tasks" ? styles.subTabBtnActive : {})
@@ -105,6 +115,7 @@ export function ManagementPanel({
                 </button>
                 <button
                   onClick={() => setSessionsSubTab("log")}
+                  className={sessionsSubTab === "log" ? undefined : "ob-btn"}
                   style={{
                     ...styles.subTabBtn,
                     ...(sessionsSubTab === "log" ? styles.subTabBtnActive : {})
@@ -114,6 +125,7 @@ export function ManagementPanel({
                 </button>
                 <button
                   onClick={() => setSessionsSubTab("handoff")}
+                  className={sessionsSubTab === "handoff" ? undefined : "ob-btn"}
                   style={{
                     ...styles.subTabBtn,
                     ...(sessionsSubTab === "handoff" ? styles.subTabBtnActive : {})
@@ -145,6 +157,12 @@ export function ManagementPanel({
           {activeTab === "profiles" && (
             <ManagedProfiles profiles={profiles} />
           )}
+
+          {activeTab === "bookmarks" && <BookmarkPanel />}
+
+          {activeTab === "history" && <HistoryPanel />}
+
+          {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />
@@ -203,19 +221,18 @@ function RuntimeStatus({ runtime }: { runtime: RuntimeDescriptor | null }) {
 
 const styles: Record<string, React.CSSProperties> = {
   backdrop: {
+    ...glass.overlay,
     position: "absolute",
     inset: 0,
-    background: "rgba(0,0,0,0.58)",
-    backdropFilter: "blur(5px)",
     display: "flex",
     flexDirection: "column",
     alignItems: "stretch",
     justifyContent: "flex-end",
     zIndex: 1000
-  },
+  } as React.CSSProperties,
   sheet: {
-    background: "#12121a",
-    borderTop: "1px solid #2a2a3e",
+    ...glass.panel,
+    borderTop: "1px solid " + colors.borderGlass,
     borderRadius: "18px 18px 0 0",
     display: "flex",
     flexDirection: "column",
@@ -223,15 +240,15 @@ const styles: Record<string, React.CSSProperties> = {
     // Content that doesn't fit scrolls inside the body area.
     height: "67vh",
     overflow: "hidden",
-    boxShadow: "0 -16px 60px rgba(0,0,0,0.5)"
-  },
+    boxShadow: shadows.glassElevated
+  } as React.CSSProperties,
   header: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 16,
     padding: "14px 20px 0",
-    borderBottom: "1px solid #2a2a3e",
+    borderBottom: "1px solid " + colors.borderDefault,
     flexShrink: 0
   },
   headerLeft: {
@@ -263,7 +280,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tabBtnActive: {
     color: "#ffffff",
-    borderBottomColor: "#8b5cf6"
+    borderBottomColor: colors.emerald
   },
   closeBtn: {
     background: "transparent",
@@ -294,19 +311,18 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 4
   },
   subTabBtn: {
-    background: "#151522",
-    border: "1px solid #2a2a3e",
-    color: "#9090a8",
+    background: colors.buttonBg,
+    border: "1px solid " + colors.borderGlass,
+    color: colors.textSecondary,
     borderRadius: 8,
     padding: "6px 14px",
     cursor: "pointer",
     fontSize: "0.84rem"
   },
   subTabBtnActive: {
-    background: "#7c3aed",
-    borderColor: "#8b5cf6",
+    ...glass.emerald,
     color: "#ffffff"
-  },
+  } as React.CSSProperties,
   sessionsContent: {
     minHeight: 0
   },
@@ -316,14 +332,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 14
   },
   runtimeCard: {
-    background: "#151522",
-    border: "1px solid #2a2a3e",
+    ...glass.card,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 14,
     padding: "14px 16px",
     display: "flex",
     flexDirection: "column",
     gap: 8
-  },
+  } as React.CSSProperties,
   runtimeCardTitle: {
     fontSize: "0.8rem",
     textTransform: "uppercase",

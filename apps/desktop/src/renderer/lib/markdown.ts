@@ -48,9 +48,9 @@ export function renderMarkdownHtml(md: string): string {
       continue;
     }
     if (trimmed.startsWith("### ")) {
-      out.push(`<div style="font-weight:600;font-size:13px;margin-top:8px;color:#c4b5fd">${inline(escape(trimmed.slice(4)))}</div>`);
+      out.push(`<div style="font-weight:600;font-size:13px;margin-top:8px;color:#6ee7b7">${inline(escape(trimmed.slice(4)))}</div>`);
     } else if (trimmed.startsWith("## ")) {
-      out.push(`<div style="font-weight:700;font-size:14px;margin-top:10px;color:#e9e5f5">${inline(escape(trimmed.slice(3)))}</div>`);
+      out.push(`<div style="font-weight:700;font-size:14px;margin-top:10px;color:#e8e8f0">${inline(escape(trimmed.slice(3)))}</div>`);
     } else if (/^[-*] /.test(trimmed)) {
       out.push(`<div style="padding-left:12px;margin:2px 0">\u2022 ${inline(escape(trimmed.slice(2)))}</div>`);
     } else {

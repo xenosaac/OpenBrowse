@@ -294,6 +294,7 @@ export interface ChatSessionStore {
   deleteSession(sessionId: string): Promise<boolean>;
   appendMessage(message: ChatMessage): Promise<void>;
   listMessages(sessionId: string): Promise<ChatMessage[]>;
+  clearMessages(sessionId: string): Promise<void>;
   linkRun(sessionId: string, runId: string): Promise<void>;
   listRunIds(sessionId: string): Promise<string[]>;
 }
@@ -336,6 +337,10 @@ export class InMemoryChatSessionStore implements ChatSessionStore {
 
   async listMessages(sessionId: string): Promise<ChatMessage[]> {
     return this.messages.get(sessionId) ?? [];
+  }
+
+  async clearMessages(sessionId: string): Promise<void> {
+    this.messages.delete(sessionId);
   }
 
   async linkRun(sessionId: string, runId: string): Promise<void> {

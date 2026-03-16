@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface DemoDescriptor {
   id: string;
@@ -25,11 +26,11 @@ interface Props {
 
 const categoryColors: Record<string, string> = {
   research: "#3b82f6",
-  booking: "#8b5cf6",
-  monitor: "#22c55e",
+  booking: colors.emerald,
+  monitor: colors.statusRunning,
   travel: "#0ea5e9",
   shopping: "#f59e0b",
-  productivity: "#6366f1"
+  productivity: colors.emerald
 };
 
 export function DemoPanel({ onStarted }: Props) {
@@ -108,6 +109,7 @@ export function DemoPanel({ onStarted }: Props) {
                   onClick={() => handleRunPack(pack.id)}
                   disabled={!pack.available || busy === `pack_${pack.id}`}
                   style={pack.available ? styles.button : styles.buttonDisabled}
+                  className={pack.available ? "ob-btn-primary" : undefined}
                 >
                   {busy === `pack_${pack.id}` ? "Starting..." : "Run"}
                 </button>
@@ -137,6 +139,7 @@ export function DemoPanel({ onStarted }: Props) {
                   onClick={() => handleRunDemo(demo.id)}
                   disabled={busy === demo.id}
                   style={styles.button}
+                  className="ob-btn-primary"
                 >
                   {busy === demo.id ? "Starting..." : "Run Demo"}
                 </button>
@@ -184,12 +187,13 @@ const styles: Record<string, React.CSSProperties> = {
     margin: "0 0 12px"
   },
   card: {
-    background: "#151522",
+    ...glass.card,
     borderRadius: 12,
     padding: "12px 16px",
     marginBottom: 8,
-    border: "1px solid #2a2a3e"
-  },
+    border: "1px solid " + colors.borderGlass,
+    boxShadow: shadows.glassSubtle
+  } as React.CSSProperties,
   row: {
     display: "flex",
     alignItems: "center",
@@ -241,9 +245,9 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 12
   },
   buttonDisabled: {
-    background: "#1e1e2e",
-    color: "#6b6b82",
-    border: "1px solid #2a2a3e",
+    background: colors.bgInput,
+    color: colors.textMuted,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 8,
     padding: "6px 16px",
     cursor: "not-allowed",
@@ -261,9 +265,9 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8
   },
   button: {
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+    background: colors.emerald,
     color: "#ffffff",
-    border: "1px solid #8b5cf6",
+    border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 8,
     padding: "6px 16px",
     cursor: "pointer",
@@ -274,15 +278,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: "#06b6d4"
   },
   intervalInput: {
+    ...glass.input,
     width: 56,
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 8,
     padding: "4px 6px",
     color: "#f5f5ff",
     fontSize: "0.85rem",
     textAlign: "center" as const
-  },
+  } as React.CSSProperties,
   intervalLabel: {
     fontSize: "0.8rem",
     color: "#9090a8"

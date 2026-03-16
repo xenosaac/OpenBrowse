@@ -36,8 +36,13 @@ export function registerIpcHandlers(
   };
 
   // Wire up navigation events — forward to renderer so the address bar stays in sync.
+  // Also auto-record browsing history if the store is available.
   browserShell.setNavigationCallback((sessionId, url, title) => {
     mainWindow.webContents.send("runtime:event", { type: "tab_navigated", sessionId, url, title });
+    if (services.browsingHistoryStore && url && url !== "about:blank" && !url.startsWith("chrome://")) {
+      const id = `hist_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      services.browsingHistoryStore.record({ id, url, title: title ?? url, visitedAt: new Date().toISOString() }).catch(() => {});
+    }
   });
 
   browserShell.setLoadingCallback((sessionId, isLoading) => {
@@ -247,11 +252,114 @@ export function registerIpcHandlers(
     return browserShell.getNavState(sessionId);
   });
 
+  register("browser:devtools", async (_event, sessionId: string) => {
+    browserShell.openDevTools(sessionId);
+    return { ok: true };
+  });
+
+  register("browser:print", async (_event, sessionId: string) => {
+    browserShell.printPage(sessionId);
+    return { ok: true };
+  });
+
+  register("browser:save-pdf", async (_event, sessionId: string) => {
+    return browserShell.saveAsPdf(sessionId);
+  });
+
   register("run:handoff", async (_event, runId: string) => {
     const run = await services.runCheckpointStore.load(runId);
     if (!run) return null;
     const artifact = buildHandoffArtifact(run);
     const markdown = renderHandoffMarkdown(artifact);
     return { artifact, markdown };
+  });
+
+  // --- Bookmarks ---
+  if (services.bookmarkStore) {
+    const bookmarks = services.bookmarkStore;
+
+    register("bookmarks:list", async () => bookmarks.listAll());
+
+    register("bookmarks:get-by-url", async (_event, url: string) => bookmarks.getByUrl(url));
+
+    register("bookmarks:add", async (_event, data: { url: string; title: string; faviconUrl?: string }) => {
+      const id = `bk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      await bookmarks.create({
+        id, url: data.url, title: data.title, tags: [],
+        faviconUrl: data.faviconUrl, createdAt: new Date().toISOString()
+      });
+      return { id };
+    });
+
+    register("bookmarks:delete", async (_event, id: string) => bookmarks.delete(id));
+
+    register("bookmarks:search", async (_event, query: string) => bookmarks.search(query));
+  }
+
+  // --- Chat Sessions ---
+  if (services.chatSessionStore) {
+    const chatStore = services.chatSessionStore;
+
+    register("chat:sessions:list", async () => {
+      const sessions = await chatStore.listSessions();
+      const result = [];
+      for (const s of sessions) {
+        const messages = await chatStore.listMessages(s.id);
+        const runIds = await chatStore.listRunIds(s.id);
+        result.push({ ...s, messages, runIds });
+      }
+      return result;
+    });
+
+    register("chat:sessions:create", async (_event, data: { id: string; title: string; createdAt: string }) => {
+      await chatStore.createSession({ ...data, updatedAt: data.createdAt });
+    });
+
+    register("chat:sessions:delete", async (_event, sessionId: string) => {
+      return chatStore.deleteSession(sessionId);
+    });
+
+    register("chat:sessions:update-title", async (_event, data: { sessionId: string; title: string }) => {
+      await chatStore.updateTitle(data.sessionId, data.title);
+    });
+
+    register("chat:messages:append", async (_event, msg: {
+      id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string
+    }) => {
+      await chatStore.appendMessage(msg);
+    });
+
+    register("chat:messages:clear", async (_event, sessionId: string) => {
+      await chatStore.clearMessages(sessionId);
+    });
+
+    register("chat:runs:link", async (_event, data: { sessionId: string; runId: string }) => {
+      await chatStore.linkRun(data.sessionId, data.runId);
+    });
+  }
+
+  // --- Browsing History ---
+  if (services.browsingHistoryStore) {
+    const history = services.browsingHistoryStore;
+
+    register("history:list", async (_event, limit?: number) => history.listRecent(limit ?? 100));
+
+    register("history:search", async (_event, query: string) => history.search(query));
+
+    register("history:clear", async () => history.deleteAll());
+
+  }
+
+  // --- Cookie Management ---
+  register("cookies:list", async (_event, sessionId: string) => {
+    return browserShell.getCookies(sessionId);
+  });
+
+  register("cookies:remove", async (_event, data: { sessionId: string; url: string; name: string }) => {
+    await browserShell.removeCookie(data.sessionId, data.url, data.name);
+  });
+
+  register("cookies:remove-all", async (_event, sessionId: string) => {
+    await browserShell.removeAllCookies(sessionId);
   });
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { BrowserShellTabDescriptor } from "../../shared/runtime";
+import { colors } from "../styles/tokens";
 
 interface Props {
   activeTab: BrowserShellTabDescriptor | null;
@@ -89,7 +90,7 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     minHeight: 0,
-    background: "#1a1a1a"
+    background: colors.bgBase
   },
   emptyState: {
     display: "grid",

@@ -5,7 +5,7 @@ export interface PlannerPrompt {
   user: string;
 }
 
-const MAX_STEPS = 20;
+export const MAX_PLANNER_STEPS = 35;
 
 export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerPrompt {
   // --- Harness context ---
@@ -17,6 +17,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? `\nActions already taken (${actionHistory.length}, most recent last):\n${actionHistory.map((r) => {
         const status = r.ok ? "OK" : `FAILED (${r.failureClass ?? "failed"})`;
         let detail = `  Step ${r.step}: ${r.type} — "${r.description}" ${status}`;
+        if (r.targetId) detail += `\n    → Element: [${r.targetId}]`;
         if (r.targetUrl) detail += `\n    → URL: ${r.targetUrl}`;
         if (r.typedText) detail += `\n    → Typed: "${r.typedText}"`;
         return detail;
@@ -41,6 +42,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
 
   const softFailureWarning = softFailures > 0
     ? `\n** WARNING: The last ${softFailures} action(s) failed. Review the action history above and try a COMPLETELY DIFFERENT approach: different URL, different search terms, or a different strategy entirely.`
+    : "";
+
+  const totalSoftFailures = run.checkpoint.totalSoftFailures ?? 0;
+  const totalSoftWarning = totalSoftFailures >= 5
+    ? `\n** CRITICAL: ${totalSoftFailures} total soft failures across this run (limit: 8). The run will be terminated if failures continue. Switch to a completely different approach NOW — different website, different strategy, or consider that this task may not be achievable.`
     : "";
 
   const lastActions = actionHistory.slice(-3);
@@ -70,23 +76,58 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
 - Compare the current page state below with the pre-interruption context above to decide what needs to be redone.\n`
     : "";
 
-  // --- Elements (up to 80, prioritize actionable + visible) ---
+  // --- Elements (up to 150, prioritize actionable + visible) ---
   const sortedElements = [...pageModel.elements].sort((a, b) => {
-    // Prioritize: actionable + visible > actionable > visible > others
     const scoreA = (a.isActionable ? 2 : 0) + (a.boundingVisible ? 1 : 0);
     const scoreB = (b.isActionable ? 2 : 0) + (b.boundingVisible ? 1 : 0);
     return scoreB - scoreA;
   });
 
   const elementsSummary = sortedElements
-    .slice(0, 80)
+    .slice(0, 150)
     .map((el) => {
       let line = `[${el.id}] ${el.role} "${el.label}"`;
+      if (el.landmark) line += ` in=${el.landmark}`;
+      if (el.level) line += ` level=${el.level}`;
+      if (el.current) line += ` (current${el.current !== "true" ? `=${el.current}` : ""})`;
+      if (el.sort) line += ` (sort=${el.sort})`;
+      if (el.roleDescription) line += ` roleDesc="${el.roleDescription}"`;
+      if (el.valueText) {
+        line += ` valueText="${el.valueText}"`;
+      } else if (el.valueNow !== undefined) {
+        let range = `${el.valueNow}`;
+        if (el.valueMin !== undefined || el.valueMax !== undefined) {
+          range += `/${el.valueMin ?? "?"}–${el.valueMax ?? "?"}`;
+        }
+        line += ` range=${range}`;
+      }
+      if (el.text) line += ` text="${el.text}"`;
+      if (el.description) line += ` desc="${el.description}"`;
+      if (el.keyShortcuts) line += ` keys="${el.keyShortcuts}"`;
       if (el.href) line += ` href="${el.href}"`;
       if (el.inputType && el.inputType !== "text") line += ` type="${el.inputType}"`;
       if (el.value) line += ` value="${el.value}"`;
+      if (el.checked) line += " (checked)";
+      if (el.selected) line += " (selected)";
+      if (el.expanded === true) line += " (expanded)";
+      if (el.expanded === false) line += " (collapsed)";
+      if (el.pressed === true) line += " (pressed)";
+      if (el.pressed === false) line += " (not pressed)";
+      if (el.pressed === "mixed") line += " (partially pressed)";
+      if (el.orientation) line += ` (${el.orientation})`;
+      if (el.autocomplete) line += ` (autocomplete=${el.autocomplete})`;
+      if (el.multiselectable) line += " (multiselectable)";
+      if (el.required) line += " (required)";
+      if (el.hasPopup) line += ` (haspopup=${el.hasPopup})`;
+      if (el.busy) line += " (busy)";
+      if (el.live) line += ` (live=${el.live})`;
+      if (el.invalid) line += " (invalid)";
       if (el.disabled) line += " (disabled)";
       if (el.readonly) line += " (readonly)";
+      if (el.options && el.options.length > 0) {
+        line += ` options=[${el.options.map(o => `"${o.value}"${o.label !== o.value ? ` (${o.label})` : ""}`).join(", ")}]`;
+      }
+      if (el.inShadowDom) line += " (shadow)";
       if (!el.boundingVisible && el.isActionable) line += " (off-screen)";
       if (el.isActionable) line += " *";
       return line;
@@ -108,9 +149,76 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     ? "\n** CAPTCHA DETECTED: This page has a CAPTCHA. You cannot solve CAPTCHAs. Use ask_user to request the user to solve it."
     : "";
 
-  // --- Forms ---
+  // --- Cookie banner ---
+  const cookieBannerHint = pageModel.cookieBannerDetected
+    ? "\n** COOKIE BANNER DETECTED: A cookie consent banner is covering part of the page. Dismiss it first (look for \"Accept\", \"Accept All\", \"Agree\", or \"Reject\" buttons) before interacting with other page elements."
+    : "";
+
+  // --- Iframes ---
+  const iframeHint = pageModel.iframeCount && pageModel.iframeCount > 0
+    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page. Content inside iframes is NOT visible in the element list below.${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Sources: ${pageModel.iframeSources.join(", ")}` : ""} If the information you need is not visible, it may be inside an iframe — try navigating directly to the iframe source URL.`
+    : "";
+
+  // --- Active dialog ---
+  const dialogHint = pageModel.activeDialog
+    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements.`
+    : "";
+
+  // --- Forms (enriched with field details) ---
   const formsSection = pageModel.forms && pageModel.forms.length > 0
-    ? `\nForms on page:\n${pageModel.forms.map((f) => `  - ${f.method} ${f.action || "(no action)"} (${f.fieldCount} fields)`).join("\n")}`
+    ? `\nForms on page:\n${pageModel.forms.map((f) => {
+        let formLine = `  FORM: ${f.method} ${f.action || "(no action)"} (${f.fieldCount} fields)`;
+        if (f.fields && f.fields.length > 0) {
+          formLine += "\n" + f.fields.map((field) => {
+            let fl = `    [${field.ref}] "${field.label}" type=${field.type}`;
+            if (field.required) fl += " REQUIRED";
+            if (field.currentValue) fl += ` value="${field.currentValue}"`;
+            if (field.validationMessage) fl += ` INVALID: "${field.validationMessage}"`;
+            return fl;
+          }).join("\n");
+          if (f.submitRef) formLine += `\n    Submit button: [${f.submitRef}]`;
+        }
+        return formLine;
+      }).join("\n")}`
+    : "";
+
+  // --- Table structure ---
+  const tablesSection = pageModel.tables && pageModel.tables.length > 0
+    ? `\nData tables on page:\n${pageModel.tables.map((t, i) => {
+        let tLine = `  TABLE${t.caption ? ` "${t.caption}"` : ""}: ${t.headers.length > 0 ? t.headers.join(" | ") : "(no headers)"} (${t.rowCount} row${t.rowCount !== 1 ? "s" : ""})`;
+        if (t.sampleRows && t.sampleRows.length > 0) {
+          tLine += "\n" + t.sampleRows.map(row => `    ${row.join(" | ")}`).join("\n");
+        }
+        return tLine;
+      }).join("\n")}`
+    : "";
+
+  // --- Landmark regions ---
+  const landmarksSection = pageModel.landmarks && pageModel.landmarks.length > 0
+    ? `\nPage regions:\n${pageModel.landmarks.map((l) => `  ${l.role}${l.label ? ` "${l.label}"` : ""}`).join("\n")}`
+    : "";
+
+  // --- Scroll position context ---
+  const scrollSection = pageModel.scrollY !== undefined
+    ? `\nScroll position: Y=${pageModel.scrollY}px`
+    : "";
+
+  // --- Focused element context ---
+  const focusedSection = pageModel.focusedElementId
+    ? `\nFocused element: [${pageModel.focusedElementId}] — this element currently has keyboard focus`
+    : "";
+
+  // --- Last action result (explicit feedback to planner) ---
+  const lastAction = actionHistory.length > 0 ? actionHistory[actionHistory.length - 1] : null;
+  const lastActionSection = lastAction
+    ? `\nLast action result: ${lastAction.ok ? "SUCCESS" : `FAILED (${lastAction.failureClass ?? "unknown"})`} — ${lastAction.type} "${lastAction.description}"`
+    : "";
+
+  // --- URL visit warnings ---
+  const urlCounts = run.checkpoint.urlVisitCounts ?? {};
+  const frequentUrls = Object.entries(urlCounts).filter(([, count]) => count >= 4);
+  const urlWarning = frequentUrls.length > 0
+    ? `\n** WARNING: You have visited these URLs too many times — try a completely different approach:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}`
     : "";
 
   // --- System prompt ---
@@ -151,7 +259,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 
-Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently.`;
+Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan efficiently.`;
 
   // --- User prompt ---
   const notesSection = run.checkpoint.notes.length > 0
@@ -164,19 +272,47 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently.
     ? `\n** CONTEXT: This is the page the user currently has open. Evaluate whether it is relevant to the goal before deciding to navigate elsewhere. If the page is relevant, continue working on it directly.`
     : "";
 
+  // --- Self-assessment injection ---
+  const shouldInjectSelfAssessment = (() => {
+    // Trigger 1: 3+ of the last 5 actions share the same type
+    const last5 = actionHistory.slice(-5);
+    if (last5.length >= 3) {
+      const typeCounts: Record<string, number> = {};
+      for (const a of last5) {
+        typeCounts[a.type] = (typeCounts[a.type] ?? 0) + 1;
+      }
+      if (Object.values(typeCounts).some(c => c >= 3)) return true;
+    }
+    // Trigger 2: Step count >= 15 (halfway progress check)
+    if (stepCount >= 15) return true;
+    // Trigger 3: Any URL visited 4+ times
+    const urlCounts = run.checkpoint.urlVisitCounts ?? {};
+    if (Object.values(urlCounts).some(c => c >= 4)) return true;
+    return false;
+  })();
+
+  const selfAssessmentSection = shouldInjectSelfAssessment
+    ? `\n** PROGRESS CHECK — Before choosing your next action, assess:
+1. Am I making real progress toward the goal? What has changed on the page?
+2. If I've performed similar actions recently (e.g., multiple clicks), am I clicking DIFFERENT elements for a reason, or the SAME element repeatedly without effect?
+3. Do I need something from the user to proceed (login credentials, CAPTCHA, a decision)?
+If you are genuinely stuck and cannot make progress, call task_failed with a clear explanation.
+If you need user input, call ask_user. Otherwise, continue with your next action.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${repeatedNavWarning}${recoverySection}${notesSection}${activePageHint}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
 
 Current page:
 URL: ${pageModel.url}
 Title: ${pageModel.title}
-${pageTypeStr}${captchaHint}${alertsSection}${formsSection}
+${pageTypeStr}${scrollSection}${focusedSection}${captchaHint}${cookieBannerHint}${iframeHint}${dialogHint}${alertsSection}${formsSection}${tablesSection}${landmarksSection}
 
 Visible text (excerpt):
-${(pageModel.visibleText ?? "").slice(0, 1500)}
+${(pageModel.visibleText ?? "").slice(0, 3000)}
 
-Interactive elements (* = actionable):
+Interactive elements (* = actionable)${pageModel.elements.length > 150 ? ` — showing 150 of ${pageModel.elements.length} (scroll to reveal more)` : ""}:
 ${elementsSummary || "(no interactive elements found)"}
 
 What should I do next?`;

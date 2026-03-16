@@ -1,4 +1,4 @@
-import type { BrowserWindow, WebContentsView } from "electron";
+import { dialog, type BrowserWindow, type WebContentsView } from "electron";
 import type { EmbeddedViewProvider } from "@openbrowse/browser-runtime";
 import { BrowserViewManager } from "./BrowserViewManager";
 import type { BrowserShellTabDescriptor, BrowserViewportBounds } from "../../shared/runtime";
@@ -113,6 +113,39 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  // --- DevTools / Print / PDF ---
+
+  openDevTools(sessionId: string): void {
+    const managed = this.viewManager?.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.openDevTools({ mode: "detach" });
+    }
+  }
+
+  printPage(sessionId: string): void {
+    const managed = this.viewManager?.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.print();
+    }
+  }
+
+  async saveAsPdf(sessionId: string): Promise<boolean> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return false;
+
+    const title = managed.view.webContents.getTitle() || "page";
+    const safeName = title.replace(/[^a-zA-Z0-9_\- ]/g, "").slice(0, 60) || "page";
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      defaultPath: `${safeName}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }]
+    });
+    if (canceled || !filePath) return false;
+
+    const buffer = await managed.view.webContents.printToPDF({});
+    await fs.promises.writeFile(filePath, buffer);
+    return true;
+  }
+
   // --- Standalone tab management ---
 
   createStandaloneTab(url = "about:blank"): BrowserShellTabDescriptor {
@@ -209,6 +242,31 @@ export class AppBrowserShell implements EmbeddedViewProvider {
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
+    }
+  }
+
+  // --- Cookie management ---
+
+  async getCookies(sessionId: string): Promise<Electron.Cookie[]> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return [];
+    return managed.view.webContents.session.cookies.get({});
+  }
+
+  async removeCookie(sessionId: string, url: string, name: string): Promise<void> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return;
+    await managed.view.webContents.session.cookies.remove(url, name);
+  }
+
+  async removeAllCookies(sessionId: string): Promise<void> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return;
+    const cookies = await managed.view.webContents.session.cookies.get({});
+    for (const cookie of cookies) {
+      const protocol = cookie.secure ? "https" : "http";
+      const cookieUrl = `${protocol}://${cookie.domain?.replace(/^\./, "")}${cookie.path ?? "/"}`;
+      await managed.view.webContents.session.cookies.remove(cookieUrl, cookie.name);
     }
   }
 

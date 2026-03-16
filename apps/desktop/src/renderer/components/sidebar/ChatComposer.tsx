@@ -1,4 +1,5 @@
 import React from "react";
+import { colors, glass, shadows } from "../../styles/tokens";
 
 interface Props {
   value: string;
@@ -26,7 +27,7 @@ export function ChatComposer({ value, busy, plannerMode, runtimeReady, onChange,
           placeholder="Ask the agent to do something..."
           style={styles.composerInput}
         />
-        <button onClick={onSubmit} style={styles.composerButton} disabled={busy}>
+        <button onClick={onSubmit} style={styles.composerButton} className="ob-btn-primary" disabled={busy}>
           {busy ? "..." : "\u2192"}
         </button>
       </div>
@@ -43,19 +44,23 @@ export function ChatComposer({ value, busy, plannerMode, runtimeReady, onChange,
 
 const styles: Record<string, React.CSSProperties> = {
   composer: {
-    padding: "10px 14px 12px", borderTop: "1px solid #232335",
-    background: "#0f0f18", flexShrink: 0
-  },
+    padding: "10px 14px 12px", borderTop: "1px solid " + colors.borderGlass,
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    flexShrink: 0
+  } as React.CSSProperties,
   composerRow: { display: "flex", gap: 8 },
   composerInput: {
-    flex: 1, background: "#1e1e2e", color: "#f8fafc",
-    border: "1px solid #2a2a3e", borderRadius: 12,
+    flex: 1, color: colors.textPrimary,
+    ...glass.input,
+    border: "1px solid " + colors.borderGlass, borderRadius: 12,
     padding: "10px 12px", fontSize: "0.88rem"
-  },
+  } as React.CSSProperties,
   composerButton: {
-    width: 40, borderRadius: 12, border: "1px solid #8b5cf6",
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
-    color: "#ffffff", cursor: "pointer", fontWeight: 700, fontSize: "1rem"
+    width: 40, borderRadius: 12, border: "1px solid " + colors.emeraldActive,
+    background: colors.emerald,
+    color: "#ffffff", cursor: "pointer", fontWeight: 700, fontSize: "1rem",
+    boxShadow: "0 0 16px rgba(16,185,129,0.2)"
   },
   composerHint: { marginTop: 6, fontSize: "0.7rem", color: "#6b6b82" }
 };

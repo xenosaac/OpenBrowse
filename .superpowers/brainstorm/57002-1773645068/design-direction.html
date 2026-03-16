@@ -1,0 +1,234 @@
+<h2>OpenBrowse Next-Gen UI: Design Direction</h2>
+<p class="subtitle">Choose the overall design philosophy. All options use emerald accent, dark base, and avoid generic gradients.</p>
+
+<div class="cards">
+  <!-- Option A: Liquid Glass -->
+  <div class="card" data-choice="liquid-glass" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #0a0a0f;">
+      <!-- Liquid Glass mockup -->
+      <div style="position: relative; border-radius: 14px; overflow: hidden;">
+        <!-- Tab bar with glass -->
+        <div style="
+          background: rgba(16, 185, 129, 0.06);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
+          border: 1px solid rgba(16, 185, 129, 0.12);
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+          padding: 8px 12px;
+          display: flex; align-items: center; gap: 8px;
+        ">
+          <div style="display:flex;gap:6px;">
+            <div style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#28c840;"></div>
+          </div>
+          <div style="
+            flex:1; display:flex; gap:4px; margin-left: 8px;
+          ">
+            <div style="
+              padding: 6px 14px; border-radius: 8px;
+              background: rgba(16, 185, 129, 0.1);
+              border: 1px solid rgba(16, 185, 129, 0.2);
+              color: #10b981; font-size: 12px; font-weight: 500;
+            ">Active Tab</div>
+            <div style="
+              padding: 6px 14px; border-radius: 8px;
+              background: rgba(255,255,255,0.03);
+              border: 1px solid rgba(255,255,255,0.05);
+              color: #6b7280; font-size: 12px;
+            ">Other Tab</div>
+          </div>
+        </div>
+
+        <!-- Nav bar with glass -->
+        <div style="
+          background: rgba(255,255,255,0.02);
+          backdrop-filter: blur(12px);
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          padding: 6px 12px;
+          display: flex; align-items: center; gap: 8px;
+        ">
+          <div style="display:flex;gap:4px;">
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;color:#6b7280;font-size:13px;">←</div>
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;color:#6b7280;font-size:13px;">→</div>
+            <div style="width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);display:grid;place-items:center;color:#6b7280;font-size:13px;">↻</div>
+          </div>
+          <div style="
+            flex:1; height:28px; border-radius:8px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.06);
+            display:flex;align-items:center;padding:0 10px;
+            color:#9ca3af;font-size:12px;
+          ">
+            <span style="color:#10b981;margin-right:6px;">🔒</span>
+            example.com
+          </div>
+        </div>
+
+        <!-- Content area -->
+        <div style="height:80px;background:#0a0a0f;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A: Liquid Glass + Emerald</h3>
+      <p>macOS-native feel with frosted glass panels, subtle emerald tints in the glass, delicate borders that catch light. Buttons have glass-like depth with emerald glow on interaction. Premium, Apple-tier aesthetic.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Cursor-Minimal -->
+  <div class="card" data-choice="cursor-minimal" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #0a0a0f;">
+      <div style="position: relative; border-radius: 14px; overflow: hidden;">
+        <!-- Tab bar - ultra minimal -->
+        <div style="
+          background: #111111;
+          border-bottom: 1px solid #1e1e1e;
+          padding: 8px 12px;
+          display: flex; align-items: center; gap: 8px;
+        ">
+          <div style="display:flex;gap:6px;">
+            <div style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#28c840;"></div>
+          </div>
+          <div style="flex:1; display:flex; gap:2px; margin-left: 8px;">
+            <div style="
+              padding: 6px 14px; border-radius: 6px;
+              background: #1a1a1a;
+              border-bottom: 2px solid #10b981;
+              color: #e5e5e5; font-size: 12px; font-weight: 500;
+            ">Active Tab</div>
+            <div style="
+              padding: 6px 14px; border-radius: 6px;
+              color: #525252; font-size: 12px;
+            ">Other Tab</div>
+          </div>
+        </div>
+
+        <!-- Nav bar - flat, precise -->
+        <div style="
+          background: #111111;
+          border-bottom: 1px solid #1e1e1e;
+          padding: 6px 12px;
+          display: flex; align-items: center; gap: 6px;
+        ">
+          <div style="display:flex;gap:2px;">
+            <div style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#525252;font-size:13px;">←</div>
+            <div style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#525252;font-size:13px;">→</div>
+            <div style="width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:#525252;font-size:13px;">↻</div>
+          </div>
+          <div style="
+            flex:1; height:28px; border-radius:6px;
+            background: #1a1a1a;
+            border: 1px solid #252525;
+            display:flex;align-items:center;padding:0 10px;
+            color:#737373;font-size:12px;
+          ">
+            <span style="color:#10b981;margin-right:6px;font-size:10px;">●</span>
+            example.com
+          </div>
+        </div>
+
+        <div style="height:80px;background:#0a0a0f;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B: Cursor-Minimal + Emerald Accents</h3>
+      <p>Ultra-clean like Cursor. No glass effects, no transparency. Pure flat dark surfaces (#111, #1a1a) with emerald used sparingly — active tab indicator, secure lock, hover states. Precision through restraint.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Hybrid -->
+  <div class="card" data-choice="hybrid-glass" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 20px; background: #0a0a0f;">
+      <div style="position: relative; border-radius: 14px; overflow: hidden;">
+        <!-- Tab bar - flat base with glass active tab -->
+        <div style="
+          background: #0e0e14;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
+          padding: 8px 12px;
+          display: flex; align-items: center; gap: 8px;
+        ">
+          <div style="display:flex;gap:6px;">
+            <div style="width:12px;height:12px;border-radius:50%;background:#ff5f57;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#febc2e;"></div>
+            <div style="width:12px;height:12px;border-radius:50%;background:#28c840;"></div>
+          </div>
+          <div style="flex:1; display:flex; gap:4px; margin-left: 8px;">
+            <div style="
+              padding: 6px 14px; border-radius: 8px;
+              background: rgba(16, 185, 129, 0.08);
+              backdrop-filter: blur(8px);
+              border: 1px solid rgba(16, 185, 129, 0.15);
+              box-shadow: 0 0 12px rgba(16, 185, 129, 0.06);
+              color: #d1fae5; font-size: 12px; font-weight: 500;
+            ">Active Tab</div>
+            <div style="
+              padding: 6px 14px; border-radius: 8px;
+              color: #4b5563; font-size: 12px;
+            ">Other Tab</div>
+          </div>
+        </div>
+
+        <!-- Nav bar - flat with glass address bar -->
+        <div style="
+          background: #0e0e14;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          padding: 6px 12px;
+          display: flex; align-items: center; gap: 6px;
+        ">
+          <div style="display:flex;gap:3px;">
+            <div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.03);display:grid;place-items:center;color:#6b7280;font-size:13px;">←</div>
+            <div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.03);display:grid;place-items:center;color:#6b7280;font-size:13px;">→</div>
+            <div style="width:28px;height:28px;border-radius:7px;background:rgba(255,255,255,0.03);display:grid;place-items:center;color:#6b7280;font-size:13px;">↻</div>
+          </div>
+          <div style="
+            flex:1; height:28px; border-radius:8px;
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.06);
+            display:flex;align-items:center;padding:0 10px;
+            color:#9ca3af;font-size:12px;
+          ">
+            <span style="color:#10b981;margin-right:6px;">🔒</span>
+            example.com
+          </div>
+          <div style="
+            padding: 4px 10px; border-radius: 6px;
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.15);
+            color: #10b981; font-size: 11px;
+          ">Demos</div>
+        </div>
+
+        <div style="height:80px;background:#0a0a0f;"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C: Hybrid — Flat Base + Selective Glass</h3>
+      <p>Flat dark base like Cursor, but active/interactive elements get subtle glass treatment — the active tab glows through glass, the address bar has frosted depth, buttons get emerald glass on hover. Best of both worlds.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:24px;">
+  <h3>Design Principles (all options share these)</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px;">
+    <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.12);border-radius:8px;padding:12px;">
+      <div style="color:#10b981;font-weight:600;font-size:13px;margin-bottom:4px;">Emerald Accent</div>
+      <div style="color:#9ca3af;font-size:12px;">#10b981 as primary, used for active states, secure indicators, interactive highlights</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px;">
+      <div style="color:#e5e5e5;font-weight:600;font-size:13px;margin-bottom:4px;">No Cheap Gradients</div>
+      <div style="color:#9ca3af;font-size:12px;">Innovative interactions: press-depth, glow-on-hover, subtle scale transforms, not rainbow gradients</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px;">
+      <div style="color:#e5e5e5;font-weight:600;font-size:13px;margin-bottom:4px;">Micro-interactions</div>
+      <div style="color:#9ca3af;font-size:12px;">Buttons feel physical: subtle scale on press, emerald glow on hover, smooth 200ms transitions</div>
+    </div>
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px;">
+      <div style="color:#e5e5e5;font-weight:600;font-size:13px;margin-bottom:4px;">SF Pro + Precision</div>
+      <div style="color:#9ca3af;font-size:12px;">Consistent 6/8px radius, tight spacing, SF Pro Display typography, macOS-native feel</div>
+    </div>
+  </div>
+</div>

@@ -3,7 +3,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type {
   BrowserAction,
-  BrowserActionFailureClass,
   BrowserActionResult,
   BrowserProfile,
   BrowserSession,
@@ -13,7 +12,7 @@ import type {
 import type { AttachSessionOptions, BrowserKernel } from "./BrowserKernel.js";
 import { CdpClient } from "./cdp/CdpClient.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
-import { validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
+import { classifyFailure, parseKeyboardShortcut, validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
 
 export interface EmbeddedViewProvider {
   createView(sessionId: string, profileId: string, partition: string): { view: WebContentsView };
@@ -38,17 +37,6 @@ interface ManagedSession {
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const TARGET_ATTR = "data-openbrowse-target-id";
-
-function classifyFailure(message: string): BrowserActionFailureClass {
-  if (message.includes("Target not found") || message.includes("not found")) return "element_not_found";
-  if (message.includes("timed out") || message.includes("timeout")) return "navigation_timeout";
-  if (message.includes("Invalid") || message.includes("Disallowed")) return "validation_error";
-  if (message.includes("ERR_NAME_NOT_RESOLVED") || message.includes("ERR_CONNECTION_REFUSED")
-    || message.includes("ERR_INTERNET_DISCONNECTED") || message.includes("ERR_NETWORK")
-    || message.includes("ERR_SSL") || message.includes("ERR_ABORTED")
-    || message.includes("ERR_BLOCKED") || message.includes("net::ERR_")) return "network_error";
-  return "interaction_failed";
-}
 
 function rejectAfterTimeout(ms: number, message: string): Promise<never> {
   return new Promise((_resolve, reject) => {
@@ -261,9 +249,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
       }>;
       visibleText: string;
       pageType?: string;
-      forms?: Array<{ action: string; method: string; fieldCount: number }>;
+      forms?: Array<{
+        action: string; method: string; fieldCount: number;
+        fields?: Array<{ ref: string; label: string; type: string; required: boolean; currentValue: string }>;
+        submitRef?: string;
+      }>;
       alerts?: string[];
       captchaDetected?: boolean;
+      scrollY?: number;
     }>(EXTRACT_PAGE_MODEL_SCRIPT);
 
     return {
@@ -278,6 +271,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
       forms: raw.forms,
       alerts: raw.alerts,
       captchaDetected: raw.captchaDetected,
+      scrollY: raw.scrollY,
       createdAt: new Date().toISOString()
     };
   }
@@ -635,25 +629,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
   }
 
   private async dispatchKeyboardShortcut(cdp: CdpClient, shortcut: string): Promise<void> {
-    const MODIFIER_BITS: Record<string, number> = { ctrl: 2, shift: 4, alt: 1, meta: 8, cmd: 8 };
-    const KEY_NAMES: Record<string, string> = {
-      enter: "Return", escape: "Escape", tab: "Tab", backspace: "Backspace",
-      delete: "Delete", arrowup: "ArrowUp", arrowdown: "ArrowDown",
-      arrowleft: "ArrowLeft", arrowright: "ArrowRight", space: " "
-    };
-
-    const parts = shortcut.split("+").map((p) => p.trim());
-    let modifiers = 0;
-    let key = "";
-    for (const part of parts) {
-      const lp = part.toLowerCase();
-      if (lp in MODIFIER_BITS) {
-        modifiers |= MODIFIER_BITS[lp];
-      } else {
-        key = KEY_NAMES[lp] ?? part;
-      }
-    }
-
+    const { modifiers, key } = parseKeyboardShortcut(shortcut);
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", modifiers, key });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers, key });
   }
