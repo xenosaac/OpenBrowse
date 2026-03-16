@@ -93,6 +93,12 @@ const api = {
   searchHistory: (query: string) => ipcRenderer.invoke("history:search", query),
   clearHistory: () => ipcRenderer.invoke("history:clear"),
 
+  // Cookie management
+  listCookies: (sessionId: string) => ipcRenderer.invoke("cookies:list", sessionId),
+  removeCookie: (sessionId: string, url: string, name: string) =>
+    ipcRenderer.invoke("cookies:remove", { sessionId, url, name }),
+  removeAllCookies: (sessionId: string) => ipcRenderer.invoke("cookies:remove-all", sessionId),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);

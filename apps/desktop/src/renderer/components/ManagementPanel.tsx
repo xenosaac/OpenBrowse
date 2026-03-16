@@ -11,8 +11,9 @@ import { HandoffViewer } from "./HandoffViewer";
 import { WorkflowLog } from "./WorkflowLog";
 import { BookmarkPanel } from "./BookmarkPanel";
 import { HistoryPanel } from "./HistoryPanel";
+import { CookiePanel } from "./CookiePanel";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -23,6 +24,7 @@ interface Props {
   replaySteps: ReplayStep[];
   profiles: BrowserProfile[];
   selectedRunId: string | null;
+  activeSessionId: string | null;
   initialTab: ManagementTab;
   onSaved: (settings: RuntimeSettings) => Promise<void>;
   onSelectRun: (runId: string) => void;
@@ -38,6 +40,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "profiles", label: "Profiles" },
   { key: "bookmarks", label: "Bookmarks" },
   { key: "history", label: "History" },
+  { key: "cookies", label: "Cookies" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -49,6 +52,7 @@ export function ManagementPanel({
   replaySteps,
   profiles,
   selectedRunId,
+  activeSessionId,
   initialTab,
   onSaved,
   onSelectRun,
@@ -157,6 +161,8 @@ export function ManagementPanel({
           {activeTab === "bookmarks" && <BookmarkPanel />}
 
           {activeTab === "history" && <HistoryPanel />}
+
+          {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

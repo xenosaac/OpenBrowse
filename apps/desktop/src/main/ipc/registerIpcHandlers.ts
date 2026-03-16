@@ -349,4 +349,17 @@ export function registerIpcHandlers(
     register("history:clear", async () => history.deleteAll());
 
   }
+
+  // --- Cookie Management ---
+  register("cookies:list", async (_event, sessionId: string) => {
+    return browserShell.getCookies(sessionId);
+  });
+
+  register("cookies:remove", async (_event, data: { sessionId: string; url: string; name: string }) => {
+    await browserShell.removeCookie(data.sessionId, data.url, data.name);
+  });
+
+  register("cookies:remove-all", async (_event, sessionId: string) => {
+    await browserShell.removeAllCookies(sessionId);
+  });
 }

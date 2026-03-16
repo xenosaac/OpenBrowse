@@ -245,6 +245,31 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  // --- Cookie management ---
+
+  async getCookies(sessionId: string): Promise<Electron.Cookie[]> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return [];
+    return managed.view.webContents.session.cookies.get({});
+  }
+
+  async removeCookie(sessionId: string, url: string, name: string): Promise<void> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return;
+    await managed.view.webContents.session.cookies.remove(url, name);
+  }
+
+  async removeAllCookies(sessionId: string): Promise<void> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return;
+    const cookies = await managed.view.webContents.session.cookies.get({});
+    for (const cookie of cookies) {
+      const protocol = cookie.secure ? "https" : "http";
+      const cookieUrl = `${protocol}://${cookie.domain?.replace(/^\./, "")}${cookie.path ?? "/"}`;
+      await managed.view.webContents.session.cookies.remove(cookieUrl, cookie.name);
+    }
+  }
+
   async restoreStandaloneTabs(): Promise<BrowserShellTabDescriptor[]> {
     const saved = await this.loadStandaloneTabs();
     const restored: BrowserShellTabDescriptor[] = [];
