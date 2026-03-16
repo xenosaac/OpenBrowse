@@ -430,6 +430,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
       pressed: el.getAttribute('aria-pressed') === 'true' ? true : (el.getAttribute('aria-pressed') === 'false' ? false : (el.getAttribute('aria-pressed') === 'mixed' ? 'mixed' : undefined)),
       orientation: (el.getAttribute('aria-orientation') === 'horizontal' ? 'horizontal' : (el.getAttribute('aria-orientation') === 'vertical' ? 'vertical' : undefined)),
+      autocomplete: (function() { var ac = el.getAttribute('aria-autocomplete'); return ac === 'inline' || ac === 'list' || ac === 'both' ? ac : undefined; })(),
       invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
       options: (function() {
         var opts;

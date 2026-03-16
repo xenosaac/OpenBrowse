@@ -1402,3 +1402,37 @@ test("orientation undefined does not render orientation text", () => {
   assert.doesNotMatch(user, /\(horizontal\)/);
   assert.doesNotMatch(user, /\(vertical\)/);
 });
+
+// --- autocomplete ---
+
+test("autocomplete=list renders (autocomplete=list)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", autocomplete: "list", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=list\)/);
+});
+
+test("autocomplete=both renders (autocomplete=both)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "City", autocomplete: "both", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=both\)/);
+});
+
+test("autocomplete=inline renders (autocomplete=inline)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Email", autocomplete: "inline", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=inline\)/);
+});
+
+test("autocomplete undefined does not render autocomplete text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /autocomplete=/);
+});

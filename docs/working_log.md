@@ -4298,3 +4298,65 @@ Gap analysis (Sessions 71–73 suggested): sliders, scrollbars, separators, tool
 - Consider surfacing `aria-autocomplete` for combobox/search inputs
 
 *Session log entry written: 2026-03-16 (Session 74)*
+
+---
+
+### Session 75 — 2026-03-16: Surface aria-autocomplete for Combobox/Search Inputs in Page Model
+
+#### Context
+
+Gap analysis (Session 74 suggestion): `aria-autocomplete` is used on combobox, searchbox, and text input elements to indicate the type of autocomplete behavior. Values: "inline" (text completion in the field), "list" (popup list of suggestions), "both" (inline + list), or "none". Without this, the planner cannot distinguish between a plain text input and one that will show a suggestion dropdown — affecting whether it should type slowly and wait for suggestions or type the full value immediately.
+
+#### Plan
+
+1. Add `autocomplete?: "inline" | "list" | "both"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-autocomplete` in `extractPageModel.ts` element enumeration (filter "none")
+3. Surface `(autocomplete=list)` etc. in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `autocomplete?: "inline" | "list" | "both"` to `PageElementModel`
+- Captures the autocomplete behavior hint for combobox, searchbox, and text input elements
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-autocomplete` attribute during element enumeration
+- Maps "inline" → `"inline"`, "list" → `"list"`, "both" → `"both"`, absent or "none" → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(autocomplete=inline)`, `(autocomplete=list)`, or `(autocomplete=both)` in element lines
+- Placed after orientation rendering, before invalid
+
+**Impact:** The planner can now see autocomplete behavior for:
+- Search boxes with dropdown suggestions (`autocomplete=list`)
+- Address fields with inline completion (`autocomplete=inline`)
+- Combo inputs with both inline and list suggestions (`autocomplete=both`)
+This helps the planner decide whether to type the full value or wait for suggestion dropdowns.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- autocomplete=list renders (autocomplete=list)
+- autocomplete=both renders (autocomplete=both)
+- autocomplete=inline renders (autocomplete=inline)
+- autocomplete undefined does not render autocomplete text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 119/119 pass (was 115, +4 new)
+- `node --test tests/*.test.mjs` — 952/952 pass (was 948, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (952 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 75)*
