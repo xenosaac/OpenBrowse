@@ -19,7 +19,7 @@ const CYCLE_DETECTION_WINDOW = 20;
  * Longer cycles (len 3–5) require 3 full repetitions.
  * Returns cycle length or 0.
  */
-function detectCycle(keys: string[]): number {
+export function detectCycle(keys: string[]): number {
   for (let len = 2; len <= 5; len++) {
     const reps = len === 2 ? 4 : 3;
     const needed = len * reps;
