@@ -5,7 +5,7 @@ export interface PlannerPrompt {
   user: string;
 }
 
-const MAX_STEPS = 35;
+export const MAX_PLANNER_STEPS = 35;
 
 export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerPrompt {
   // --- Harness context ---
@@ -42,6 +42,11 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
 
   const softFailureWarning = softFailures > 0
     ? `\n** WARNING: The last ${softFailures} action(s) failed. Review the action history above and try a COMPLETELY DIFFERENT approach: different URL, different search terms, or a different strategy entirely.`
+    : "";
+
+  const totalSoftFailures = run.checkpoint.totalSoftFailures ?? 0;
+  const totalSoftWarning = totalSoftFailures >= 5
+    ? `\n** CRITICAL: ${totalSoftFailures} total soft failures across this run (limit: 8). The run will be terminated if failures continue. Switch to a completely different approach NOW — different website, different strategy, or consider that this task may not be achievable.`
     : "";
 
   const lastActions = actionHistory.slice(-3);
@@ -181,7 +186,7 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 
-Step budget: You are on step ${stepCount + 1} of ${MAX_STEPS}. Plan efficiently.`;
+Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan efficiently.`;
 
   // --- User prompt ---
   const notesSection = run.checkpoint.notes.length > 0
@@ -224,7 +229,7 @@ If you need user input, call ask_user. Otherwise, continue with your next action
 
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
 
 Current page:
 URL: ${pageModel.url}
