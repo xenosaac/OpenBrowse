@@ -84,6 +84,7 @@ export interface PageElementModel {
   busy?: boolean;
   live?: string;
   options?: Array<{ value: string; label: string }>;
+  landmark?: string;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }

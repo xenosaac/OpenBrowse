@@ -4828,3 +4828,57 @@ Gap analysis: The planner prompt shows up to 150 elements (sorted by actionabili
 - Consider: element-to-landmark association (annotating each element with its containing landmark), iframe content extraction, shadow DOM penetration
 
 *Session log entry written: 2026-03-16 (Session 84)*
+
+---
+
+### Session 85 — 2026-03-16: Annotate Elements with Containing Landmark Region
+
+#### Context
+
+Gap analysis (Session 84 suggestion): The planner sees a flat list of elements and a separate list of landmark regions, but has no way to know which landmark a given element belongs to. Annotating each element with its containing landmark (e.g., `in=navigation`) gives the planner spatial context — it can prioritize elements in `main` over those in `banner`, and understand the structural relationship between elements and page regions.
+
+#### Plan
+
+1. Add `landmark?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, add a `getContainingLandmark(el)` helper that walks up the DOM to find the nearest landmark ancestor, returning its role (e.g., "navigation", "main")
+3. Include the `landmark` field in each element's output
+4. In `buildPlannerPrompt.ts`, render `in=<landmark>` after the element ID for elements that have a containing landmark
+5. Add planner-prompt tests for landmark annotation rendering
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `landmark?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `getContainingLandmark(el)` helper function:
+- Walks up from each element to find the nearest ancestor with a landmark role
+- Checks both explicit ARIA landmark roles (`navigation`, `main`, `banner`, etc.) and implicit HTML5 landmark tags (`<nav>`, `<main>`, `<header>`, etc.)
+- Returns `undefined` when no landmark ancestor exists (keeps model lean)
+- Added `landmark: getContainingLandmark(el)` to each element's output
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Renders `in=<landmark>` immediately after the element ID/role/label, before other attributes. Example: `[el_0] link "Home" in=navigation *`
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (146 → 149):
+- Elements with landmark annotation render `in=<landmark>`
+- Elements without landmark do not render `in=`
+- Landmark annotation renders before other attributes like `level`
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 149/149 pass (was 146, +3 new)
+- `node --test tests/*.test.mjs` — 984/984 pass (was 981, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (984 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, shadow DOM penetration, or smart element grouping by landmark in prompt output
+
+*Session log entry written: 2026-03-16 (Session 85)*
+
+*Session log entry written: 2026-03-16 (Session 84)*

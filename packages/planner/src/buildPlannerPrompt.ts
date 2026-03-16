@@ -87,6 +87,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     .slice(0, 150)
     .map((el) => {
       let line = `[${el.id}] ${el.role} "${el.label}"`;
+      if (el.landmark) line += ` in=${el.landmark}`;
       if (el.level) line += ` level=${el.level}`;
       if (el.current) line += ` (current${el.current !== "true" ? `=${el.current}` : ""})`;
       if (el.sort) line += ` (sort=${el.sort})`;
