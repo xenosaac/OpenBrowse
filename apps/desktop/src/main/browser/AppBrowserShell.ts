@@ -168,6 +168,14 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     return this.standaloneTabIds.has(tabId);
   }
 
+  /** Remove a tab from the standalone set without destroying its view (agent is reusing it). */
+  releaseStandaloneTab(tabId: string): boolean {
+    if (!this.standaloneTabIds.has(tabId)) return false;
+    this.standaloneTabIds.delete(tabId);
+    void this.saveStandaloneTabs();
+    return true;
+  }
+
   // --- Standalone tab persistence ---
 
   private get tabsFilePath(): string | null {

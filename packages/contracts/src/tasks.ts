@@ -20,6 +20,8 @@ export interface RunActionRecord {
   ok: boolean;
   failureClass?: string;
   url?: string;
+  targetUrl?: string;
+  typedText?: string;
   createdAt: string;
 }
 
@@ -93,7 +95,7 @@ export interface RunCheckpoint {
   notes: string[];
   /** Number of planner steps taken so far. */
   stepCount?: number;
-  /** Last N browser actions taken (most recent last). Max 10. */
+  /** Last N browser actions taken (most recent last). Max 15. */
   actionHistory?: RunActionRecord[];
   /** Human-readable reason why the run stopped, paused, or failed. */
   stopReason?: string;

@@ -245,13 +245,18 @@ export class TaskOrchestrator {
       ok: result.ok,
       failureClass: result.failureClass,
       url: run.checkpoint.lastKnownUrl,
+      targetUrl: result.action.type === "navigate" ? result.action.value : undefined,
+      typedText: result.action.type === "type" ? result.action.value : undefined,
       createdAt: new Date().toISOString()
     };
 
     const existingHistory = run.checkpoint.actionHistory ?? [];
-    const actionHistory = [...existingHistory, record].slice(-10);
+    const actionHistory = [...existingHistory, record].slice(-15);
 
-    const isSoftFailure = !result.ok && result.failureClass === "element_not_found";
+    const isSoftFailure = !result.ok && (
+      result.failureClass === "element_not_found" ||
+      result.failureClass === "network_error"
+    );
     const consecutiveSoftFailures = isSoftFailure
       ? (run.checkpoint.consecutiveSoftFailures ?? 0) + 1
       : 0;

@@ -17,6 +17,7 @@ export type BrowserActionType =
 export type BrowserActionFailureClass =
   | "element_not_found"
   | "navigation_timeout"
+  | "network_error"
   | "interaction_failed"
   | "validation_error"
   | "unknown";

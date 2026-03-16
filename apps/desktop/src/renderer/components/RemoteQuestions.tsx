@@ -4,6 +4,7 @@ import type { TaskRun } from "@openbrowse/contracts";
 interface Props {
   runs: TaskRun[];
   onResume: (run: TaskRun | null) => void | Promise<void>;
+  onDismiss: (runId: string) => void | Promise<void>;
 }
 
 const RISK_CLASS_LABELS: Record<string, string> = {
@@ -24,7 +25,7 @@ const RISK_CLASS_COLORS: Record<string, string> = {
   general: "#6b7280"
 };
 
-export function RemoteQuestions({ runs, onResume }: Props) {
+export function RemoteQuestions({ runs, onResume, onDismiss }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -99,7 +100,9 @@ export function RemoteQuestions({ runs, onResume }: Props) {
           : "rgba(245,158,11,0.25)";
 
         return (
-          <div key={run.id} style={{ ...styles.card, borderColor }}>
+          <div key={run.id} style={{ ...styles.card, borderColor, position: "relative" as const }}>
+            <button onClick={() => void onDismiss(run.id)} disabled={busy === run.id}
+              style={styles.dismissButton} title="Dismiss and cancel this task">✕</button>
             <strong>{run.goal}</strong>
             {run.suspension?.type === "approval" && riskClass && (
               <span style={{
@@ -240,5 +243,20 @@ const styles: Record<string, React.CSSProperties> = {
     margin: "8px 0 0",
     color: "#9090a8",
     fontSize: "0.82rem"
+  },
+  dismissButton: {
+    position: "absolute" as const,
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    background: "rgba(239,68,68,0.12)",
+    border: "1px solid rgba(239,68,68,0.25)",
+    color: "#ef4444",
+    cursor: "pointer",
+    fontSize: "0.72rem",
+    display: "grid",
+    placeItems: "center"
   }
 };

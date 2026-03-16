@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DDL = `
 CREATE TABLE IF NOT EXISTS workflow_events (
@@ -41,6 +41,107 @@ CREATE TABLE IF NOT EXISTS schema_meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS browser_sessions (
+  id TEXT PRIMARY KEY,
+  run_id TEXT,
+  profile_id TEXT,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  terminated_at TEXT,
+  termination_reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_browser_sessions_run_id ON browser_sessions(run_id);
+CREATE INDEX IF NOT EXISTS idx_browser_sessions_state ON browser_sessions(state);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  run_id TEXT,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tone TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
+
+CREATE TABLE IF NOT EXISTS chat_session_runs (
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  linked_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, run_id)
+);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  folder TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  favicon_url TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder);
+
+CREATE TABLE IF NOT EXISTS browsing_history (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  title TEXT NOT NULL,
+  profile_id TEXT,
+  run_id TEXT,
+  visited_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_browsing_history_visited_at ON browsing_history(visited_at DESC);
+CREATE INDEX IF NOT EXISTS idx_browsing_history_url ON browsing_history(url);
+
+CREATE TABLE IF NOT EXISTS browser_profiles (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  storage_path TEXT NOT NULL,
+  is_managed INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cookie_containers (
+  id TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  color TEXT,
+  icon TEXT,
+  profile_id TEXT REFERENCES browser_profiles(id),
+  partition_key TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE,
+  display_name TEXT,
+  auth_provider TEXT,
+  role TEXT NOT NULL DEFAULT 'user',
+  metadata TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS standalone_tabs (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  profile_id TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_bridge_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `;
 
 export type MigrationFn = (db: Database.Database) => void;
@@ -72,5 +173,110 @@ export const MIGRATIONS: Record<number, MigrationFn> = {
     db.exec(
       `CREATE INDEX IF NOT EXISTS idx_workflow_events_created_at ON workflow_events(created_at DESC, id DESC)`
     );
+  },
+  4: (db) => {
+    // V3 -> V4: Add tables for session tracking, chat, bookmarks, history, profiles, containers, etc.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS browser_sessions (
+        id TEXT PRIMARY KEY,
+        run_id TEXT,
+        profile_id TEXT,
+        state TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        terminated_at TEXT,
+        termination_reason TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_browser_sessions_run_id ON browser_sessions(run_id);
+      CREATE INDEX IF NOT EXISTS idx_browser_sessions_state ON browser_sessions(state);
+
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        run_id TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tone TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
+
+      CREATE TABLE IF NOT EXISTS chat_session_runs (
+        session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        run_id TEXT NOT NULL,
+        linked_at TEXT NOT NULL,
+        PRIMARY KEY (session_id, run_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS bookmarks (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        folder TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
+        favicon_url TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_url ON bookmarks(url);
+      CREATE INDEX IF NOT EXISTS idx_bookmarks_folder ON bookmarks(folder);
+
+      CREATE TABLE IF NOT EXISTS browsing_history (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL,
+        profile_id TEXT,
+        run_id TEXT,
+        visited_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_browsing_history_visited_at ON browsing_history(visited_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_browsing_history_url ON browsing_history(url);
+
+      CREATE TABLE IF NOT EXISTS browser_profiles (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        storage_path TEXT NOT NULL,
+        is_managed INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cookie_containers (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        color TEXT,
+        icon TEXT,
+        profile_id TEXT REFERENCES browser_profiles(id),
+        partition_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_accounts (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE,
+        display_name TEXT,
+        auth_provider TEXT,
+        role TEXT NOT NULL DEFAULT 'user',
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS standalone_tabs (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        profile_id TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_bridge_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
   }
 };

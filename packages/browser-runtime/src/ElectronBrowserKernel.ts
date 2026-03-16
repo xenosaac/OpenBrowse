@@ -43,6 +43,10 @@ function classifyFailure(message: string): BrowserActionFailureClass {
   if (message.includes("Target not found") || message.includes("not found")) return "element_not_found";
   if (message.includes("timed out") || message.includes("timeout")) return "navigation_timeout";
   if (message.includes("Invalid") || message.includes("Disallowed")) return "validation_error";
+  if (message.includes("ERR_NAME_NOT_RESOLVED") || message.includes("ERR_CONNECTION_REFUSED")
+    || message.includes("ERR_INTERNET_DISCONNECTED") || message.includes("ERR_NETWORK")
+    || message.includes("ERR_SSL") || message.includes("ERR_ABORTED")
+    || message.includes("ERR_BLOCKED") || message.includes("net::ERR_")) return "network_error";
   return "interaction_failed";
 }
 
