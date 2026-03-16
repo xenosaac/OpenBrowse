@@ -7,6 +7,7 @@ import { HandoffManager } from "./HandoffManager.js";
 import { SessionManager } from "./SessionManager.js";
 import { CancellationController } from "./CancellationController.js";
 import { RunExecutor } from "./RunExecutor.js";
+import { parseApprovalAnswer } from "./approvalParsing.js";
 import type { RuntimeServices } from "./types.js";
 
 // ── Backward-compatible module-level functions ────────────────────────────
@@ -145,13 +146,6 @@ export async function handleNewTaskMessage(
   }
 
   return run;
-}
-
-function parseApprovalAnswer(answer: string): boolean | null {
-  const normalized = answer.trim().toLowerCase();
-  if (["approve", "approved", "yes", "y", "ok", "allow", "go"].includes(normalized)) return true;
-  if (["deny", "denied", "no", "n", "block", "cancel", "stop"].includes(normalized)) return false;
-  return null;
 }
 
 async function resolveRuntimeServicesForIntent(
