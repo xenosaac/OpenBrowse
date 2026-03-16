@@ -1926,6 +1926,57 @@ Import note: Uses relative path `../packages/chat-bridge/dist/TelegramConfig.js`
 
 ---
 
+### Session 34 — 2026-03-16: Gap Analysis — WatchScheduler Comprehensive Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. `IntervalWatchScheduler` has only 1 test (backoff + reset). Multiple methods and edge cases are untested:
+
+1. `unregisterWatch` — stop and remove a watch, timer cleanup
+2. `listWatches` — snapshot semantics, defensive copy
+3. `dispose` — clear all watches and timers
+4. `StubWatchScheduler` — returns "stub-watch"
+5. In-flight guard — concurrent trigger prevention
+6. Max backoff cap — exponential backoff capped at `maxBackoffMinutes`
+7. Multiple watches — independent tracking
+8. Success resets backoff — already partially tested, more edge cases
+
+#### Plan
+
+1. Add comprehensive tests to `tests/watchScheduler.test.mjs` (new file, existing `watch-scheduler.test.mjs` kept)
+2. Run `pnpm test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+Added `tests/watchScheduler.test.mjs` — 17 tests across 8 describe blocks:
+
+- `StubWatchScheduler` (1 test): returns "stub-watch" id
+- `registerWatch` (2 tests): unique id containing intent id, two registrations produce different ids
+- `listWatches` (3 tests): empty when no watches, returns registered watches with correct fields, defensive copy (different object references)
+- `unregisterWatch` (3 tests): removes from list, no-op for unknown id, prevents future dispatch after unregister
+- `dispose` (2 tests): clears all watches, prevents future dispatches
+- `dispatch execution` (2 tests): dispatches after interval elapses (validates lastCompletedAt/lastTriggeredAt), dispatches multiple times
+- `backoff` (3 tests): exponential backoff on consecutive failures (validates consecutiveFailures/lastError/backoffUntil), backoff capped at maxBackoffMinutes, success after failure resets state
+- `multiple watches` (1 test): independent tracking per watch, unregister one doesn't affect others
+
+Uses `minuteMs: 10` for fast test execution (10ms = 1 "minute").
+
+#### Verification
+
+- `node --test tests/watchScheduler.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 464/464 pass (was 447, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
