@@ -38,6 +38,7 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
       properties: {
         ref: { type: "string", description: "The element ID to type into (e.g. el_3)" },
         text: { type: "string", description: "The text to type" },
+        clear_first: { type: "boolean", description: "If true, select all existing text in the field before typing (replaces content instead of appending). Use when the field already has a value you want to replace." },
         description: { type: "string", description: "Why you are typing this" }
       },
       required: ["ref", "text", "description"]
@@ -247,6 +248,7 @@ export interface ToolInput {
   key?: string;
   duration?: number;
   timeout?: number;
+  clear_first?: boolean;
   description?: string;
   summary?: string;
   reason?: string;
@@ -304,7 +306,8 @@ export function mapToolCallToDecision(
           type: "type",
           targetId: input.ref,
           value: input.text,
-          description: input.description ?? "Type text"
+          description: input.description ?? "Type text",
+          clearFirst: input.clear_first === true ? true : undefined
         }
       };
 

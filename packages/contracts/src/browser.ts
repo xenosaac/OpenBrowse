@@ -148,6 +148,7 @@ export interface BrowserAction {
   value?: string;
   description: string;
   interactionHint?: string;
+  clearFirst?: boolean;
 }
 
 export interface BrowserActionResult {

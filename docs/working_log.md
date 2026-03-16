@@ -7003,3 +7003,71 @@ Rationale: All PM tasks (T1-T12) complete. All design tasks (D1-D9) complete. Fe
 - Possible follow-on: zoom controls (Cmd+/Cmd-/Cmd+0), tab-switching shortcuts (Cmd+1-9).
 
 *Session log entry written: 2026-03-16 (Session 116)*
+
+---
+
+### Session 117 — 2026-03-16: T13 — Add `clear_first` Option to `browser_type`
+
+#### Mode: feature
+
+Rationale: PM directive explicitly says "T13 (clear_first on browser_type) is the next task." This is a parameter addition to an existing tool that saves 2 steps per form field replacement — high compound value for form-heavy tasks. Tool count stays at 17. All prior PM tasks complete. All design tasks complete.
+
+#### Plan
+
+1. **`contracts/src/browser.ts`**: Add optional `clearFirst?: boolean` to `BrowserAction` interface.
+2. **`toolMapping.ts`**: Add `clear_first` boolean param to `browser_type` tool definition. Add `clear_first` to `ToolInput`. Map it to `clearFirst` on the action.
+3. **`ElectronBrowserKernel.ts`**: In the `type` handler, if `action.clearFirst`, send Ctrl+A (or Meta+A on macOS) via CDP before typing to select all existing text reliably.
+4. **`buildPlannerPrompt.ts`**: Add note about `clear_first` to Browser Guidelines.
+5. **Tests**: Tool definition includes `clear_first`, mapping passes it through, planner prompt mentions it.
+
+#### Implementation
+
+**1. `packages/contracts/src/browser.ts`**:
+- Added optional `clearFirst?: boolean` to `BrowserAction` interface
+
+**2. `packages/planner/src/toolMapping.ts`**:
+- Added `clear_first` boolean parameter to `browser_type` tool definition with description: "If true, select all existing text in the field before typing (replaces content instead of appending)."
+- Added `clear_first?: boolean` to `ToolInput` interface
+- Updated `browser_type` case in `mapToolCallToDecision` to map `input.clear_first === true` → `clearFirst: true` on the action (omitted when false/missing)
+
+**3. `packages/browser-runtime/src/ElectronBrowserKernel.ts`**:
+- Updated `type` case: removed the unconditional `el.select()` call (was always selecting text, but unreliable on React/Vue controlled inputs)
+- When `action.clearFirst` is true, sends Ctrl+A via CDP `Input.dispatchKeyEvent` (keyDown + keyUp with modifier 2) before typing — reliably selects all text across all web frameworks
+- When `clearFirst` is false/omitted, no select-all happens (append behavior)
+
+**4. `packages/planner/src/buildPlannerPrompt.ts`**:
+- Added guidance to Browser Guidelines: "When replacing existing content in a form field (pre-filled values, default text, autofill), set clear_first to true on browser_type"
+
+**5. Tests** (+5 tests):
+- `toolMapping.test.mjs`: "browser_type tool definition includes clear_first parameter" — schema validation
+- `toolMapping.test.mjs`: "passes clear_first as clearFirst on the action" — mapping correctness
+- `toolMapping.test.mjs`: "omits clearFirst when clear_first is false or missing" — default behavior preserved
+- `planner-prompt.test.mjs`: "system prompt includes clear_first guidance for form field replacement" — prompt content
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `clearFirst` to BrowserAction
+- `packages/planner/src/toolMapping.ts` — Added `clear_first` param to tool definition and mapping
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Ctrl+A select-all when clearFirst is true
+- `packages/planner/src/buildPlannerPrompt.ts` — clear_first guidance in Browser Guidelines
+- `tests/toolMapping.test.mjs` — 3 new tests for clear_first definition and mapping
+- `tests/planner-prompt.test.mjs` — 1 new test for clear_first prompt guidance
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 71/71 pass (was 67, +4 new)
+- `node --test tests/planner-prompt.test.mjs` — 176/176 pass (was 175, +1 new)
+- `node --test tests/*.test.mjs` — 1063/1063 pass (was 1059, +4 new — 1 test is counted per file)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T13 is complete. `browser_type` now accepts `clear_first` to replace field content in 1 step instead of 3. Tool count stays at 17.
+- T14 (step-budget awareness) is the next PM-directed task.
+- All PM tasks (T1-T12) + T13 complete. All design tasks (D1-D9) complete.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 117)*

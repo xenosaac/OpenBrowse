@@ -25,6 +25,13 @@ describe("BROWSER_TOOLS", () => {
     }
   });
 
+  it("browser_type tool definition includes clear_first parameter", () => {
+    const typeTool = BROWSER_TOOLS.find((t) => t.name === "browser_type");
+    assert.ok(typeTool, "browser_type tool not found");
+    assert.ok(typeTool.input_schema.properties.clear_first, "clear_first property missing");
+    assert.equal(typeTool.input_schema.properties.clear_first.type, "boolean");
+  });
+
   it("contains all expected tool names", () => {
     const names = new Set(BROWSER_TOOLS.map((t) => t.name));
     const expected = [
@@ -102,6 +109,30 @@ describe("mapToolCallToDecision — browser_type", () => {
   it("uses default description when missing", () => {
     const result = mapToolCallToDecision("browser_type", { ref: "el_1", text: "x" }, "r", "run_1");
     assert.equal(result.action.description, "Type text");
+  });
+
+  it("passes clear_first as clearFirst on the action", () => {
+    const result = mapToolCallToDecision(
+      "browser_type",
+      { ref: "el_3", text: "new value", clear_first: true, description: "Replace field" },
+      "typing",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.clearFirst, true);
+  });
+
+  it("omits clearFirst when clear_first is false or missing", () => {
+    const r1 = mapToolCallToDecision("browser_type", { ref: "el_1", text: "x" }, "r", "run_1");
+    assert.equal(r1.action.clearFirst, undefined);
+
+    const r2 = mapToolCallToDecision(
+      "browser_type",
+      { ref: "el_1", text: "x", clear_first: false },
+      "r",
+      "run_1"
+    );
+    assert.equal(r2.action.clearFirst, undefined);
   });
 });
 
