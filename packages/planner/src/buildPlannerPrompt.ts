@@ -272,6 +272,14 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - Complete the task when the goal is achieved
 - Fail the task only when truly impossible after trying alternatives
 
+## Error Recovery
+When an action fails, use the right recovery strategy:
+- **Element not found:** The page may still be loading. Use browser_wait_for_text with text you expect to see, then retry the action.
+- **Click intercepted or obscured:** An overlay (cookie banner, modal, popup) may be blocking the target. Check the page model for DIALOG OPEN or COOKIE BANNER hints. Dismiss the overlay first, then retry.
+- **Navigation timeout:** The server may be slow. Wait a few seconds with browser_wait, then retry once. If it fails again, use ask_user to report the problem.
+- **Type action failed:** The input may not be focused. Use browser_click on the input field first, then browser_type.
+- **After 2 consecutive failures on the same action:** Stop retrying. Either try a completely different approach or use ask_user to get guidance. Do not loop on the same failing action.
+
 Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan efficiently.`;
 
   // --- User prompt ---
