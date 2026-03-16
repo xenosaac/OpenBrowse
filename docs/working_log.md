@@ -1745,6 +1745,56 @@ Added two test files:
 
 ---
 
+### Session 30 — 2026-03-16: Gap Analysis — HandoffManager + SessionManager Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 backlog done, P3 deferred. Two runtime-core modules with zero test coverage:
+
+1. `HandoffManager` — `writeHandoff()`, `emitHandoffEvent()`, `notifyTerminalEvent()`. Orchestrates terminal handoff: captures page snapshot, emits workflow event, sends notification, clears chat state.
+2. `SessionManager` — `attachForRun()`, `sessionIdsForRun()`, `cleanupRun()`, `cleanupOrphans()`, `getSession()`. Manages browser session lifecycle with run→session reverse index.
+
+#### Plan
+
+1. Add `tests/handoffManager.test.mjs` — test writeHandoff with/without snapshot, emitHandoffEvent event shape, notifyTerminalEvent for completed/failed/cancelled, send failure swallowed, clearRunState called
+2. Add `tests/sessionManager.test.mjs` — test attachForRun new session, reuse existing, orphan cleanup, cleanupRun, sessionIdsForRun, getSession delegation
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/handoffManager.test.mjs`** — 14 tests:
+- `emitHandoffEvent` (2 tests): correct event shape (runId, type, summary, payload fields), passes page model snapshot
+- `notifyTerminalEvent` (6 tests): completed/failed/cancelled/unknown status notifications, truncates long goals in status line, swallows send errors
+- `writeHandoff` (6 tests): provided snapshot skips capture, captures from active session, skips terminated session, skips when no browserSessionId, swallows capture errors, tolerates missing clearRunState
+
+**`tests/sessionManager.test.mjs`** — 17 tests:
+- `sessionIdsForRun` (1 test): empty for unknown run
+- `attachForRun` (6 tests): creates new session, passes correct metadata, isBackground for non-desktop, reuses active session, creates new for terminated/missing/when reuse=false
+- `cleanupRun` (3 tests): destroys tracked session, no-op for unknown, swallows destroy errors
+- `cleanupOrphans` (3 tests): keeps keepId, destroys all without keepId, no-op for unknown
+- `getSession` (2 tests): delegates to kernel, null for unknown
+- Multi-run isolation (1 test): independent tracking per run
+- `attachForRun` orphan cleanup (1 test): second attach cleans first session
+
+#### Verification
+
+- `node --test tests/handoffManager.test.mjs tests/sessionManager.test.mjs` — 31/31 pass
+- `node --test tests/*.test.mjs` — 361/361 pass (was 330, +31 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `RecoveryManager` (complex mocking: orchestrator + session + checkpoint interactions)
+- Consider tests for `settings.ts` factories (createPlanner, createChatBridge, buildRuntimeDescriptor)
+- Consider tests for `RunExecutor` (main step loop, requires planner + browser + orchestrator mocks)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
