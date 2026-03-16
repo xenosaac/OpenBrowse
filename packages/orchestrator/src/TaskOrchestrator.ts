@@ -249,6 +249,7 @@ export class TaskOrchestrator {
       targetUrl: result.action.type === "navigate" ? result.action.value : undefined,
       targetId: result.action.targetId,
       typedText: result.action.type === "type" ? result.action.value : undefined,
+      extractedText: result.action.type === "read_text" ? result.extractedText : undefined,
       createdAt: new Date().toISOString()
     };
 

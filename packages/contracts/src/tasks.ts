@@ -29,6 +29,7 @@ export interface RunActionRecord {
   targetUrl?: string;
   targetId?: string;
   typedText?: string;
+  extractedText?: string;
   createdAt: string;
 }
 

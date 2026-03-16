@@ -13,7 +13,8 @@ export type BrowserActionType =
   | "keyboard_shortcut"
   | "pressKey"
   | "screenshot"
-  | "go_back";
+  | "go_back"
+  | "read_text";
 
 export type BrowserActionFailureClass =
   | "element_not_found"
@@ -153,4 +154,5 @@ export interface BrowserActionResult {
   summary: string;
   failureClass?: BrowserActionFailureClass;
   screenshotBase64?: string;
+  extractedText?: string;
 }

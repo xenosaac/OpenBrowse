@@ -6130,3 +6130,86 @@ Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature ba
 *Session log entry written: 2026-03-16 (Session 103)*
 
 *Session log entry written: 2026-03-16 (Session 101)*
+
+---
+
+### Session 104 — 2026-03-16: Add `browser_read_text` Planner Tool — Focused Element Text Extraction
+
+#### Mode: feature
+
+Rationale: All PM tasks (T1-T8) and UI design tasks (D1-D7) complete. Feature backlog P0-P2 exhausted. P3-10 deferred. T9 requires user action. The PM capability mapping identified extraction tasks as a core user job, and Session 102 added structured output via `extractedData`. However, the planner still can't read detailed text from specific page elements: element text in the page model is truncated to 40 chars, and visible text is a 3000-char whole-page excerpt. For extraction tasks (reading article paragraphs, product details, search result descriptions), the planner needs a focused read tool that returns up to 2000 chars from a specific element.
+
+#### Plan
+
+1. **contracts/src/browser.ts**: Add `"read_text"` to `BrowserActionType`. Add optional `extractedText?: string` to `BrowserActionResult`.
+2. **contracts/src/tasks.ts**: Add optional `extractedText?: string` to `RunActionRecord`.
+3. **planner/src/toolMapping.ts**: Add `browser_read_text` tool definition and `mapToolCallToDecision` case.
+4. **planner/src/buildPlannerPrompt.ts**: Show `extractedText` in action history rendering.
+5. **orchestrator/src/TaskOrchestrator.ts**: Copy `result.extractedText` into `RunActionRecord` for `read_text` actions.
+6. **browser-runtime/src/ElectronBrowserKernel.ts**: Handle `read_text` action — use CDP callFunction to get innerText of target element (up to 2000 chars).
+7. **browser-runtime/src/BrowserKernel.ts**: Handle `read_text` in stub.
+8. **tests**: Add toolMapping tests for the new tool.
+9. Run typecheck and tests.
+
+#### Implementation
+
+**1. contracts/src/browser.ts:**
+- Added `"read_text"` to `BrowserActionType` union
+- Added optional `extractedText?: string` to `BrowserActionResult` — carries the extracted text from the browser back through the pipeline
+
+**2. contracts/src/tasks.ts:**
+- Added optional `extractedText?: string` to `RunActionRecord` — persisted in action history for subsequent planner calls
+
+**3. planner/src/toolMapping.ts:**
+- Added `browser_read_text` tool definition: takes `ref` (required) and `description`, described as reading up to 2000 chars from an element
+- Added `browser_read_text` mapping case: maps to `read_text` action with targetId
+- Fails with descriptive error when ref is missing
+- Tool count: 14 (was 13)
+
+**4. planner/src/buildPlannerPrompt.ts:**
+- Added `extractedText` rendering in action history: `→ Text: "..."` shown for read_text results
+- Added browser guideline: "When you need to read detailed text from a specific element, use browser_read_text with the element's ref ID"
+
+**5. orchestrator/src/TaskOrchestrator.ts:**
+- `recordBrowserResult` now copies `result.extractedText` to the `RunActionRecord` when action type is `read_text`
+
+**6. browser-runtime/src/ElectronBrowserKernel.ts:**
+- Added `read_text` case: uses CDP `callFunction` to query element by `data-openbrowse-target-id`, returns `innerText.trim().slice(0, 2000)`
+- Throws `Target not found` error for missing elements (same pattern as click/type/focus)
+- Returns early with `extractedText` in the result (same pattern as screenshot)
+- Summary includes first 100 chars of extracted text for logging
+
+**7. browser-runtime/src/BrowserKernel.ts:**
+- Stub returns `extractedText: "(stub: no text available)"` for read_text actions
+
+**Result:** The planner now has 14 tools (was 13). The new `browser_read_text` tool lets the planner read up to 2000 chars from any element by ref ID. The extracted text flows through: CDP → BrowserActionResult → RunActionRecord → action history in the next planner prompt. This directly addresses the extraction gap: element labels are truncated to 40 chars and visible text is a 3000-char whole-page excerpt, but `browser_read_text` gives focused access to any element's full content.
+
+#### Files Changed
+
+- `packages/contracts/src/browser.ts` — Added `read_text` to BrowserActionType, `extractedText` to BrowserActionResult
+- `packages/contracts/src/tasks.ts` — Added `extractedText` to RunActionRecord
+- `packages/planner/src/toolMapping.ts` — Added `browser_read_text` tool def + mapping case
+- `packages/planner/src/buildPlannerPrompt.ts` — Added extractedText rendering in action history, added browser guideline
+- `packages/orchestrator/src/TaskOrchestrator.ts` — Thread extractedText from result to action record
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — Handle `read_text` via CDP
+- `packages/browser-runtime/src/BrowserKernel.ts` — Stub support for read_text
+- `tests/toolMapping.test.mjs` — Updated tool count (14), expected names, +3 new tests (mapping, default desc, missing ref)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 55/55 pass (was 52, +3 new)
+- `node --test tests/planner-prompt.test.mjs` — 169/169 pass (unchanged)
+- `node --test tests/*.test.mjs` — 1018/1018 pass (was 1015, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 14 tools: navigate, click, type, select, scroll, hover, press_key, wait, screenshot, go_back, **read_text**, task_complete, task_failed, ask_user.
+- This completes the extraction pipeline: read_text (focused read) → extractedData in task_complete (structured output) → markdown table in chat (user-visible results).
+- T9 (manual end-to-end testing) still requires user action — the sole remaining validation gate. T9 should specifically test read_text with extraction tasks (e.g., "read the first paragraph from this Wikipedia article").
+- Next potential features: step budget increase (35 → 50 for complex workflows), `browser_wait_for_element` (wait for dynamic content), or Telegram bridge validation.
+- P3-10 (profile system) remains deferred.
+
+*Session log entry written: 2026-03-16 (Session 104)*
