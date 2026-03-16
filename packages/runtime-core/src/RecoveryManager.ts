@@ -1,6 +1,5 @@
-import type { TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import type { PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
-import { emitHandoffEvent, recoverRun } from "./OpenBrowseRuntime.js";
 import type { RuntimeServices } from "./types.js";
 
 export interface RecoveryReport {
@@ -23,14 +22,30 @@ export class DefaultRecoveryStrategy implements RecoveryStrategy {
   }
 }
 
+/** Function that attempts to recover/resume a single run. */
+export type RecoverRunFn = (services: RuntimeServices, run: TaskRun) => Promise<TaskRun>;
+
+/** Function that emits a handoff event for a terminal run. */
+export type EmitHandoffFn = (services: RuntimeServices, run: TaskRun, pageModelSnapshot?: PageModel) => Promise<void>;
+
+export interface RecoveryManagerOptions {
+  strategy?: RecoveryStrategy;
+  recoverRunFn: RecoverRunFn;
+  emitHandoffFn: EmitHandoffFn;
+}
+
 export class RecoveryManager {
   private readonly strategy: RecoveryStrategy;
+  private readonly recoverRunFn: RecoverRunFn;
+  private readonly emitHandoffFn: EmitHandoffFn;
 
   constructor(
     private readonly services: RuntimeServices,
-    strategy?: RecoveryStrategy
+    options: RecoveryManagerOptions
   ) {
-    this.strategy = strategy ?? new DefaultRecoveryStrategy();
+    this.strategy = options.strategy ?? new DefaultRecoveryStrategy();
+    this.recoverRunFn = options.recoverRunFn;
+    this.emitHandoffFn = options.emitHandoffFn;
   }
 
   async recoverInterruptedRuns(): Promise<RecoveryReport> {
@@ -63,9 +78,9 @@ export class RecoveryManager {
       }
 
       try {
-        const result = await recoverRun(this.services, run);
+        const result = await this.recoverRunFn(this.services, run);
         report.resumed.push(result);
-        await this.logRecoveryEvent(result, "run_recovered", `Successfully recovered run ${run.id}: ${result.status}`, this.extractRecoveryMetadata(run));
+        await this.logRecoveryEvent(result, "run_recovered", `Successfully recovered run ${run.id}: ${result.status}`, extractRecoveryMetadata(run));
       } catch (err) {
         const failedRun = this.services.orchestrator.failRun(
           run,
@@ -78,21 +93,11 @@ export class RecoveryManager {
           "recovery_failed",
           `Failed to recover run ${run.id}: ${err instanceof Error ? err.message : String(err)}`
         );
-        await emitHandoffEvent(this.services, failedRun);
+        await this.emitHandoffFn(this.services, failedRun);
       }
     }
 
     return report;
-  }
-
-  private extractRecoveryMetadata(run: TaskRun): Record<string, string> {
-    const meta: Record<string, string> = {};
-    if (run.checkpoint.lastPageModelId) meta.lastPageModelId = run.checkpoint.lastPageModelId;
-    if (run.checkpoint.browserSessionId) meta.browserSessionId = run.checkpoint.browserSessionId;
-    if (run.checkpoint.summary) meta.checkpointSummary = run.checkpoint.summary;
-    meta.lastUpdated = run.updatedAt;
-    meta.stepCount = String(run.checkpoint.stepCount ?? 0);
-    return meta;
   }
 
   private async logRecoveryEvent(
@@ -106,4 +111,15 @@ export class RecoveryManager {
     };
     await appendWorkflowEvent(this.services.workflowLogStore, this.services.eventBus, event);
   }
+}
+
+/** Extract recovery-relevant metadata from a run checkpoint. Pure function. */
+export function extractRecoveryMetadata(run: TaskRun): Record<string, string> {
+  const meta: Record<string, string> = {};
+  if (run.checkpoint.lastPageModelId) meta.lastPageModelId = run.checkpoint.lastPageModelId;
+  if (run.checkpoint.browserSessionId) meta.browserSessionId = run.checkpoint.browserSessionId;
+  if (run.checkpoint.summary) meta.checkpointSummary = run.checkpoint.summary;
+  meta.lastUpdated = run.updatedAt;
+  meta.stepCount = String(run.checkpoint.stepCount ?? 0);
+  return meta;
 }
