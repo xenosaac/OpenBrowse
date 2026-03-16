@@ -59,6 +59,7 @@ export class ClaudePlannerGateway implements PlannerGateway {
 
     // If Claude responded with text only (no tool call), retry with forced tool_choice
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+      let retryError: string | undefined;
       try {
         const retryResponse = await this.callWithTimeout({
           model: this.model,
@@ -73,15 +74,16 @@ export class ClaudePlannerGateway implements PlannerGateway {
           ]
         });
         toolUseBlock = retryResponse.content.find((b) => b.type === "tool_use");
-      } catch {
-        // If retry also fails, fall through to error below
+      } catch (err) {
+        retryError = err instanceof Error ? err.message : String(err);
       }
 
       if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+        const detail = retryError ? ` (retry error: ${retryError})` : "";
         return {
           type: "task_failed",
           reasoning: reasoning || "No tool call in Claude response",
-          failureSummary: "Planner returned no tool call after retry"
+          failureSummary: `Planner returned no tool call after retry${detail}`
         };
       }
     }

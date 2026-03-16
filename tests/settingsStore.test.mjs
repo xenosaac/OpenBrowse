@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE } from "../packages/runtime-core/dist/settingsStore.js";
+import { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE, validateRiskClassPolicies } from "../packages/runtime-core/dist/settingsStore.js";
 import { createDefaultRuntimeSettings, DEFAULT_ANTHROPIC_MODEL } from "../packages/contracts/dist/runtime.js";
 
 // ---------------------------------------------------------------------------
@@ -210,4 +210,85 @@ test("concurrent reads with different stores return independent results", async 
 
   assert.equal(settingsA.anthropicApiKey, "key-A");
   assert.equal(settingsB.anthropicApiKey, "key-B");
+});
+
+// ---------------------------------------------------------------------------
+// validateRiskClassPolicies — shape validation
+// ---------------------------------------------------------------------------
+
+test("validateRiskClassPolicies returns {} for null", () => {
+  assert.deepEqual(validateRiskClassPolicies(null), {});
+});
+
+test("validateRiskClassPolicies returns {} for number", () => {
+  assert.deepEqual(validateRiskClassPolicies(42), {});
+});
+
+test("validateRiskClassPolicies returns {} for string", () => {
+  assert.deepEqual(validateRiskClassPolicies("hello"), {});
+});
+
+test("validateRiskClassPolicies returns {} for array", () => {
+  assert.deepEqual(validateRiskClassPolicies([1, 2, 3]), {});
+});
+
+test("validateRiskClassPolicies strips unknown keys", () => {
+  assert.deepEqual(
+    validateRiskClassPolicies({ bogus: "always_ask", financial: "always_ask" }),
+    { financial: "always_ask" }
+  );
+});
+
+test("validateRiskClassPolicies strips invalid policy values", () => {
+  assert.deepEqual(
+    validateRiskClassPolicies({ financial: "never", credential: "always_ask" }),
+    { credential: "always_ask" }
+  );
+});
+
+test("validateRiskClassPolicies strips non-string values", () => {
+  assert.deepEqual(
+    validateRiskClassPolicies({ financial: 123, navigation: "auto_approve" }),
+    { navigation: "auto_approve" }
+  );
+});
+
+test("validateRiskClassPolicies accepts all valid keys and values", () => {
+  const input = {
+    financial: "always_ask",
+    credential: "auto_approve",
+    destructive: "default",
+    submission: "always_ask",
+    navigation: "auto_approve",
+    general: "default"
+  };
+  assert.deepEqual(validateRiskClassPolicies(input), input);
+});
+
+test("validateRiskClassPolicies returns {} for empty object", () => {
+  assert.deepEqual(validateRiskClassPolicies({}), {});
+});
+
+// ---------------------------------------------------------------------------
+// readStoredRuntimeSettings — riskClassPolicies validation integration
+// ---------------------------------------------------------------------------
+
+test("strips invalid keys from stored riskClassPolicies JSON", async () => {
+  const store = createMockPreferenceStore({
+    risk_class_policies: JSON.stringify({ financial: "always_ask", bogus: "default" })
+  });
+  const settings = await readStoredRuntimeSettings(store);
+  assert.deepEqual(settings.riskClassPolicies, { financial: "always_ask" });
+});
+
+test("returns {} when stored riskClassPolicies is a JSON number", async () => {
+  const store = createMockPreferenceStore({ risk_class_policies: "42" });
+  const settings = await readStoredRuntimeSettings(store);
+  assert.deepEqual(settings.riskClassPolicies, {});
+});
+
+test("returns {} when stored riskClassPolicies is a JSON array", async () => {
+  const store = createMockPreferenceStore({ risk_class_policies: "[1,2,3]" });
+  const settings = await readStoredRuntimeSettings(store);
+  assert.deepEqual(settings.riskClassPolicies, {});
 });

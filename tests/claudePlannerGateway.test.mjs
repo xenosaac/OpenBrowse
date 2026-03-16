@@ -240,7 +240,7 @@ describe("ClaudePlannerGateway.decide", () => {
     assert.equal(decision.reasoning, "Still thinking...");
   });
 
-  it("returns task_failed when retry throws", async () => {
+  it("returns task_failed when retry throws, surfacing the error", async () => {
     const { gateway } = makeGatewayWithMock((params, callNum) => {
       if (callNum === 1) return textOnlyResponse("Thinking...");
       throw new Error("API rate limit");
@@ -249,7 +249,8 @@ describe("ClaudePlannerGateway.decide", () => {
     const decision = await gateway.decide(makeInput());
 
     assert.equal(decision.type, "task_failed");
-    assert.equal(decision.failureSummary, "Planner returned no tool call after retry");
+    assert.ok(decision.failureSummary.includes("Planner returned no tool call after retry"));
+    assert.ok(decision.failureSummary.includes("retry error: API rate limit"));
   });
 
   // --- Timeout ---
