@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RiskClass, RiskClassPolicy, RuntimeDescriptor, RuntimeSettings } from "../../shared/runtime";
+import { colors, glass, shadows } from "../styles/tokens";
 import {
   createDefaultRuntimeSettings,
   DEFAULT_ANTHROPIC_MODEL,
@@ -211,7 +212,7 @@ export function SettingsPanel({ runtime, settings, onSaved }: Props) {
       </div>
 
       <div style={styles.actions}>
-        <button onClick={handleSave} disabled={busy} style={styles.button}>
+        <button onClick={handleSave} disabled={busy} style={styles.button} className="ob-btn-primary">
           {busy ? "Saving..." : "Save Settings"}
         </button>
         {isDirty && !busy && <span style={styles.dirtyHint}>Unsaved changes</span>}
@@ -245,9 +246,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.9rem"
   },
   runtimeBadge: {
-    background: "#1e1e2e",
+    background: colors.bgInput,
     color: "#cbd5e1",
-    border: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 999,
     padding: "6px 12px",
     fontSize: "0.75rem",
@@ -259,14 +260,14 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 16
   },
   card: {
-    background: "#151522",
-    border: "1px solid #2a2a3e",
+    ...glass.card,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 18,
     padding: 16,
     display: "flex",
     flexDirection: "column",
     gap: 12
-  },
+  } as React.CSSProperties,
   cardTitle: {
     margin: 0,
     fontSize: "1rem"
@@ -279,13 +280,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#cbd5e1"
   },
   input: {
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
+    ...glass.input,
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 12,
     padding: "10px 12px",
     color: "#f5f5ff",
     fontSize: "0.9rem"
-  },
+  } as React.CSSProperties,
   helpText: {
     margin: 0,
     fontSize: "0.8rem",
@@ -297,9 +298,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   presetButton: {
-    background: "#1e1e2e",
-    color: "#e5e7eb",
-    border: "1px solid #2a2a3e",
+    background: colors.bgInput,
+    color: colors.textPrimary,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 10,
     padding: "8px 12px",
     cursor: "pointer",
@@ -312,9 +313,9 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 12
   },
   button: {
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
+    background: colors.emerald,
     color: "#fffdf9",
-    border: "1px solid #8b5cf6",
+    border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 12,
     padding: "10px 16px",
     cursor: "pointer",

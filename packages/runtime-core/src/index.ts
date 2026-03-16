@@ -1,4 +1,6 @@
 export * from "./types.js";
+export * from "./approvalParsing.js";
+export * from "./botCommands.js";
 export * from "./workflowEvents.js";
 export * from "./OpenBrowseRuntime.js";
 export * from "./HandoffManager.js";

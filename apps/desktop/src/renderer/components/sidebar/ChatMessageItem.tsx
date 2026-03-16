@@ -1,6 +1,7 @@
 import React from "react";
 import type { ChatMessage } from "../../types/chat";
 import { renderMarkdownHtml } from "../../lib/markdown";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   message: ChatMessage;
@@ -46,7 +47,7 @@ const styles: Record<string, React.CSSProperties> = {
   chatAvatar: {
     width: 26, height: 26, borderRadius: 999,
     display: "grid", placeItems: "center",
-    background: "rgba(139,92,246,0.14)", color: "#c4b5fd",
+    background: colors.emeraldTint, color: colors.emerald,
     flexShrink: 0, fontSize: "0.7rem"
   },
   chatAvatarUser: {
@@ -57,24 +58,28 @@ const styles: Record<string, React.CSSProperties> = {
   },
   chatActionIcon: {
     width: 18, height: 18, display: "grid", placeItems: "center",
-    color: "#8b5cf6", flexShrink: 0, fontSize: "0.65rem"
+    color: colors.emerald, flexShrink: 0, fontSize: "0.65rem"
   },
   chatBubble: {
-    maxWidth: "82%", background: "#171726", border: "1px solid #2a2a3e",
+    maxWidth: "82%",
+    ...glass.card,
+    border: "1px solid " + colors.borderSubtle,
     color: "#e5e7eb", borderRadius: 14, padding: "9px 12px",
     fontSize: "0.88rem", lineHeight: 1.45
-  },
+  } as React.CSSProperties,
   chatBubbleUser: {
-    background: "linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%)",
-    borderColor: "#8b5cf6", color: "#ffffff"
-  },
+    ...glass.emerald,
+    color: "#ffffff"
+  } as React.CSSProperties,
   chatBubbleSuccess: { borderColor: "rgba(34,197,94,0.3)" },
   chatBubbleWarning: { borderColor: "rgba(245,158,11,0.3)" },
   chatBubbleError: { borderColor: "rgba(239,68,68,0.3)" },
   chatBubbleAction: {
-    background: "transparent", border: "none",
-    borderLeft: "2px solid #8b5cf6", borderRadius: 0,
+    background: "rgba(17,17,24,0.4)", border: "none",
+    backdropFilter: "blur(8px) saturate(150%)",
+    WebkitBackdropFilter: "blur(8px) saturate(150%)",
+    borderLeft: "2px solid " + colors.emerald, borderRadius: 0,
     padding: "4px 10px", fontSize: "0.78rem", color: "#9090a8"
-  },
+  } as React.CSSProperties,
   chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" }
 };

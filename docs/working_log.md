@@ -564,23 +564,24 @@ At the end of the current build arc, evaluate:
 
 **Circular import prevention:** `wireBotCommands` uses `instanceof TelegramChatBridge` check (same pattern as `wireInboundChat`). `runtime-core` already imports `chat-bridge`. No circular dependency.
 
-**Page model element cap:** `buildPlannerPrompt` caps `pageModel.elements` at 50. This may be too low for complex pages. Future: consider 100–150 or smarter relevance filtering.
+**Page model element cap:** `buildPlannerPrompt` caps `pageModel.elements` at 150 (increased from 50 in Session 20). Visible text cap is 3000 chars (extract: 4000). Future: consider smarter relevance filtering if 150 proves insufficient.
 
 **Planner token budget:** `maxTokens` is 4096. With adaptive thinking, Claude decides how much to think. Do not reduce this — 1024 was causing silent `task_failed` returns on complex pages.
 
 ### Schema Migrations
 
-Current schema version: **3**
+Current schema version: **4**
 
 | Version | Changes |
 |---|---|
 | 1 | Initial tables: `workflow_events`, `run_checkpoints`, `user_preferences`, `schema_meta` |
 | 2 | Added `status`, `goal`, `created_at` columns to `run_checkpoints`; added type/status/ns_key indexes; backfilled from JSON |
 | 3 | Added `idx_workflow_events_created_at (created_at DESC, id DESC)` for `listRecent()` performance |
+| 4 | Added tables: `browser_sessions`, `chat_sessions`, `chat_messages`, `chat_session_runs`, `bookmarks`, `browsing_history`, `browser_profiles`, `cookie_containers`, `user_accounts`, `standalone_tabs`, `chat_bridge_state` |
 
 ### Planner Output Format
 
-`ClaudePlannerGateway` uses a flat JSON schema with `output_config.format`. The schema allows all possible fields at the schema level (all optional except `type` and `reasoning`). `parsePlannerResponse` handles semantic validation of which fields are present per decision type. With structured outputs enabled, the `extractJson` fallbacks in `parsePlannerResponse` should never activate — but they remain as safety net.
+`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (12 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
 
 ---
 
@@ -1222,6 +1223,761 @@ Close the medium-priority "Approval Semantics Refinement" open problem: add name
 
 ---
 
+### Session 20 — 2026-03-16: Agent Brain Overhaul + Feature Completion Sprint
+
+#### Scope
+
+Comprehensive diagnosis and fix of the agent workflow (tasks getting stuck mid-execution) — the highest-priority problem. Then wiring up all missing static UI features (bookmarks, history, session delete, clear chat, URL auto-select, DevTools, print, save as PDF) and chat persistence to SQLite.
+
+#### Phase 1 — Agent Brain Fixes (Critical)
+
+Root cause analysis identified 4 interconnected bugs causing agent tasks to stall:
+
+**1A. `tool_choice` fix — "No reasoning provided"**
+- **Root cause:** `tool_choice: { type: "any" }` in `ClaudePlannerGateway` forces Claude to skip text blocks entirely, outputting only tool calls with no reasoning.
+- **Fix:** Changed to `tool_choice: { type: "auto" }` so Claude can reason before acting. Added retry fallback: if Claude returns text with no tool call, re-prompts with `tool_choice: "any"` and an explicit instruction to call a tool.
+- **File:** `packages/planner/src/ClaudePlannerGateway.ts`
+
+**1B. Planner timeout**
+- **Root cause:** No timeout on `client.messages.create()` — API call could hang indefinitely.
+- **Fix:** Added `callWithTimeout()` using `Promise.race` with 60-second timeout. Throws "Planner timed out after 60s" on expiry.
+- **File:** `packages/planner/src/ClaudePlannerGateway.ts`
+
+**1C. capturePageModel hardening**
+- **Root cause:** CDP failures in `capturePageModel()` crashed the entire planner loop.
+- **Fix:** Wrapped in try/catch with one retry after 500ms. On second failure, uses minimal fallback PageModel (url + title + createdAt only).
+- **File:** `packages/runtime-core/src/RunExecutor.ts`
+
+**1D. Anti-loop detection overhaul**
+- **Root cause:** Cycle detection only caught 2-3 step patterns. Soft failure counter reset on success. Action memory too short (15 items). No URL visit tracking.
+- **Fix:**
+  - Extended cycle detection to 2-5 step patterns over 12-action window
+  - Added `totalSoftFailures` counter that never resets (cap: 8)
+  - Added URL visit counting (warning at 4, fail at 6)
+  - Increased action history cap from 15 to 25
+  - Added `MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 3`
+- **Files:** `packages/runtime-core/src/RunExecutor.ts`, `packages/orchestrator/src/TaskOrchestrator.ts`, `packages/contracts/src/tasks.ts`
+
+**1E. Page model enrichment**
+- Element cap: 80 → 150
+- Visible text: 1500 → 3000 chars (extract: 2000 → 4000)
+- Added: scroll position context, last action result section, URL visit warnings
+- Form extraction: enriched with field labels, types, required status, current values, submit button ref
+- **Files:** `packages/planner/src/buildPlannerPrompt.ts`, `packages/browser-runtime/src/cdp/extractPageModel.ts`, `packages/contracts/src/browser.ts`
+
+**1F. MAX_LOOP_STEPS increase** (only safe after 1D)
+- 20 → 35 steps, with hardened anti-loop detection preventing runaway execution
+- **File:** `packages/runtime-core/src/RunExecutor.ts`
+
+#### Phase 2 — Static UI Features
+
+**2A. URL auto-select on focus**
+- Added `requestAnimationFrame(() => e.target.select())` to address bar `onFocus`
+- **File:** `apps/desktop/src/renderer/components/chrome/NavBar.tsx`
+
+**2B. Session deletion**
+- Added per-session delete button (×) in `SessionListDropdown`
+- Threaded `onDelete` prop through Sidebar → SessionListDropdown
+- **Files:** `SessionListDropdown.tsx`, `Sidebar.tsx`, `App.tsx`
+
+**2C. Bookmarks — Full stack**
+- Backend: IPC handlers (`bookmarks:list`, `bookmarks:get-by-url`, `bookmarks:add`, `bookmarks:delete`, `bookmarks:search`)
+- Preload: 5 new APIs exposed
+- UI: `BookmarkPanel.tsx` (searchable list with delete), bookmark star (☆/★) in NavBar address bar, "Bookmarks" tab in ManagementPanel, hamburger menu item wired
+- **Files:** `registerIpcHandlers.ts`, `preload/index.ts`, `BookmarkPanel.tsx` (new), `NavBar.tsx`, `ManagementPanel.tsx`, `App.tsx`
+
+**2D. Browsing history — Full stack**
+- Backend: IPC handlers (`history:list`, `history:search`, `history:clear`), auto-recording on navigation events
+- Preload: 3 new APIs exposed
+- UI: `HistoryPanel.tsx` (grouped by date, search, clear all with confirmation), "History" tab in ManagementPanel, hamburger menu item wired
+- **Files:** `registerIpcHandlers.ts`, `preload/index.ts`, `HistoryPanel.tsx` (new), `ManagementPanel.tsx`, `App.tsx`
+
+**2E. Clear chat**
+- Added `clearCurrentChat()` to `useChatSessions` — resets messages to welcome message
+- Added trash icon button in `SidebarHeader`
+- **Files:** `useChatSessions.ts`, `SidebarHeader.tsx`, `Sidebar.tsx`, `App.tsx`
+
+#### Phase 3 — Chat Persistence to SQLite
+
+- Added `clearMessages(sessionId)` to `ChatSessionStore` interface, `InMemoryChatSessionStore`, and `SqliteChatSessionStore`
+- Added 7 IPC handlers: `chat:sessions:list`, `chat:sessions:create`, `chat:sessions:delete`, `chat:sessions:update-title`, `chat:messages:append`, `chat:messages:clear`, `chat:runs:link`
+- Added 7 preload APIs for chat persistence
+- Modified `useChatSessions` hook:
+  - On mount: loads sessions from SQLite, hydrates messages + runIds
+  - All mutations persist: create session, delete session, rename, add message, clear chat, link run
+  - `setMessages` callback auto-persists new messages (diff detection via ID set)
+  - Graceful fallback if SQLite unavailable
+- **Files:** `MemoryStore.ts`, `SqliteChatSessionStore.ts`, `registerIpcHandlers.ts`, `preload/index.ts`, `useChatSessions.ts`, `App.tsx`
+
+#### Phase 4 — DevTools, Print, Save as PDF
+
+- Added `openDevTools()`, `printPage()`, `saveAsPdf()` methods to `AppBrowserShell`
+  - DevTools: `webContents.openDevTools({ mode: "detach" })`
+  - Print: `webContents.print()`
+  - PDF: `webContents.printToPDF({})` + `dialog.showSaveDialog()` + `fs.writeFile()`
+- Added 3 IPC handlers: `browser:devtools`, `browser:print`, `browser:save-pdf`
+- Added 3 preload APIs
+- Enabled hamburger menu items (grayed when no browser tab active)
+- **Files:** `AppBrowserShell.ts`, `registerIpcHandlers.ts`, `preload/index.ts`, `App.tsx`
+
+#### Cookie Persistence — No Code Needed
+
+Investigation confirmed Electron's `persist:` partition prefix automatically persists cookies, localStorage, and sessionStorage to disk. All browser profiles use `persist:${profileId}` partitions, standalone tabs use `persist:standalone`. Cookies survive app restarts without any custom code.
+
+#### Tests Updated
+
+3 test files updated for new constants (element cap 150, step budget 35, text cap 3000, action history cap 25):
+- `tests/planner-prompt.test.mjs` — element cap, step budget, visible text assertions
+- `tests/planner-loop.test.mjs` — MAX_LOOP_STEPS 35, action history cap 25, step exhaustion at 35
+- `tests/orchestrator-state.test.mjs` — action history cap 25
+
+#### Files Changed (Full List)
+
+| File | Change |
+|---|---|
+| `packages/planner/src/ClaudePlannerGateway.ts` | tool_choice auto+retry, 60s timeout |
+| `packages/planner/src/buildPlannerPrompt.ts` | Caps (150 elem, 3000 text, 35 steps), scroll/action/URL context, enriched forms |
+| `packages/runtime-core/src/RunExecutor.ts` | capturePageModel hardening, cycle detection (2-5 step), MAX_LOOP_STEPS 35 |
+| `packages/orchestrator/src/TaskOrchestrator.ts` | Action history 25, totalSoftFailures, URL visit counts |
+| `packages/browser-runtime/src/cdp/extractPageModel.ts` | Text cap 4000, enriched form extraction |
+| `packages/contracts/src/tasks.ts` | totalSoftFailures, urlVisitCounts in RunCheckpoint |
+| `packages/contracts/src/browser.ts` | PageFormField interface, extended PageFormSummary |
+| `packages/memory-store/src/MemoryStore.ts` | clearMessages in ChatSessionStore interface + InMemory impl |
+| `packages/memory-store/src/SqliteChatSessionStore.ts` | clearMessages prepared statement + method |
+| `apps/desktop/src/main/browser/AppBrowserShell.ts` | openDevTools, printPage, saveAsPdf |
+| `apps/desktop/src/main/ipc/registerIpcHandlers.ts` | Bookmarks, history, chat, DevTools/print/PDF IPC handlers |
+| `apps/desktop/src/preload/index.ts` | 18 new preload APIs |
+| `apps/desktop/src/renderer/components/App.tsx` | Window types, bookmark state, hamburger menu wiring |
+| `apps/desktop/src/renderer/components/ManagementPanel.tsx` | Bookmarks + History tabs |
+| `apps/desktop/src/renderer/components/BookmarkPanel.tsx` | **New** — bookmark management UI |
+| `apps/desktop/src/renderer/components/HistoryPanel.tsx` | **New** — history management UI |
+| `apps/desktop/src/renderer/components/chrome/NavBar.tsx` | URL auto-select, bookmark star |
+| `apps/desktop/src/renderer/components/sidebar/SessionListDropdown.tsx` | Per-session delete button |
+| `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` | Clear chat button |
+| `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx` | onDeleteSession, onClearChat props |
+| `apps/desktop/src/renderer/hooks/useChatSessions.ts` | clearCurrentChat, SQLite persistence |
+| `tests/planner-prompt.test.mjs` | Updated caps (150, 35, 3000) |
+| `tests/planner-loop.test.mjs` | Updated MAX_LOOP_STEPS 35, history cap 25 |
+| `tests/orchestrator-state.test.mjs` | Updated history cap 25 |
+
+#### Validation
+
+- `pnpm run build:packages` — clean
+- `pnpm run build` — clean (renderer 716.40 kB)
+- `pnpm test` — 141/141 pass
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 21 — 2026-03-16: Fix False-Positive Cycle Detection (Known Bug #11)
+
+#### Scope
+
+Fix the cycle detector that falsely flags distinct, purposeful actions (e.g., clicking Play then closing a modal in Wordle) as stuck loops.
+
+#### Plan
+
+1. **Include targetId in cycle keys** — Current `detectCycle` uses `type:targetId:targetUrl` but the `actionKey` for consecutive-identical check uses `type:targetId:url`. The real problem is that `detectCycle` builds keys from `actionHistory` records where `targetId` may be undefined for both clicks, making `click::url` identical for different buttons. Add `description` (which contains the element label/text) to the cycle key to differentiate clicks on different elements.
+2. **Extend detectCycle to support 2–5 step patterns** — Comment says 2–5 but code only checks 2–3. Fix the loop range.
+3. **Require more repetitions for short cycles** — 3 reps of a 2-step pattern (6 actions total) is too aggressive. Require 4 reps for len=2 (8 actions), keep 3 reps for len≥3.
+4. **Include description in consecutive-identical actionKey** — So clicking different buttons on the same page isn't flagged as identical.
+5. **Update tests** to match new behavior.
+
+#### What Changed
+
+| File | Change |
+|---|---|
+| `packages/runtime-core/src/RunExecutor.ts` | `detectCycle` now checks 2–5 step patterns (was 2–3); len=2 requires 4 reps (was 3); len≥3 requires 3 reps. Cycle key includes `description` field for element differentiation. Consecutive-identical `actionKey` includes `description` to distinguish clicks on different buttons at the same URL. |
+
+#### Root Cause
+
+The cycle key format `type:targetId:targetUrl` treated clicks on different buttons as identical when `targetId` was undefined (common when the planner uses element refs that don't persist into the action record consistently). Two clicks — "click Play" and "click Close modal" — both became `click::https://nytimes.com/wordle`, triggering a false 2-step cycle after only 6 actions (3×2). Adding `description` to the key differentiates them: `click::Click Play button:url` vs `click::Close how-to-play modal:url`.
+
+#### Validation
+
+- `pnpm run typecheck` — clean
+- `pnpm test` — 147/147 pass
+
+#### Next Steps
+
+- P0-1: Chat interface consistency across tabs (ManagementPanel overlays sidebar)
+- P0-2: Agent context-awareness on new task
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 22 — 2026-03-16: P0-1 Audit + P0-2 Agent Context-Awareness on New Task
+
+#### P0-1 Audit
+
+Inspected the layout code. The ManagementPanel renders inside `<section style={styles.main}>` which has `position: "relative"`. The ManagementPanel backdrop uses `position: "absolute"; inset: 0`, so it only covers the main section — the sidebar `<aside>` is a sibling outside this section and is always visible and functional. P0-1 appears already resolved by Session 11's fix (changed from `position: fixed` to `position: absolute` scoped to section). Marking as DONE.
+
+#### P0-2 Plan: Agent Context-Awareness
+
+The agent should observe the currently active page before deciding whether to navigate elsewhere. Currently `initializeTask()` always creates a new browser session/tab.
+
+**Implementation plan:**
+1. Add `activeSessionId?: string` to `TaskIntent` (contracts)
+2. In renderer: when submitting a task, pass the active standalone tab's sessionId if one exists
+3. In `OpenBrowseRuntime.initializeTask()`: if `intent.activeSessionId` is set, reuse that session instead of creating a new one — capture its page model and pass it as initial context to the planner
+4. Planner sees the current page and decides whether to reuse it or navigate elsewhere
+
+#### Verification
+
+All four steps confirmed implemented:
+1. `activeSessionId?: string` exists in `TaskIntent` (contracts/src/tasks.ts:79)
+2. Renderer passes `selection.activeBrowserTab.id` as `activeSessionId` (App.tsx:292)
+3. `initializeTask()` calls `getSession(activeSessionId)` and reuses the session (OpenBrowseRuntime.ts:371-379)
+4. `plannerLoop` naturally captures the reused session's page model on its first iteration via `capturePageModel(session)` (RunExecutor.ts:69)
+
+`pnpm run typecheck` passes clean.
+
+#### Status: DONE
+
+---
+
+### Session 23 — 2026-03-16: P1-6 Cookie Management UI
+
+#### Context
+
+All P0 items are done. P1 items 3, 4, 5 are done. Next P1 item is **P1-6: Cookie management UI** — view and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel.
+
+#### Plan
+
+1. Add a `CookiePanel` component (renderer) with: list cookies for the active tab's partition, search/filter, delete individual or clear all
+2. Wire it into ManagementPanel as a new tab
+3. Add hamburger menu item to open it
+4. Add IPC handlers for cookie operations (list, remove, removeAll) using Electron's `session.cookies` API
+5. Typecheck
+
+#### Implementation Notes
+
+- Cookie IPC handlers will use `browserShell.viewManager` to get the active tab's `webContents.session.cookies`
+- Pass `sessionId` from renderer to identify which browser tab's cookies to query
+- CookiePanel follows HistoryPanel pattern: list, search/filter, delete individual, clear all
+- No new store needed — Electron's `session.cookies` API is the source of truth
+
+#### Implementation
+
+1. **AppBrowserShell** — added `getCookies()`, `removeCookie()`, `removeAllCookies()` methods using Electron's `session.cookies` API via the managed view's webContents
+2. **IPC handlers** — registered `cookies:list`, `cookies:remove`, `cookies:remove-all` in `registerIpcHandlers.ts`
+3. **Preload API** — exposed `listCookies`, `removeCookie`, `removeAllCookies` and added global type declarations
+4. **CookiePanel component** — new component with filter/search, delete individual, clear all (with confirm), refresh, cookie count, Secure/HttpOnly badges
+5. **ManagementPanel** — added `"cookies"` tab, wired CookiePanel with `activeSessionId` prop
+6. **Hamburger menu** — added "Cookies" item opening the management panel to the cookies tab
+
+#### Verification
+
+`pnpm run typecheck` passes clean.
+
+#### Status: DONE
+
+#### Next Steps
+
+- All P1 items complete (3–6). Next is P3-10 (Profile system / Google login) or code review/gap analysis.
+
+---
+
+### Session 24 — 2026-03-16: Code Review Gap Analysis — Validation Tests
+
+#### Context
+
+All P0–P2 backlog items are done, known bugs resolved. P3-10 (profile system) is explicitly deferred. Performing code review / gap analysis.
+
+#### Gap Found
+
+`packages/browser-runtime/src/validation.ts` has **zero test coverage**. It contains three security-critical pure functions:
+- `validateElementTargetId(targetId)` — parses `el_<N>` format
+- `validateUrl(url)` — blocks `javascript:`, `data:`, `file:` schemes (only allows http, https, about)
+- `validateScrollDirection(value)` — normalizes scroll direction
+
+These are used by `ElectronBrowserKernel` when executing browser actions. URL validation is a security boundary — an untested gap here could let malicious URLs through.
+
+#### Plan
+
+1. Add `tests/validation.test.mjs` with comprehensive tests for all three functions
+2. Run `pnpm test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+Added `tests/validation.test.mjs` with 26 tests covering:
+- `validateElementTargetId`: 8 tests (valid parsing el_0/el_42/el_999, rejects empty/missing prefix/wrong prefix/negative/non-numeric/trailing chars)
+- `validateUrl`: 9 tests (accepts http/https/about:blank, rejects javascript:/data:/file:/ftp:/invalid/empty)
+- `validateScrollDirection`: 9 tests (accepts up/down, normalizes case/whitespace, rejects left/empty/arbitrary)
+
+Import uses `dist/validation.js` directly (not `dist/index.js`) to avoid pulling in `ElectronBrowserKernel` which requires the `electron` module.
+
+#### Verification
+
+- `pnpm test` — 173/173 pass (was 147, +26 new validation tests)
+- `pnpm run typecheck` — clean
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider adding tests for `CancellationController`, `HandoffManager`, or `workflowEvents` utilities
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 25 — 2026-03-16: Gap Analysis — RunStateMachine + parsePlannerResponse Tests
+
+#### Context
+
+Continuing gap analysis from Session 24. All P0–P2 done, P3 deferred. Two pure-function modules have zero test coverage:
+
+1. `packages/orchestrator/src/RunStateMachine.ts` — `canTransition` and `assertTransition` control task state machine transitions. Untested = risk of invalid state transitions being allowed.
+2. `packages/planner/src/parsePlannerResponse.ts` — `extractJson` and `parsePlannerResponse` parse LLM output into structured decisions. Untested = risk of silent misparse or crash on malformed LLM output.
+
+#### Plan
+
+1. Add `tests/runStateMachine.test.mjs` — test all valid transitions, reject all invalid ones, test assertTransition throws
+2. Add `tests/parsePlannerResponse.test.mjs` — test raw JSON, code-block JSON, brace-depth extraction, invalid/malformed inputs, all decision types
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/runStateMachine.test.mjs`** — 28 tests:
+- `canTransition`: 15 valid transitions (queued→running, running→all targets, suspended→running/cancelled/failed), 9 invalid transitions (queued→completed, terminal states, suspended→completed)
+- `assertTransition`: 3 tests (valid doesn't throw, invalid throws with message, terminal→terminal throws)
+
+**`tests/parsePlannerResponse.test.mjs`** — 18 tests:
+- Raw JSON parsing: browser_action, task_complete, task_failed
+- Markdown code block extraction: with/without `json` tag
+- Brace-depth extraction: JSON embedded in prose
+- All decision types: clarification_request (with options/defaults), approval_request
+- Default fallbacks: completionSummary, failureSummary, action description all fall back to reasoning
+- Error cases: missing type, missing reasoning, unsupported type, no JSON, empty string, incomplete JSON
+
+#### Verification
+
+- `pnpm test` — 217/217 pass (was 173, +44 new tests for RunStateMachine and parsePlannerResponse)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `ClarificationPolicy`, `EventBus`, `CancellationController` (requires mocking dependencies)
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 26 — 2026-03-16: Gap Analysis — EventBus + RunHandoff Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two pure-function modules in `packages/observability` have zero test coverage:
+
+1. `EventBus` — pub/sub event system. Pure class, no dependencies. Untested = risk of silent handler failures or missed subscriptions.
+2. `RunHandoff` — `buildHandoffArtifact` and `renderHandoffMarkdown` construct the canonical handoff surface. Pure functions, no I/O. Untested = risk of malformed handoff documents.
+
+#### Plan
+
+1. Add `tests/eventBus.test.mjs` — test subscribe, publish, multiple handlers, async handlers, no-handler-noop, ordering
+2. Add `tests/runHandoff.test.mjs` — test buildHandoffArtifact field mapping, renderHandoffMarkdown sections (goal, constraints, page context, action history, suspension, failure, notes, outcome)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/eventBus.test.mjs`** — 10 tests:
+- Subscribe + publish: single handler, multiple handlers, subscription order
+- No-subscriber publish is a no-op
+- Independent event names
+- Exact payload reference passing
+- Async handlers awaited sequentially
+- Multiple publishes accumulate
+- Sync and async handler errors propagate
+
+**`tests/runHandoff.test.mjs`** — 26 tests:
+- `buildHandoffArtifact` (11 tests): core field mapping, page context, constraints, suspension info, failure info, outcome, missing outcome, notes, action history, optional pageModelSnapshot, stepCount default
+- `renderHandoffMarkdown` (15 tests): title with goal, status emojis for all statuses, run metadata, constraints section present/absent, current page section, action history table, long description truncation, suspension section, failure section, notes section, outcome section, typed text as target, dash when no target
+
+#### Verification
+
+- `pnpm test` — 253/253 pass (was 217, +36 new tests for EventBus and RunHandoff)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `AuditTrail` edge cases, `LogReplayer`, or `workflowEvents` utilities
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 27 — 2026-03-16: Gap Analysis — AuditTrail + LogReplayer Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred, all open problems resolved. Two pure-class modules in `packages/observability` have zero test coverage:
+
+1. `AuditTrail` — builds structured run summaries and formatted timelines from workflow events. Pure class with `WorkflowLogReader` dependency. Untested = risk of incorrect event counting, missing phases, or broken timeline formatting.
+2. `LogReplayer` — replays workflow events with elapsed time calculations. Pure class with same dependency. Untested = risk of incorrect elapsed time math or empty-run edge cases.
+
+#### Plan
+
+1. Add `tests/auditTrail.test.mjs` — test generateRunSummary (empty events, single event, full run with all event types, failure/cancellation paths, duration calculation) and generateRunTimeline (empty, phase transitions, formatting)
+2. Add `tests/logReplayer.test.mjs` — test replay (empty, single, multi-event elapsed calculation) and replayFormatted (empty, formatting)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/auditTrail.test.mjs`** — 19 tests:
+- `generateRunSummary` (12 tests): empty events, single run_created, browser action counting, clarification counting, approval counting, page_modeled counting, completed run with duration, failed run with failure reason, cancelled run, recovery event counting, full run with all event types
+- `generateRunTimeline` (7 tests): empty events message, single event with phase header, phase transitions create new headers, same-phase consecutive events share header, elapsed time correctness, recovery/approval/handoff phases appear
+
+**`tests/logReplayer.test.mjs`** — 8 tests:
+- `replay` (4 tests): empty run returns [], single step with elapsed=0, multi-event elapsed computation, event reference preservation
+- `replayFormatted` (3 tests): empty run message, single event formatting, multi-event elapsed formatting
+- Independent runId isolation (1 test)
+
+#### Verification
+
+- `pnpm test` — 280/280 pass (was 253, +27 new tests for AuditTrail and LogReplayer)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `ClarificationPolicy` in orchestrator (untested pure-function module)
+- Consider edge case tests for `getPhaseForEvent` with `planner_decision`, `planner_request_started`, `planner_request_failed` event types (currently fall to "Other" or "Execution")
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 28 — 2026-03-16: Gap Analysis — ClarificationPolicy + workflowEvents Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two pure-function modules have zero test coverage:
+
+1. `ClarificationPolicy` (orchestrator) — `DefaultClarificationPolicy.shouldSuspend()` and `formatClarificationSummary()`. Pure functions, no I/O. Controls whether the agent suspends for user clarification.
+2. `workflowEvents` (runtime-core) — `createWorkflowEventId()`, `createWorkflowEvent()`, and `appendWorkflowEvent()`. Pure/light functions that construct and persist workflow events.
+
+#### Plan
+
+1. Add `tests/clarificationPolicy.test.mjs` — test shouldSuspend (running + clarification = true, all other combos = false), formatClarificationSummary (no options, single option, multiple options, empty question)
+2. Add `tests/workflowEvents.test.mjs` — test createWorkflowEventId format, createWorkflowEvent field population, appendWorkflowEvent (calls store + eventBus)
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/clarificationPolicy.test.mjs`** — 14 tests:
+- `DefaultClarificationPolicy.shouldSuspend` (10 tests): true only for running + clarification_request; false for all other status/decision combinations (running + browser_action/task_complete/task_failed/approval_request, suspended/completed/failed/cancelled/queued + clarification_request)
+- `formatClarificationSummary` (4 tests): no options (fallback message), single option, multiple options (pipe-delimited), whitespace trimming
+
+**`tests/workflowEvents.test.mjs`** — 11 tests:
+- `createWorkflowEventId` (3 tests): prefix format, uniqueness, runId inclusion
+- `createWorkflowEvent` (5 tests): correct structure, unique IDs, empty payload, ISO date, all event types
+- `appendWorkflowEvent` (3 tests): calls both store and eventBus, ordering (store before bus), error propagation from store
+
+#### Verification
+
+- `node --test tests/clarificationPolicy.test.mjs tests/workflowEvents.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 305/305 pass (was 280, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `CancellationController` (requires mocking RuntimeServices, SessionManager, HandoffManager)
+- Consider tests for `RecoveryManager` or `SessionManager` (require more complex mocking)
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 29 — 2026-03-16: Gap Analysis — CancellationController + queries Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two modules with zero test coverage:
+
+1. `CancellationController` (runtime-core) — `cancel()`, `isCancelled()`, `acknowledge()`. Controls cooperative cancellation with sync check + async cleanup. Needs mock RuntimeServices, SessionManager, HandoffManager.
+2. `queries` (runtime-core) — `listAllRuns()` and `queryShellTabs()`. Pure data queries over mock stores.
+
+#### Plan
+
+1. Add `tests/cancellationController.test.mjs` — test isCancelled/acknowledge sync state, cancel for non-existent run, cancel for already-terminal run, cancel for active run (full flow), cancel cleans up browser session
+2. Add `tests/queries.test.mjs` — test listAllRuns sorting, queryShellTabs mapping/filtering/sorting, empty results
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/cancellationController.test.mjs`** — 13 tests:
+- `isCancelled` / `acknowledge` sync state (4 tests): false for unknown, true after cancel of non-terminal run, acknowledge clears flag, acknowledge no-op for unknown
+- `cancel` flow (9 tests): null for non-existent run, returns unchanged for already-terminal (completed/failed/cancelled), full cancellation flow (destroys session, saves checkpoint, emits workflow event, handoff, notification, clears chat state), suspended run cancellation, default summary, missing browserSessionId handled, destroySession failure swallowed
+
+**`tests/queries.test.mjs`** — 12 tests:
+- `listAllRuns` (3 tests): empty array, single run, sort by updatedAt descending
+- `queryShellTabs` (9 tests): empty results (no runs, no session id, no matching session), correct tab descriptor mapping, isBackground for scheduler, URL fallback chain (pageUrl → lastKnownUrl → about:blank), sort by updatedAt, filtering unmatched sessions
+
+#### Verification
+
+- `node --test tests/cancellationController.test.mjs tests/queries.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 330/330 pass (was 305, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `HandoffManager` (writeHandoff/emitHandoffEvent/notifyTerminalEvent)
+- Consider tests for `RecoveryManager` or `SessionManager` (require more complex mocking)
+- Consider tests for `settings.ts` factories (createPlanner, createChatBridge, buildRuntimeDescriptor)
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 30 — 2026-03-16: Gap Analysis — HandoffManager + SessionManager Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 backlog done, P3 deferred. Two runtime-core modules with zero test coverage:
+
+1. `HandoffManager` — `writeHandoff()`, `emitHandoffEvent()`, `notifyTerminalEvent()`. Orchestrates terminal handoff: captures page snapshot, emits workflow event, sends notification, clears chat state.
+2. `SessionManager` — `attachForRun()`, `sessionIdsForRun()`, `cleanupRun()`, `cleanupOrphans()`, `getSession()`. Manages browser session lifecycle with run→session reverse index.
+
+#### Plan
+
+1. Add `tests/handoffManager.test.mjs` — test writeHandoff with/without snapshot, emitHandoffEvent event shape, notifyTerminalEvent for completed/failed/cancelled, send failure swallowed, clearRunState called
+2. Add `tests/sessionManager.test.mjs` — test attachForRun new session, reuse existing, orphan cleanup, cleanupRun, sessionIdsForRun, getSession delegation
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/handoffManager.test.mjs`** — 14 tests:
+- `emitHandoffEvent` (2 tests): correct event shape (runId, type, summary, payload fields), passes page model snapshot
+- `notifyTerminalEvent` (6 tests): completed/failed/cancelled/unknown status notifications, truncates long goals in status line, swallows send errors
+- `writeHandoff` (6 tests): provided snapshot skips capture, captures from active session, skips terminated session, skips when no browserSessionId, swallows capture errors, tolerates missing clearRunState
+
+**`tests/sessionManager.test.mjs`** — 17 tests:
+- `sessionIdsForRun` (1 test): empty for unknown run
+- `attachForRun` (6 tests): creates new session, passes correct metadata, isBackground for non-desktop, reuses active session, creates new for terminated/missing/when reuse=false
+- `cleanupRun` (3 tests): destroys tracked session, no-op for unknown, swallows destroy errors
+- `cleanupOrphans` (3 tests): keeps keepId, destroys all without keepId, no-op for unknown
+- `getSession` (2 tests): delegates to kernel, null for unknown
+- Multi-run isolation (1 test): independent tracking per run
+- `attachForRun` orphan cleanup (1 test): second attach cleans first session
+
+#### Verification
+
+- `node --test tests/handoffManager.test.mjs tests/sessionManager.test.mjs` — 31/31 pass
+- `node --test tests/*.test.mjs` — 361/361 pass (was 330, +31 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider tests for `RecoveryManager` (complex mocking: orchestrator + session + checkpoint interactions)
+- Consider tests for `settings.ts` factories (createPlanner, createChatBridge, buildRuntimeDescriptor)
+- Consider tests for `RunExecutor` (main step loop, requires planner + browser + orchestrator mocks)
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 31 — 2026-03-16: Gap Analysis — RunExecutor Test Suite
+
+#### Context
+
+Continuing gap analysis. All P0–P2 backlog done, P3 deferred. Initially planned to test `RecoveryManager` and `settings.ts` factories, but both modules import from `OpenBrowseRuntime.js` which transitively pulls in `ElectronBrowserKernel` (requires Electron context). Pivoted to `RunExecutor`, the most complex untested module that IS importable from system Node.
+
+#### Plan
+
+1. Add `tests/runExecutor.test.mjs` — test plannerLoop (complete, fail, clarification, approval, cancellation, browser action, stuck detection, max steps), continueResume (navigate, pending action, recovery context injection)
+2. Run `node --test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+**`tests/runExecutor.test.mjs`** — 18 tests:
+- `plannerLoop` terminal paths (4 tests): task_complete, task_failed, clarification_request suspension, planner error
+- `plannerLoop` browser_action (3 tests): successful action + continue, hard failure (non-soft), session lost
+- `plannerLoop` soft failure handling (3 tests): element_not_found continues, max consecutive soft failures, max total soft failures
+- `plannerLoop` control flow (3 tests): cooperative cancellation early return, max steps exceeded, approval gate suspension
+- `plannerLoop` state management (1 test): recovery context cleared after first planner call
+- `continueResume` (4 tests): navigate to lastKnownUrl, pending action execution, pending action failure, recovery context injection from snapshot
+
+Key mock design: full mock of `RuntimeServices` (orchestrator, planner, browserKernel, chatBridge, securityPolicy, stores), `CancellationController`, `HandoffManager`, and `SessionManager`. Action history in `recordBrowserResult` mock includes `targetId` and `url` to prevent false cycle detection on unique actions.
+
+#### Verification
+
+- `node --test tests/runExecutor.test.mjs` — 18/18 pass
+- `node --test tests/*.test.mjs` — 379/379 pass (was 361, +18 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests are blocked by Electron import dependency — would need either module mocking or extracting pure functions into separate files
+- Consider extracting `detectCycle()` from RunExecutor and testing directly (currently private)
+- Consider tests for Electron-dependent modules under Electron test harness
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 32 — 2026-03-16: Gap Analysis — Extract and Test detectCycle
+
+#### Context
+
+All P0–P2 backlog done, P3 deferred. Continuing gap analysis from Session 31 which identified `detectCycle()` as extractable pure logic buried as a private function in `RunExecutor.ts`. The RunExecutor test suite tests cycle detection indirectly through the full planner loop, but doesn't exercise edge cases (near-miss patterns, boundary lengths, mixed cycle lengths, window boundaries).
+
+#### Plan
+
+1. Export `detectCycle` from `RunExecutor.ts` (keep it in the same file, just add `export`)
+2. Add `tests/detectCycle.test.mjs` with comprehensive edge-case tests
+3. Run `node --test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Exported `detectCycle` from `RunExecutor.ts` (single keyword change: `function` → `export function`).
+
+**`tests/detectCycle.test.mjs`** — 29 tests across 9 describe blocks:
+- No cycle (5 tests): empty, single, all distinct, below-threshold 2-step and 3-step
+- 2-step cycles (5 tests): exact 4 reps, 5 reps, 3 reps rejected, tail with prefix noise, near-miss broken last element
+- 3-step cycles (4 tests): exact 3 reps, 4 reps, 2 reps rejected, tail with noise
+- 4-step cycles (2 tests): exact 3 reps, 2 reps rejected
+- 5-step cycles (2 tests): exact 3 reps, 2 reps rejected
+- Beyond max length (1 test): 6-step pattern not detected
+- Priority (1 test): shorter cycle wins when both match
+- Realistic action keys (5 tests): click-scroll cycle, 3-step nav loop, distinct targetIds safe, distinct descriptions safe, same description cycle
+- Edge cases (4 tests): all-identical 8 elements, 7 identical below threshold, 8 identical, 9 identical shortest wins
+
+#### Verification
+
+- `node --test tests/detectCycle.test.mjs` — 29/29 pass
+- `node --test tests/*.test.mjs` — 408/408 pass (was 379, +29 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `compose.ts` (`createRuntimeStorage` / `assembleRuntimeServices`) — `createRuntimeStorage` is importable but requires mocking SQLite dynamic import
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 33 — 2026-03-16: Gap Analysis — TelegramConfig + TelegramStateStore Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. Two chat-bridge modules have zero test coverage:
+
+1. `TelegramConfig.resolveTelegramConfig()` — pure function resolving config from overrides + env vars. Controls whether Telegram bridge is enabled. Untested = risk of misconfigured bot or silent null return.
+2. `TelegramStateStore` — file-backed state manager for Telegram bridge: chat approval, clarification tracking, run-chat mappings. Untested = risk of state corruption, lost clarifications, or orphaned reply targets.
+
+#### Plan
+
+1. Add `tests/telegramConfig.test.mjs` — test override priority, env var fallback, null when no token, pairing mode defaults, notification level
+2. Add `tests/telegramStateStore.test.mjs` — test load/persist, approveChat, clarification lifecycle (register/resolveByRequestId/resolveByReplyTarget), run-chat mappings, clearClarificationsForRun, missing file fallback
+3. Run `pnpm test` to verify
+4. Update this log and commit
+
+#### Implementation
+
+Added two test files:
+
+**`tests/telegramConfig.test.mjs`** — 18 tests:
+- `resolveTelegramConfig` (18 tests): null when no botToken (2), override vs env priority for botToken/chatId/statePath/notificationLevel (4 each field), default values (statePath, pairingMode without/with chatId, notificationLevel), non-verbose env defaults to quiet
+
+**`tests/telegramStateStore.test.mjs`** — 21 tests:
+- `load` (4 tests): default state on missing file, load existing state, partial state handling, invalid JSON recovery
+- `approveChat` (5 tests): set primary, no duplicates, keeps first primary, persists to disk, survives reload
+- `clarification lifecycle` (5 tests): register/resolveByRequestId, wrong chatId returns null, unknown requestId, resolveByReplyTarget, unknown target
+- `run-chat mappings` (3 tests): bind/resolve, unknown run, overwrite
+- `clearClarificationsForRun` (3 tests): removes run's clarifications + reply targets + run-chat mapping, empty for unknown, no-op safe
+- `listApprovedChatIds` (1 test): returns defensive copy
+
+Import note: Uses relative path `../packages/chat-bridge/dist/TelegramConfig.js` (not package specifier) to avoid pulling in `TelegramChatBridge` which has network dependencies.
+
+#### Verification
+
+- `node --test tests/telegramConfig.test.mjs tests/telegramStateStore.test.mjs` — 39/39 pass
+- `node --test tests/*.test.mjs` — 447/447 pass (was 408, +39 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+---
+
+### Session 34 — 2026-03-16: Gap Analysis — WatchScheduler Comprehensive Tests
+
+#### Context
+
+Continuing gap analysis. All P0–P2 done, P3 deferred. `IntervalWatchScheduler` has only 1 test (backoff + reset). Multiple methods and edge cases are untested:
+
+1. `unregisterWatch` — stop and remove a watch, timer cleanup
+2. `listWatches` — snapshot semantics, defensive copy
+3. `dispose` — clear all watches and timers
+4. `StubWatchScheduler` — returns "stub-watch"
+5. In-flight guard — concurrent trigger prevention
+6. Max backoff cap — exponential backoff capped at `maxBackoffMinutes`
+7. Multiple watches — independent tracking
+8. Success resets backoff — already partially tested, more edge cases
+
+#### Plan
+
+1. Add comprehensive tests to `tests/watchScheduler.test.mjs` (new file, existing `watch-scheduler.test.mjs` kept)
+2. Run `pnpm test` to verify
+3. Update this log and commit
+
+#### Implementation
+
+Added `tests/watchScheduler.test.mjs` — 17 tests across 8 describe blocks:
+
+- `StubWatchScheduler` (1 test): returns "stub-watch" id
+- `registerWatch` (2 tests): unique id containing intent id, two registrations produce different ids
+- `listWatches` (3 tests): empty when no watches, returns registered watches with correct fields, defensive copy (different object references)
+- `unregisterWatch` (3 tests): removes from list, no-op for unknown id, prevents future dispatch after unregister
+- `dispose` (2 tests): clears all watches, prevents future dispatches
+- `dispatch execution` (2 tests): dispatches after interval elapses (validates lastCompletedAt/lastTriggeredAt), dispatches multiple times
+- `backoff` (3 tests): exponential backoff on consecutive failures (validates consecutiveFailures/lastError/backoffUntil), backoff capped at maxBackoffMinutes, success after failure resets state
+- `multiple watches` (1 test): independent tracking per watch, unregister one doesn't affect others
+
+Uses `minuteMs: 10` for fast test execution (10ms = 1 "minute").
+
+#### Verification
+
+- `node --test tests/watchScheduler.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 464/464 pass (was 447, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+---
+
 ## 14. Feature Backlog
 
 *Added: 2026-03-15 — based on user feedback after hands-on usage.*
@@ -1230,48 +1986,3122 @@ This section tracks planned features, prioritized for iterative implementation.
 
 ### P0 — Critical UX
 
-**1. Chat interface consistency across tabs**
+**~~1. Chat interface consistency across tabs~~** — DONE (Session 11 + Session 22 audit confirmed)
 
-The chat sidebar must remain visible and functional regardless of which browser tab is active or whether the ManagementPanel is open. Currently the ManagementPanel overlays the full view, hiding the chat. The sidebar should always be rendered; the ManagementPanel should only overlay the browser area (center panel).
-
-**2. Agent context-awareness on new task**
-
-When the user submits a new task, the agent should first observe the page currently open in the active tab — extract its page model, check if it's relevant to the task — before deciding whether to navigate elsewhere or open a new tab. Currently `initializeTask()` always creates a new browser session/tab. The fix: if a standalone tab is active, extract its page model first, pass it as `currentPageContext` to the planner, and let the planner decide whether to reuse that tab or open a new one. Requires extending `TaskIntent` with `activeSessionId`.
+**~~2. Agent context-awareness on new task~~** — DONE (Session 22, verified all 4 implementation steps complete)
 
 ### P1 — Core Browser Features
 
-**3. Hamburger menu (☰)**
+**~~3. Hamburger menu (☰)~~** — DONE (Session 20, 2026-03-16). Implemented with New Session, History, DevTools, Print, Save as PDF, Bookmarks items.
 
-Add a three-line menu button to the top-right of the nav bar, next to the existing gear (⚙) icon. The gear stays for quick Settings access. The hamburger menu provides access to: Clear Chat, History, Bookmarks, Developer Tools, Print & Save.
+**~~4. Clear chat history~~** — DONE (Session 20, 2026-03-16). Clear button in SidebarHeader + clearCurrentChat in useChatSessions. Persists to SQLite.
 
-**4. Clear chat history**
+**~~5. Browsing history viewer~~** — DONE (Session 20, 2026-03-16). HistoryPanel with date grouping, search, clear all. Auto-recording on navigation. Hamburger + ManagementPanel tab.
 
-Add ability to clear all chat messages from the hamburger menu. Simple state reset of the `messages` array in App.tsx. Consider adding a confirmation dialog.
-
-**5. Browsing history viewer**
-
-Full history of all visited URLs with timestamps, searchable and filterable. Accessible from the hamburger menu. Requires: (a) persist navigation events to memory-store with timestamps, (b) a new History UI panel/overlay.
-
-**6. Cookie management UI**
-
-View and clear cookies per browser profile. Electron's `session.cookies` API provides the underlying capability. Accessible from the hamburger menu or Settings panel.
+**~~6. Cookie management UI~~** — DONE (Session 23, 2026-03-16). CookiePanel with filter, delete, clear all. IPC via session.cookies API. ManagementPanel tab + hamburger menu item.
 
 ### P2 — Enhancement Features
 
-**7. Bookmark tab & system**
+**~~7. Bookmark tab & system~~** — DONE (Session 20, 2026-03-16). Full stack: BookmarkPanel, star toggle in NavBar, ManagementPanel tab, hamburger item. SQLite-backed.
 
-Bookmark the current page, bookmark manager panel, optional bookmark bar. Requires new persistence layer in memory-store (bookmarks table with URL, title, favicon, folder, timestamp).
+**~~8. Developer mode (F12)~~** — DONE (Session 20, 2026-03-16). `openDevTools({ mode: "detach" })` via hamburger menu. Grayed when no browser tab active.
 
-**8. Developer mode (F12)**
+**~~9. Print & Save~~** — DONE (Session 20, 2026-03-16). Print via `webContents.print()`, Save as PDF via `webContents.printToPDF()` + save dialog. Both in hamburger menu.
 
-Toggle Chrome DevTools for the active WebContentsView. Electron supports `webContents.openDevTools()`. Accessible from the hamburger menu. Should open in a detached window or docked panel.
+### Known Bugs
 
-**9. Print & Save**
+**~~11. False-positive cycle detection on repetitive but valid actions~~** — RESOLVED (Session 21, 2026-03-16)
 
-Print current page via `webContents.print()`. Save page as PDF via `webContents.printToPDF()`. Both accessible from the hamburger menu.
+Fixed by including `description` in cycle keys (differentiates clicks on different buttons) and requiring 4 full repetitions for 2-step cycles (was 3). Also extended cycle detection to 2–5 step patterns (was 2–3).
+
+**12. Hamburger menu dropdown clipped by browser tabs (z-index)** — OPEN (reported 2026-03-16)
+
+The hamburger menu (☰) dropdown renders behind browser tab elements. When one or more tabs are open, the tab bar overlaps and fully obscures the middle portion of the dropdown (around "DevTools" and "Print Page" items). Root cause is likely a `z-index` stacking issue — the dropdown's z-index is lower than the tab bar's, or the dropdown is rendered inside a stacking context that cannot escape the tab bar layer. Fix requires ensuring the hamburger dropdown has a higher z-index than the tab bar, or rendering the dropdown in a portal above all chrome layers.
+
+**13. Runtime panel text overflow in ManagementPanel** — OPEN (reported 2026-03-16)
+
+In the ManagementPanel → Runtime tab, the STORAGE card's Detail text overflows its card boundary. The long SQLite path (`/Users/isaaczhang/Library/Application Support/@openbrowse/desktop/openbrowse.db`) is not truncated or wrapped and visually bleeds past the card edge into the adjacent CHAT BRIDGE card. Fix requires adding `overflow: hidden; text-overflow: ellipsis` or `word-break: break-all` to the Detail value in the RuntimePanel card component.
 
 ### P3 — Future
 
 **10. Profile system / Google login**
 
 User accounts, OAuth (Google Sign-In), profile sync across devices. Large scope — defer until core browser features are stable and the product surface is validated.
+
+---
+
+### Session 35 — 2026-03-16: Test Suite Consolidation — Remove Duplicate Test Files
+
+#### Context
+
+Gap analysis discovered 3 pairs of duplicate test files inflating the test count (464 → real unique coverage is lower). Each pair has an older file from early sessions and a newer comprehensive file from the gap analysis sessions:
+
+1. `planner-parser.test.mjs` (14 tests, Session 15) + `parsePlannerResponse.test.mjs` (18 tests, Session 25) — both test `parsePlannerResponse`
+2. `telegram-state.test.mjs` (1 test, earlier) + `telegramStateStore.test.mjs` (21 tests, Session 33) — both test `TelegramStateStore`
+3. `watch-scheduler.test.mjs` (1 test, earlier) + `watchScheduler.test.mjs` (17 tests, Session 34) — both test `IntervalWatchScheduler`
+
+#### Plan
+
+1. Merge 2 unique tests from `planner-parser.test.mjs` into `parsePlannerResponse.test.mjs` (escaped quotes, clarification with missing optionals)
+2. Delete old files: `planner-parser.test.mjs`, `telegram-state.test.mjs`, `watch-scheduler.test.mjs`
+3. Run `node --test tests/*.test.mjs` to verify correct count
+4. Update this log and commit
+
+#### Implementation
+
+**Merged into `parsePlannerResponse.test.mjs`** (2 unique tests from old file):
+- "handles escaped quotes in JSON strings" — verifies escaped `"Submit"` in action description
+- "parses clarification_request with missing optional fields" — verifies auto-generated id, empty contextSummary, empty options array
+
+**Deleted 3 old files:**
+- `tests/planner-parser.test.mjs` — 14 tests, all covered by `parsePlannerResponse.test.mjs` (12 redundant + 2 merged)
+- `tests/telegram-state.test.mjs` — 1 test, fully covered by `telegramStateStore.test.mjs`'s 21 comprehensive tests
+- `tests/watch-scheduler.test.mjs` — 1 test, fully covered by `watchScheduler.test.mjs`'s 17 comprehensive tests
+
+#### Verification
+
+- `node --test tests/*.test.mjs` — 450/450 pass (was 464, -16 removed, +2 merged = net -14)
+- Test count now accurately reflects unique coverage (no inflation from duplicates)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` and `settings.ts` tests remain blocked by Electron import dependency
+- Consider tests for `TelegramChatBridge` message routing (would need HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 36 — 2026-03-16: Extract buildRuntimeDescriptor + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. Session 35 noted `settings.ts` tests blocked by Electron import chain. `buildRuntimeDescriptor` is a pure function with important phase-determination logic but is co-located in `settings.ts` which imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.js` → chains to Electron.
+
+#### Plan
+
+1. Extract `buildRuntimeDescriptor` from `settings.ts` into `runtimeDescriptor.ts` (no Electron deps)
+2. Update imports in `settings.ts` and `compose.ts`
+3. Re-export from `index.ts`
+4. Run typecheck
+5. Write comprehensive test suite for `buildRuntimeDescriptor` covering all 4 phase paths + edge cases
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Extracted `packages/runtime-core/src/runtimeDescriptor.ts`:**
+- Moved `buildRuntimeDescriptor` pure function out of `settings.ts`
+- Only imports `RuntimeDescriptor` type from `@openbrowse/contracts` — no Electron dependency chain
+- This unblocks Node-based testing for the phase-determination logic
+
+**Updated `settings.ts`:**
+- Added `import { buildRuntimeDescriptor } from "./runtimeDescriptor.js"` (for internal use in `applyRuntimeSettings`)
+- Added `export { buildRuntimeDescriptor } from "./runtimeDescriptor.js"` (preserves existing public API)
+- Removed the 86-line inline function definition
+
+**Updated `compose.ts`:**
+- Changed import source from `./settings.js` to `./runtimeDescriptor.js` (direct dependency)
+
+**Created `tests/runtimeDescriptor.test.mjs` — 17 tests:**
+- Phase 1 (3 tests): browser stub forces phase1 regardless of other subsystems, preserves input fields
+- Phase 2 (3 tests): browser live + chat stub, stub vs live planner affects deferred capabilities
+- Phase 3 (5 tests): all live, no demos, hasDemos=false/undefined, planner variants
+- Phase 4 (4 tests): all live + demos, live vs stub planner, code signing always deferred
+- Cross-cutting (2 tests): descriptor shape validation, spread semantics
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `node --test tests/runtimeDescriptor.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 467/467 pass (was 450, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `RecoveryManager` tests still blocked by Electron — could apply same extraction pattern
+- `createPlanner`/`createChatBridge` factory tests — these import non-Electron packages but need mocking
+- `TelegramChatBridge` message routing tests (needs HTTP mock)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 37 — 2026-03-16: Make RecoveryManager Testable + Test Suite
+
+#### Context
+
+Session 36 noted: "RecoveryManager tests still blocked by Electron — could apply same extraction pattern." `RecoveryManager` imports `recoverRun` and `emitHandoffEvent` from `OpenBrowseRuntime.ts`, which chains to Electron via `browser-runtime` and `chat-bridge` imports. This makes it impossible to test under Node.
+
+#### Plan
+
+1. Make `RecoveryManager` accept `recoverRunFn` and `emitHandoffFn` as constructor-injected dependencies instead of hardcoded imports from `OpenBrowseRuntime.ts`
+2. Remove the direct import of `OpenBrowseRuntime.ts` from `RecoveryManager.ts`
+3. Update the sole consumer (`RuntimeEventBridge.ts`) to pass these functions
+4. Run typecheck
+5. Write comprehensive test suite covering: recovery categorization, strategy filtering, failure handling, metadata extraction, event logging
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Refactored `packages/runtime-core/src/RecoveryManager.ts`:**
+- Removed direct import of `recoverRun` and `emitHandoffEvent` from `OpenBrowseRuntime.ts` (Electron chain breaker)
+- Added `RecoverRunFn` and `EmitHandoffFn` type aliases for the two injectable functions
+- Added `RecoveryManagerOptions` interface: `{ strategy?, recoverRunFn, emitHandoffFn }`
+- Constructor now takes `RecoveryManagerOptions` as second parameter instead of optional `RecoveryStrategy`
+- Extracted `extractRecoveryMetadata` as a standalone exported pure function (was private method)
+
+**Updated `apps/desktop/src/main/RuntimeEventBridge.ts`:**
+- Imports `recoverRun` and `emitHandoffEvent` from `@openbrowse/runtime-core`
+- Passes them as constructor options to `RecoveryManager`
+
+**Created `tests/recoveryManager.test.mjs` — 20 tests:**
+- DefaultRecoveryStrategy (3 tests): shouldRetry for running/non-running, maxRetries value
+- extractRecoveryMetadata (3 tests): full fields, missing optional fields, undefined stepCount default
+- RecoveryManager orchestration (14 tests): empty stores, clarification/approval categorization, recovery_skipped logging, successful recovery, run_recovered logging, failure handling, recovery_failed logging, checkpoint store persistence on failure, custom strategy skipping, strategy-skipped logging, mixed success/failure, combined categories, non-Error throw handling, eventBus publication
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/recoveryManager.test.mjs` — 20/20 pass
+- `node --test tests/*.test.mjs` — 487/487 pass (was 467, +20 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `createPlanner`/`createChatBridge` factory tests — these import non-Electron packages but need mocking
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 38 — 2026-03-16: Extract createPlanner/createChatBridge Factories + Test Suite
+
+#### Context
+
+Session 37 noted: "createPlanner/createChatBridge factory tests — these import non-Electron packages but need mocking." These two factories in `settings.ts` are pure functions that don't use Electron, but `settings.ts` imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.ts` which chains to Electron. Same extraction pattern as Sessions 36-37.
+
+#### Plan
+
+1. Extract `createPlanner` and `createChatBridge` from `settings.ts` into `factories.ts` (no Electron deps)
+2. Update `settings.ts` to import/re-export from `./factories.js`
+3. Build runtime-core
+4. Write comprehensive test suite for both factories
+5. Run tests
+6. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/factories.ts`:**
+- Moved `createPlanner` and `createChatBridge` pure factory functions out of `settings.ts`
+- Imports only from `@openbrowse/chat-bridge`, `@openbrowse/contracts`, `@openbrowse/planner` — no Electron dependency chain
+- This unblocks Node-based testing for both factory functions
+
+**Updated `settings.ts`:**
+- Removed inline definitions of both factories (90 lines)
+- Added `import { createPlanner, createChatBridge } from "./factories.js"` (internal use in `applyRuntimeSettings`)
+- Added `export { createPlanner, createChatBridge } from "./factories.js"` (preserves public API)
+- Removed unused imports: `resolveTelegramConfig`, `type ChatBridge`, `type TelegramNotificationLevel`, `StubChatBridge`, `StubPlannerGateway`, `ClaudePlannerGateway`, `type PlannerGateway`, `type RuntimeDescriptor`
+
+**Created `tests/factories.test.mjs` — 20 tests:**
+- createPlanner (10 tests): stub when disabled, stub with key but disabled, live with key, custom model, default model fallback, env var fallback, no key anywhere, whitespace trimming on key/model, whitespace-only key
+- createChatBridge (10 tests): stub when disabled, stub with no token, live with token, locked-to-chat vs pairing-mode descriptors, whitespace trimming on token/chatId, whitespace-only token, chatBridgeInit presence/absence
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/factories.test.mjs` — 20/20 pass
+- `node --test tests/*.test.mjs` — 507/507 pass (was 487, +20 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability (still blocked by `wireInboundChat`/`wireBotCommands`)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 39 — 2026-03-16: Expand Store Contract Tests — 8 Untested InMemory Stores
+
+#### Context
+
+Gap analysis: store-contract.test.mjs covers only 3 of 11 InMemory store implementations (RunCheckpointStore, WorkflowLogStore, PreferenceStore — 30 tests). The remaining 8 stores have zero test coverage:
+1. SessionTrackingStore (7 methods)
+2. ChatSessionStore (10 methods)
+3. BookmarkStore (8 methods)
+4. BrowsingHistoryStore (6 methods)
+5. BrowserProfileStore (4 methods)
+6. CookieContainerStore (6 methods)
+7. StandaloneTabStore (4 methods)
+8. ChatBridgeStateStore (4 methods)
+
+#### Plan
+
+1. Create `tests/storeContractExtended.test.mjs` with comprehensive tests for all 8 stores
+2. Run the new test file
+3. Run full test suite to confirm no regressions
+4. Update this log and commit
+
+#### Implementation
+
+**Created `tests/storeContractExtended.test.mjs` — 60 tests across 8 store types:**
+- SessionTrackingStore (7 tests): create/get, get null, terminate, listByRun, listActive, listActiveByRun, deleteByRun
+- ChatSessionStore (12 tests): create/get, get null, updateTitle, listSessions sorted, deleteSession cascades, deleteSession false, appendMessage+listMessages order, appendMessage updates session, clearMessages, linkRun+listRunIds, linkRun idempotent, listMessages empty
+- BookmarkStore (10 tests): create/get, get null, getByUrl, getByUrl null, update fields, listByFolder, listAll sorted, search title+URL, search empty, delete true/false
+- BrowsingHistoryStore (8 tests): record+listRecent, listRecent limit, listByDateRange, search case-insensitive, deleteByDateRange, deleteByDateRange 0, deleteAll, deleteAll empty
+- BrowserProfileStore (5 tests): save/get, get null, upsert, listAll, delete true/false
+- CookieContainerStore (7 tests): create/get, get null, update fields, listAll, listByProfile, delete true/false, update no-op
+- StandaloneTabStore (5 tests): save/get, get null, upsert, listAll, delete true/false
+- ChatBridgeStateStore (6 tests): set/get, get null, overwrite, delete true/false, listAll, various value types
+
+#### Verification
+
+- `node --test tests/storeContractExtended.test.mjs` — 60/60 pass
+- `node --test tests/*.test.mjs` — 567/567 pass (was 507, +60 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 40 — 2026-03-16: Stale Doc Fix + ScriptedPlannerGateway & Demo Scenario Tests
+
+#### Context
+
+All P0–P2 backlog done, P3 deferred. Gap analysis continuing. `ScriptedPlannerGateway` has only 2 indirect tests (`scripted-planner.test.mjs`). The class has 4 methods (`decide`, `reset`, `getCurrentStep`, constructor with `initialStepIndex`) and supports function-based decisions — all undertested. The 3 demo scenario factory functions (`createTravelSearchScenario`, `createAppointmentBookingScenario`, `createPriceMonitorScenario`) have zero structural validation tests.
+
+Also fixed stale engineering note: element cap was documented as 50 but has been 150 since Session 20.
+
+#### Plan
+
+1. Fix stale engineering note (element cap 50 → 150) ✓
+2. Add `tests/scriptedPlanner.test.mjs` — comprehensive tests for ScriptedPlannerGateway
+3. Add `tests/demoScenarios.test.mjs` — structural validation of all 3 demo scenario factories
+4. Run tests
+5. Commit
+
+#### Implementation
+
+**Fixed stale engineering note** (Section 10): Element cap documented as 50, corrected to 150 with text cap 3000/4000 (updated in Session 20).
+
+**Created `tests/scriptedPlanner.test.mjs` — 13 tests:**
+- `getCurrentStep` (2 tests): starts at 0, respects `initialStepIndex`
+- `decide` sequencing (3 tests): advances step index, returns correct decision per step, auto-completes with label when steps exhausted
+- Function-based decisions (2 tests): receives PlannerInput, reads checkpoint notes
+- `reset` (2 tests): sets index back to 0, enables replay from beginning
+- Edge cases (4 tests): `initialStepIndex` skips earlier steps, empty scenario auto-completes immediately with "0 steps", auto-complete includes scenario label, mixed static and function decisions
+
+**Created `tests/demoScenarios.test.mjs` — 31 tests:**
+- Travel Search (9 tests): metadata, 8 steps, navigate to Google Flights, simulated page model, type departure/destination, clarification for dates, function uses answer, task_complete with airlines, all steps valid
+- Appointment Booking (7 tests): metadata, 7 steps, navigate to ZocDoc, clarification for provider (3+ options), approval request (irreversible), task_complete with booking, all steps valid
+- Price Monitor (9 tests): metadata, 4 steps, clarification for product URL, function navigate, URL extraction from answer, fallback URL, extract action, task_complete with price, all steps valid
+- Cross-scenario (2 tests): unique IDs, non-empty labels
+
+#### Verification
+
+- `node --test tests/scriptedPlanner.test.mjs tests/demoScenarios.test.mjs` — 44/44 pass
+- `node --test tests/*.test.mjs` — 611/611 pass (was 567, +44 new)
+- `pnpm run typecheck` — clean
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 41 — 2026-03-16: Extract mapToolCallToDecision + Test Suite
+
+#### Context
+
+Gap analysis: `ClaudePlannerGateway.ts` contains `mapToolCallToDecision`, a pure function that translates Claude tool_use calls (12 tool types) into `PlannerDecision` objects. This is the critical translation layer between the Anthropic API response and the runtime's decision model. Currently: private, unexported, untested. The gateway class itself can't be tested under Node (needs real API), but the mapping logic is a pure function that can be extracted and tested.
+
+Also contains `BROWSER_TOOLS` — the tool schema definitions sent to Claude. Extracting both enables testing and reuse.
+
+#### Plan
+
+1. Extract `mapToolCallToDecision`, `ToolInput` type, and `BROWSER_TOOLS` from `ClaudePlannerGateway.ts` into `toolMapping.ts`
+2. Update `ClaudePlannerGateway.ts` to import from `./toolMapping.js`
+3. Run typecheck
+4. Write comprehensive test suite for all 12 tool mappings + edge cases
+5. Run tests
+6. Commit
+
+#### Implementation
+
+**Created `packages/planner/src/toolMapping.ts`:**
+- Extracted `mapToolCallToDecision` pure function (was private in `ClaudePlannerGateway.ts`)
+- Extracted `BROWSER_TOOLS` constant (12 tool schema definitions sent to Claude)
+- Exported `ToolInput` interface for typed tool call inputs
+- No new dependencies — only imports types from `@anthropic-ai/sdk` and `@openbrowse/contracts`
+
+**Updated `packages/planner/src/ClaudePlannerGateway.ts`:**
+- Removed 320 lines of inline tool definitions and mapping logic
+- Added `import { BROWSER_TOOLS, mapToolCallToDecision, type ToolInput } from "./toolMapping.js"`
+- Gateway class unchanged — only import source changed
+
+**Updated `packages/planner/src/index.ts`:**
+- Added `export * from "./toolMapping.js"` to public API
+
+**Created `tests/toolMapping.test.mjs` — 36 tests across 15 describe blocks:**
+- BROWSER_TOOLS schema validation (4 tests): count, uniqueness, structure, expected names
+- browser_navigate (2 tests): full mapping, default description
+- browser_click (2 tests): targetId mapping, default description
+- browser_type (2 tests): targetId+value mapping, default description
+- browser_select (2 tests): targetId+value mapping, default description
+- browser_scroll (4 tests): direction, element-scoped ref, default direction, default description
+- browser_hover (2 tests): targetId mapping, default description
+- browser_press_key (3 tests): key value, key combinations, default description
+- browser_wait (3 tests): duration as string, default 1000, default description
+- browser_screenshot (1 test): fixed description
+- task_complete (2 tests): summary, reasoning fallback
+- task_failed (2 tests): reason, reasoning fallback
+- ask_user (5 tests): question+options, no options, reasoning fallback, id prefix, createdAt
+- unknown tool (1 test): returns task_failed
+- cross-cutting (1 test): reasoning preserved across all 12 tool types
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 36/36 pass
+- `node --test tests/*.test.mjs` — 647/647 pass (was 611, +36 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability
+- Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 42 — 2026-03-16: Extract readStoredRuntimeSettings + Test Suite
+
+#### Context
+
+Session 41 noted: "Consider extracting `readStoredRuntimeSettings`/`applyRuntimeSettings` for further testability." `readStoredRuntimeSettings` is a pure async function that only depends on `services.preferenceStore.get()` and `createDefaultRuntimeSettings()`. However, it lives in `settings.ts` which imports `wireInboundChat`/`wireBotCommands` from `OpenBrowseRuntime.ts` → Electron chain. `applyRuntimeSettings` does depend on Electron imports, but `readStoredRuntimeSettings` does not.
+
+#### Plan
+
+1. Extract `readStoredRuntimeSettings` and `RUNTIME_SETTINGS_NAMESPACE` into `settingsStore.ts` (no Electron deps)
+2. Update `settings.ts` to import from `./settingsStore.js`
+3. Re-export from `index.ts`
+4. Run typecheck
+5. Write test suite for `readStoredRuntimeSettings` covering: defaults, stored values, JSON parsing, invalid JSON, partial settings
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/settingsStore.ts`:**
+- Extracted `readStoredRuntimeSettings` pure async function out of `settings.ts`
+- Extracted `RUNTIME_SETTINGS_NAMESPACE` constant
+- Signature changed from `(services: RuntimeServices)` to `(preferenceStore: PreferenceStore)` — cleaner dependency, no RuntimeServices bag needed
+- Only imports from `@openbrowse/contracts` and `@openbrowse/memory-store/memory` — no Electron dependency chain
+
+**Updated `settings.ts`:**
+- Removed inline `readStoredRuntimeSettings` function (30 lines) and `RUNTIME_SETTINGS_NAMESPACE` constant
+- Added `import { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE } from "./settingsStore.js"`
+- Added `export { readStoredRuntimeSettings, RUNTIME_SETTINGS_NAMESPACE } from "./settingsStore.js"` (preserves public API)
+- Updated 3 call sites: `readStoredRuntimeSettings(services)` → `readStoredRuntimeSettings(services.preferenceStore)`
+- Removed unused imports: `createDefaultRuntimeSettings`, `RiskClassPolicies`
+
+**Created `tests/settingsStore.test.mjs` — 18 tests:**
+- Namespace constant (1 test): correct value
+- Defaults (4 tests): all defaults when empty, anthropicApiKey empty, plannerModel default, notificationLevel quiet
+- Stored values (5 tests): each of the 5 string settings read correctly from store
+- riskClassPolicies JSON (4 tests): valid JSON, invalid JSON fallback, empty value fallback, all 6 risk classes
+- Partial settings (2 tests): mixed stored/default values, all 6 settings simultaneously
+- Return shape (2 tests): exactly 6 keys, concurrent independent reads
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/settingsStore.test.mjs` — 18/18 pass
+- `node --test tests/*.test.mjs` — 665/665 pass (was 647, +18 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider extracting `assembleRuntimeServices` from `compose.ts` (blocked by `bootstrapRun` import from `OpenBrowseRuntime.ts`)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 43 — 2026-03-16: Extract assembleRuntimeServices from Electron dependency + Test Suite + Duplicate Cleanup
+
+#### Context
+
+Session 42 noted: "Consider extracting assembleRuntimeServices from compose.ts (blocked by bootstrapRun import from OpenBrowseRuntime.ts)." assembleRuntimeServices creates the scheduler with a hardcoded bootstrapRuntimeRun import from OpenBrowseRuntime.ts which chains to Electron. Making the scheduler dispatch function injectable (same pattern as RecoveryManager Session 37) will unblock Node-based testing.
+
+Also cleaning up scripted-planner.test.mjs duplicate (2 tests, both covered by scriptedPlanner.test.mjs 13 tests).
+
+#### Plan
+
+1. Add `schedulerDispatch` parameter to `AssembleServicesParams`
+2. Remove `bootstrapRun` import from `compose.ts`
+3. Update `composeRuntime.ts` to pass `bootstrapRun` as `schedulerDispatch`
+4. Run typecheck
+5. Write test suite for `assembleRuntimeServices` and `createRuntimeStorage`
+6. Delete duplicate `scripted-planner.test.mjs`
+7. Run tests
+8. Commit
+
+#### Implementation
+
+**Refactored `packages/runtime-core/src/compose.ts`:**
+- Removed direct import of `bootstrapRun` from `OpenBrowseRuntime.ts` (Electron chain breaker)
+- Added `schedulerDispatch: (services: RuntimeServices, intent: TaskIntent) => Promise<unknown>` to `AssembleServicesParams`
+- Scheduler now calls `params.schedulerDispatch(services, schedulerIntent)` instead of hardcoded `bootstrapRuntimeRun`
+- `compose.ts` is now fully importable from system Node without Electron
+
+**Updated `apps/desktop/src/main/runtime/composeRuntime.ts`:**
+- Imports `bootstrapRun` from `@openbrowse/runtime-core`
+- Passes it as `schedulerDispatch: bootstrapRun` to `assembleRuntimeServices`
+
+**Created `tests/compose.test.mjs` — 19 tests:**
+- `createRuntimeStorage` (3 tests): no dbPath returns in-memory, all 11 store properties present, invalid dbPath falls back to memory
+- `assembleRuntimeServices` (16 tests): all RuntimeServices keys present, store pass-through, kernel/bridge/planner pass-through, config/settings pass-through, EventBus creation, TaskOrchestrator creation, DefaultApprovalPolicy creation, scheduler creation, hasDemos propagation (true/false), telegramStatePath, sqliteDb, descriptor built from subsystem descriptors, init functions pass-through, schedulerDispatch integration, riskClassPolicies used in securityPolicy
+
+**Deleted duplicate `tests/scripted-planner.test.mjs`** — 2 tests fully covered by `scriptedPlanner.test.mjs` (13 tests)
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/compose.test.mjs` — 19/19 pass
+- `node --test tests/*.test.mjs` — 682/682 pass (was 665, +19 new, -2 duplicate removed)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- All major pure-function modules now have test coverage; remaining untested code requires Electron context or network mocking
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 44 — 2026-03-16: RunExecutor Stuck Detection + Safety Path Tests
+
+#### Context
+
+Gap analysis: RunExecutor has 18 tests covering happy paths and basic failure modes, but several critical safety/reliability paths are untested: consecutive identical action detection, URL visit count limit, cycle detection integration, page model capture failure with retry/fallback, cancellation after planner call, checkpoint-based cancellation, and step progress sending. These are the planner loop's core safety mechanisms.
+
+#### Plan
+
+1. Add tests to `tests/runExecutor.test.mjs` for untested plannerLoop paths
+2. Targets: consecutive identical actions → fail, URL visit count → fail, cycle detection → fail, capturePageModel retry/fallback, cancellation after planner, checkpoint cancellation, step progress
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Extended `tests/runExecutor.test.mjs` — 9 new tests (18 → 27):**
+
+- `consecutive identical actions` (1 test): 9+ identical actionKeys trigger fail with "repeated" message; uses custom `recordBrowserResult` mock to produce unique history entries (avoiding false cycle detection trigger)
+- `URL visit count limit` (1 test): pre-populated `urlVisitCounts` at 12 triggers fail with "visited" message
+- `cycle detection integration` (1 test): pre-populated 7-entry alternating action history + 1 new entry completes 2-step cycle (4 reps), triggers fail with "cycle" message
+- `capturePageModel retry on first failure` (1 test): first `capturePageModel` throws, second succeeds → run completes normally; verifies retry logic (includes 500ms settle delay)
+- `capturePageModel double failure fallback` (1 test): both captures throw → fallback page model with `PAGE_MODEL_CAPTURE_FAILED` alert → planner still called → run completes
+- `cancellation after planner` (1 test): cancellation flag set during planner.decide callback → detected at post-planner checkpoint → acknowledged, no handoff
+- `checkpoint-based cancellation` (1 test): `runCheckpointStore.load` returns cancelled run → loop exits early returning cancelled status
+- `step progress sending` (1 test): `shouldSendStepProgress()` returns true → chatBridge.send called with step text containing channel "telegram"
+- `network_error soft failure` (1 test): `failureClass: "network_error"` treated as soft failure (like `element_not_found`), loop continues
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 27/27 pass
+- `node --test tests/*.test.mjs` — 691/691 pass (was 682, +9 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `continueResume` without `lastKnownUrl` (skip navigate path)
+- Consider testing `buildPlannerPrompt` untested conditional sections (scrollSection, activePageHint, selfAssessment triggers)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 45 — 2026-03-16: Gap Analysis — buildPlannerPrompt Untested Conditional Sections
+
+#### Context
+
+Continuing gap analysis. `buildPlannerPrompt` has 18 tests but 11 conditional sections are untested: failedUrlsSection, usedQueriesSection, repeatedNavWarning, scrollSection, lastActionSection, urlWarning, pageTypeStr, alertsSection, formsSection, activePageHint, and self-assessment trigger 3 (URL visit count >= 4).
+
+#### Plan
+
+1. Add tests to `tests/planner-prompt.test.mjs` for all 11 untested conditional sections
+2. Run tests
+3. Update this log and commit
+
+#### Implementation
+
+Extended `tests/planner-prompt.test.mjs` — 27 new tests (18 → 45, but file already had 17 existing + 1 replaced = 44 total):
+
+- `failedUrlsSection` (2 tests): unique failed URLs listed, absent when no failures
+- `usedQueriesSection` (2 tests): unique typed queries listed, absent when no type actions
+- `repeatedNavWarning` (2 tests): triggers on 3 same-URL navigates, absent for varied
+- `scrollSection` (2 tests): shows Y position, absent when undefined
+- `lastActionSection` (2 tests): success result, failure with class
+- `urlWarning` (2 tests): frequent URLs listed (>=4), absent below threshold
+- `pageTypeStr` (2 tests): shows non-unknown type, absent for unknown
+- `alertsSection` (2 tests): lists alerts, absent when empty
+- `formsSection` (2 tests): enriched fields with labels/types/required/values/submitRef, absent when empty
+- `activePageHint` (3 tests): appears on step 0 + non-blank URL, absent for about:blank, absent after step 0
+- `selfAssessment trigger 3` (1 test): URL visited 4+ times triggers PROGRESS CHECK
+- `typedText in action history` (1 test): Typed text field rendered
+- `targetUrl in action history` (1 test): URL field rendered
+- `element attributes` (1 test): href, inputType, value, disabled, readonly, off-screen all rendered
+- `no interactive elements` (1 test): "(no interactive elements found)" message
+- `constraints none` (1 test): "none" shown when constraints empty
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 44/44 pass
+- `node --test tests/*.test.mjs` — 718/718 pass (was 691, +27 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `continueResume` without `lastKnownUrl` (skip navigate path)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 46 — 2026-03-16: Comprehensive TaskOrchestrator Test Suite
+
+#### Context
+
+Gap analysis: `TaskOrchestrator` has 10 public methods (`createRun`, `startRun`, `attachSession`, `observePage`, `applyPlannerDecision` × 6 decision types, `recordBrowserResult`, `resumeFromClarification`, `resumeFromApproval`, `failRun`, `cancelRun`) but only 1 test covering clarification suspend/resume. This is the largest pure-logic coverage gap in the codebase.
+
+Also adding `continueResume` without `lastKnownUrl` test to `runExecutor.test.mjs`.
+
+#### Plan
+
+1. Replace `task-orchestrator.test.mjs` with comprehensive test suite covering all 10 methods
+2. Add `continueResume` skip-navigate test to `runExecutor.test.mjs`
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Rewrote `tests/task-orchestrator.test.mjs` — 52 tests (was 1):**
+- `createRun` (5 tests): field mapping, createdAt handling, constraints/metadata, preferredProfileId
+- `startRun` (2 tests): queued→running transition, invalid transition from completed
+- `attachSession` (2 tests): profileId/browserSessionId/pageModelId, optional pageModelId
+- `observePage` (7 tests): URL/title/summary/stepCount updates, stepCount increments, snapshot with truncated visibleText, formValues extraction from input elements, omitted formValues when empty, browserSessionId override, empty title→undefined
+- `applyPlannerDecision — clarification_request` (2 tests): full suspension fields, fallback when no request object
+- `applyPlannerDecision — approval_request` (2 tests): full suspension fields with action, irreversibleActionSummary fallback
+- `applyPlannerDecision — task_complete` (2 tests): full completion fields, completionSummary priority over reasoning
+- `applyPlannerDecision — task_failed` (2 tests): full failure fields, failureSummary priority over reasoning
+- `applyPlannerDecision — browser_action` (3 tests): keeps running with nextSuggestedStep, reasoning fallback, queued→running transition
+- `recordBrowserResult` (12 tests): actionHistory append, cap at 25, consecutiveSoftFailures for element_not_found/network_error, reset on success, non-soft excluded, urlVisitCounts for navigate/non-navigate, targetUrl/typedText recording, lastFailureClass set/cleared
+- `resumeFromClarification` (2 tests): transitions to running with answer in notes, throws from completed
+- `resumeFromApproval` (3 tests): granted/denied notes, custom respondedAt
+- `failRun` (3 tests): running→failed, suspended→failed, throws from completed
+- `cancelRun` (4 tests): running→cancelled, queued→cancelled, suspended→cancelled, throws from failed
+- Full lifecycle (1 test): create→start→attach→observe→decide→record→complete
+
+**Extended `tests/runExecutor.test.mjs` — 1 new test (27 → 28):**
+- `continueResume skips navigate when no lastKnownUrl`: verifies no navigate action executed, goes straight to plannerLoop
+
+#### Verification
+
+- `node --test tests/task-orchestrator.test.mjs` — 52/52 pass
+- `node --test tests/runExecutor.test.mjs` — 28/28 pass
+- `node --test tests/*.test.mjs` — 770/770 pass (was 718, +52 new, +1 new, -1 replaced)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `ClaudePlannerGateway.decide` integration paths (needs API mock)
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 47 — 2026-03-16: ClaudePlannerGateway Unit Tests (Mock API)
+
+#### Context
+
+Gap analysis: `ClaudePlannerGateway` is the sole untested pure-logic module in `packages/planner`. It has 4 distinct code paths: (1) happy path — first API call returns tool_use, (2) text-only response triggers retry with forced tool_choice, (3) timeout returns task_failed, (4) retry also returns no tool_use → task_failed. All are testable by overriding the `client.messages.create` method after construction.
+
+#### Plan
+
+1. Create `tests/claudePlannerGateway.test.mjs` with mock-based tests for all code paths
+2. Run tests, update log, commit
+
+#### Implementation
+
+**Created `tests/claudePlannerGateway.test.mjs` — 17 tests:**
+
+- `happy path — browser_action` (1 test): first API call returns `tool_use` with `browser_click` → correct `browser_action` decision with targetId, description, reasoning
+- `happy path — task_complete` (1 test): `task_complete` tool → correct decision with completionSummary
+- `happy path — task_failed` (1 test): `task_failed` tool → correct decision with failureSummary
+- `happy path — clarification_request` (1 test): `ask_user` tool → correct decision with question, options, runId
+- `happy path — browser_navigate` (1 test): `browser_navigate` tool → navigate action with URL
+- `reasoning extraction — multiple text blocks` (1 test): two text blocks joined with newline
+- `reasoning extraction — no text blocks` (1 test): fallback "No reasoning provided"
+- `retry path — text-only first response` (1 test): first call returns text-only → retry with `tool_choice: "any"` → second call returns tool_use → correct decision; verifies both API calls made
+- `retry path — context preservation` (1 test): retry messages include original assistant response + follow-up prompt
+- `retry failure — text-only on both calls` (1 test): both text-only → `task_failed` with "no tool call after retry"
+- `retry failure — retry throws` (1 test): retry throws → `task_failed` with "no tool call after retry"
+- `timeout` (1 test): error containing "Planner timed out" → `task_failed` with timeout message (not re-thrown)
+- `non-timeout error re-throws` (1 test): other errors propagate normally
+- `config — custom model and maxTokens` (1 test): configured values passed to API
+- `config — defaults` (1 test): default `claude-opus-4-6` model, 4096 maxTokens
+- `API params` (1 test): BROWSER_TOOLS, system prompt, and user message all passed correctly
+- `runId propagation` (1 test): custom runId appears in clarification_request
+
+Mock approach: override `gateway.client.messages.create` after construction (compiled JS exposes `client` as a public property). No import mocking needed.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/claudePlannerGateway.test.mjs` — 17/17 pass
+- `node --test tests/*.test.mjs` — 787/787 pass (was 770, +17 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs Grammy Bot mock — more complex)
+- P3-10 (profile system) remains deferred
+- All pure-logic modules in `planner`, `orchestrator`, `runtime-core`, `observability`, `security`, `chat-bridge` (except TelegramChatBridge) now have test coverage
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 48 — 2026-03-16: TelegramChatBridge Public API Tests (Mock Bot)
+
+#### Context
+
+Gap analysis: `TelegramChatBridge` is the last untested module in the entire codebase (excluding Electron-dependent modules). It implements the `ChatBridge` interface and manages Telegram bot message routing. Grammy's `Bot` constructor works with a fake token without network calls — all API methods (`bot.api.sendMessage`, `bot.api.editMessageReplyMarkup`, etc.) can be monkey-patched after construction.
+
+#### Plan
+
+1. Create `tests/telegramChatBridge.test.mjs` with mock-based tests for all public methods
+2. Test targets: `send` (chatId resolution, split messages, error handling), `sendClarification` (markdown, keyboard, fallback), `shouldSendStepProgress`, `bindRunToChat`, `clearRunState`, `normalizeInbound`, `start`/`stop` (idempotency, chatId auto-approve)
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Created `tests/telegramChatBridge.test.mjs` — 30 tests:**
+
+- `shouldSendStepProgress` (3 tests): verbose=true, quiet=false, undefined=false
+- `normalizeInbound` (1 test): passthrough identity
+- `start` (4 tests): registers 4 commands, idempotent, auto-approves config.chatId, handles setMyCommands failure
+- `stop` (2 tests): no-op when not started, clears started flag
+- `send` (7 tests): config.chatId fallback, run binding priority, primary approved fallback, no chatId silent return, error swallowed, long message splitting at line boundaries, short message single call
+- `sendClarification` (6 tests): markdown+keyboard+registration, no keyboard when no options, plain text fallback on markdown error, double failure silent, Markdown special char escaping, no chatId silent return
+- `bindRunToChat` (1 test): delegates to stateStore
+- `clearRunState` (3 tests): removes stale clarifications + edits keyboard, no-op for unknown, swallows edit errors
+- `setInboundHandler` / `setCommandHandler` (2 tests): stores handler references
+- `resolveOutboundChatId priority` (1 test): run binding > config.chatId > primary approved
+
+Mock approach: Grammy's `Bot` constructor works with a fake token without network calls. After construction, monkey-patch `bot.api.sendMessage`, `bot.api.editMessageReplyMarkup`, `bot.api.setMyCommands`, `bot.start`, and `bot.stop` — capturing all calls in an array. Each test creates an isolated bridge with a temp state directory.
+
+#### Verification
+
+- `node --test tests/telegramChatBridge.test.mjs` — 30/30 pass
+- `node --test tests/*.test.mjs` — 817/817 pass (was 787, +30 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (817 tests, 0 failures)
+- Remaining untested code requires Electron context (BrowserViewManager, ElectronBrowserKernel, AppBrowserShell, renderer components)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16*
+
+---
+
+### Session 49 — 2026-03-16: Stale Documentation Fix + Dead Code Removal (parsePlannerResponse)
+
+#### Context
+
+Gap analysis (Session 48 done, all pure-logic modules tested, 817 tests). Code review found:
+
+1. **Stale schema version in Section 10**: says "Current schema version: **3**" but `schema.ts` has `SCHEMA_VERSION = 4`. Migration 4 (V3→V4) added all session/chat/bookmark/history/profile/container/tab/state tables — undocumented in the table.
+2. **Stale Planner Output Format in Section 10**: says `ClaudePlannerGateway` uses `output_config.format` with a flat JSON schema. This was the old approach. The gateway now uses `tools` + `tool_choice` (12 tool definitions from `BROWSER_TOOLS`) with `mapToolCallToDecision`. `parsePlannerResponse` is referenced but no longer used.
+3. **Dead code**: `parsePlannerResponse` is exported from `packages/planner/src/index.ts` but never imported by any runtime code. It was the old JSON-parsing approach replaced by tool-use mapping in Session 41. Its 20-test file (`tests/parsePlannerResponse.test.mjs`) tests dead code.
+
+#### Plan
+
+1. Fix schema version 3→4 and add migration 4 to the table
+2. Rewrite Planner Output Format section to reflect tool-use approach
+3. Remove `parsePlannerResponse.ts` and its re-export from `index.ts`
+4. Remove `tests/parsePlannerResponse.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed stale Section 10 — Schema Migrations:**
+- Updated version 3→4
+- Added migration 4 row documenting 11 new tables (browser_sessions, chat_sessions, chat_messages, chat_session_runs, bookmarks, browsing_history, browser_profiles, cookie_containers, user_accounts, standalone_tabs, chat_bridge_state)
+
+**Fixed stale Section 10 — Planner Output Format:**
+- Rewrote to reflect actual tool-use approach: `BROWSER_TOOLS` (12 tools), `tool_choice: "auto"` → retry with `"any"`, `mapToolCallToDecision`
+- Removed references to `output_config.format`, JSON schema, `parsePlannerResponse`, and `extractJson` fallbacks
+
+**Removed dead code — `parsePlannerResponse`:**
+- Deleted `packages/planner/src/parsePlannerResponse.ts` (147 lines) — old JSON-parsing approach replaced by `mapToolCallToDecision` in Session 41
+- Removed `export * from "./parsePlannerResponse.js"` from `packages/planner/src/index.ts`
+- Deleted `tests/parsePlannerResponse.test.mjs` (19 tests, 195 lines) — tested dead code
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 798/798 pass (was 817, -19 dead code tests removed)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (798 tests, 0 failures)
+- Remaining untested code requires Electron context (BrowserViewManager, ElectronBrowserKernel, AppBrowserShell, renderer components)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16 (Session 49)*
+
+---
+
+### Session 50 — 2026-03-16: Add Required-Field Guards to mapToolCallToDecision (Boundary Validation)
+
+#### Context
+
+Code review / gap analysis after all P0-P2 backlog complete and 798 tests passing. Found that `mapToolCallToDecision` in `packages/planner/src/toolMapping.ts` passes optional `ToolInput` fields directly into `BrowserAction` fields without validation. If Claude omits a required field (e.g. `url` for `browser_navigate`, `key` for `browser_press_key`, `ref` for `browser_click`), `undefined` propagates to the browser kernel, causing a runtime error instead of a clean `task_failed` at the planner boundary.
+
+#### Plan
+
+1. Add presence guards for required fields in each tool case in `mapToolCallToDecision`
+2. Return `task_failed` with descriptive message when required field is missing
+3. Add tests for all missing-required-field cases
+4. Run typecheck + tests
+5. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/planner/src/toolMapping.ts`:**
+- Added `fail()` helper to DRY up task_failed returns
+- Added required-field guards before each browser action case:
+  - `browser_navigate`: requires `url`
+  - `browser_click`: requires `ref`
+  - `browser_type`: requires `ref` and `text`
+  - `browser_select`: requires `ref` and `value`
+  - `browser_hover`: requires `ref`
+  - `browser_press_key`: requires `key`
+- `browser_scroll`, `browser_wait`, `browser_screenshot` have no strictly required fields (all have sensible defaults)
+- Missing fields now return `task_failed` with a descriptive `failureSummary` (e.g. `"browser_navigate called without url"`)
+
+**Added 10 tests to `tests/toolMapping.test.mjs`:**
+- 8 missing-field cases: navigate/url, click/ref, type/ref, type/text, select/ref, select/value, hover/ref, press_key/key
+- 2 empty-string cases: navigate with `""` url, type with `""` text (both falsy, caught by guards)
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 46/46 pass (was 36, +10 new)
+- `node --test tests/*.test.mjs` — 808/808 pass (was 798, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Issue 1 from gap analysis: validate `riskClassPolicies` from JSON.parse in `settingsStore.ts` (security boundary)
+- Issue 4: add try/catch around JSON.parse in `SqliteRunCheckpointStore` (resilience)
+- Issue 5: surface retry error in `ClaudePlannerGateway` catch block (observability)
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16 (Session 50)*
+
+---
+
+### Session 51 — 2026-03-16: Harden JSON.parse Boundaries + Surface Retry Error
+
+#### Context
+
+Gap analysis follow-up from Session 50. Three small hardening issues at JSON.parse / error boundaries:
+
+1. **settingsStore.ts line 27**: `JSON.parse(riskClassPoliciesRaw.value)` assigned directly without shape validation. Non-object or invalid keys/values propagate.
+2. **SqliteRunCheckpointStore.ts lines 38/43/48**: `JSON.parse(row.data)` can throw on corrupted data, crashing the caller.
+3. **ClaudePlannerGateway.ts line 76**: Bare `catch {}` on retry swallows error info.
+
+#### Plan
+
+1. Add `validateRiskClassPolicies()` to `settingsStore.ts` — strip invalid keys/values
+2. Wrap `JSON.parse` in `SqliteRunCheckpointStore` with try/catch
+3. Capture retry error in `ClaudePlannerGateway` and include in failureSummary
+4. Add tests for all three changes
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fix 1 — `packages/runtime-core/src/settingsStore.ts`:**
+- Added exported `validateRiskClassPolicies(parsed: unknown)` function
+- Validates input is a non-null, non-array object
+- Strips keys not in `VALID_RISK_CLASSES` set (financial, credential, destructive, submission, navigation, general)
+- Strips values not in `VALID_POLICIES` set (always_ask, auto_approve, default)
+- `readStoredRuntimeSettings` now calls `validateRiskClassPolicies()` on the parsed result
+
+**Fix 2 — `packages/memory-store/src/SqliteRunCheckpointStore.ts`:**
+- `load()`: wrapped `JSON.parse` in try/catch, returns `null` on parse failure
+- `listByStatus()` and `listAll()`: extracted shared `parseRows()` helper with try/catch per row — corrupted rows are silently skipped
+
+**Fix 3 — `packages/planner/src/ClaudePlannerGateway.ts`:**
+- Retry catch block now captures error message in `retryError` variable
+- `failureSummary` includes ` (retry error: <message>)` suffix when retry threw
+
+**Tests added:**
+- `tests/settingsStore.test.mjs`: +12 tests (9 for `validateRiskClassPolicies` + 3 integration tests for invalid stored JSON shapes)
+- `tests/claudePlannerGateway.test.mjs`: updated 1 test to assert retry error is surfaced in failureSummary
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm --filter @openbrowse/memory-store build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/settingsStore.test.mjs` — 30/30 pass (was 18, +12 new)
+- `node --test tests/claudePlannerGateway.test.mjs` — 17/17 pass (1 updated assertion)
+- `node --test tests/*.test.mjs` — 820/820 pass (was 808, +12 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Issue 4 from gap analysis (try/catch `JSON.parse` in `SqliteRunCheckpointStore`) — DONE in this session
+- Issue 5 (surface retry error in `ClaudePlannerGateway`) — DONE in this session
+- All three gap analysis hardening issues now resolved
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16 (Session 51)*
+
+---
+
+### Session 52 — 2026-03-16: Test Suite Consolidation — Remove 3 Superseded Test Files
+
+#### Context
+
+Gap analysis found 3 older test files that are fully superseded by comprehensive replacements from later sessions. Same consolidation pattern as Session 35.
+
+Duplicates identified:
+1. `orchestrator-state.test.mjs` (12 tests, Session 15) — superseded by `task-orchestrator.test.mjs` (52 tests, Session 46). 4 unique tests to merge: form values cap at 20, inputs without value, targetId capture, targetId absent.
+2. `safety-recovery.test.mjs` (10 tests, Session 15) — all 10 tests covered by dedicated files: `approval-deny-continue.test.mjs`, `approval-policy.test.mjs`, `auditTrail.test.mjs`, `logReplayer.test.mjs`.
+3. `planner-loop.test.mjs` (9 tests, Session 18) — all 9 tests covered by `runExecutor.test.mjs` (28 tests, Session 44) which tests the same `plannerLoop` function.
+
+#### Plan
+
+1. Merge unique tests from `orchestrator-state.test.mjs` into `task-orchestrator.test.mjs`
+2. Delete `orchestrator-state.test.mjs`, `safety-recovery.test.mjs`, `planner-loop.test.mjs`
+3. Run `node --test tests/*.test.mjs` to verify correct count
+4. Update this log and commit
+
+#### Implementation
+
+**Merged into `task-orchestrator.test.mjs`** (3 unique tests from old file):
+- "observePage caps formValues at 20 entries" — verifies form extraction cap
+- "observePage only captures inputs with non-empty value" — verifies empty/non-input elements produce undefined formValues
+- "recordBrowserResult omits targetId when action has none" — verifies navigate actions don't inject spurious targetId
+
+**Deleted 3 old files:**
+- `tests/orchestrator-state.test.mjs` — 12 tests, all covered by `task-orchestrator.test.mjs` (9 redundant + 3 merged)
+- `tests/safety-recovery.test.mjs` — 10 tests, all covered by dedicated files (`approval-deny-continue`, `approval-policy`, `auditTrail`, `logReplayer`)
+- `tests/planner-loop.test.mjs` — 9 tests, all covered by `runExecutor.test.mjs`'s 28 comprehensive tests
+
+#### Verification
+
+- `node --test tests/*.test.mjs` — 792/792 pass (was 820, -31 removed, +3 merged = net -28)
+- Test count now accurately reflects unique coverage (no inflation from duplicates)
+- 36 test files remain (was 39)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (792 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness for SQLite stores and browser kernel
+
+*Session log entry written: 2026-03-16 (Session 52)*
+
+---
+
+### Session 53 — 2026-03-16: Extract classifyFailure + parseKeyboardShortcut from ElectronBrowserKernel + Tests
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (792 tests). `ElectronBrowserKernel.ts` contains two pure functions embedded in Electron-dependent code:
+
+1. `classifyFailure(message)` — maps error messages to `BrowserActionFailureClass` values. Important for stuck detection and planner feedback.
+2. `dispatchKeyboardShortcut` contains modifier+key parsing logic that's pure.
+
+Same extraction pattern as Sessions 36–37.
+
+#### Plan
+
+1. Extract `classifyFailure` from `ElectronBrowserKernel.ts` into `validation.ts` (no Electron deps)
+2. Extract keyboard shortcut modifier/key parsing into a pure `parseKeyboardShortcut` function in `validation.ts`
+3. Update imports in `ElectronBrowserKernel.ts`
+4. Re-export from `index.ts`
+5. Run typecheck + build
+6. Write comprehensive tests for both functions
+7. Run tests
+8. Commit
+
+#### Implementation
+
+**Extracted into `packages/browser-runtime/src/validation.ts`:**
+- `classifyFailure(message: string): BrowserActionFailureClass` — maps error messages to failure class enum. Checks in priority order: element_not_found > navigation_timeout > validation_error > network_error > interaction_failed (default).
+- `parseKeyboardShortcut(shortcut: string): ParsedKeyboardShortcut` — parses shortcut strings like "Ctrl+Shift+Enter" into CDP-compatible `{ modifiers, key }`. Supports all modifier keys (Ctrl, Shift, Alt, Meta, Cmd) and named keys (Enter→Return, Space→" ", arrow keys, etc.).
+- Added `ParsedKeyboardShortcut` interface export.
+- Added `import type { BrowserActionFailureClass }` from contracts.
+
+**Updated `ElectronBrowserKernel.ts`:**
+- Removed inline `classifyFailure` function (was lines 42–51)
+- Removed inline `MODIFIER_BITS`, `KEY_NAMES` constants and parsing logic from `dispatchKeyboardShortcut`
+- Now imports `classifyFailure` and `parseKeyboardShortcut` from `./validation.js`
+- Removed unused `BrowserActionFailureClass` import from contracts
+- `dispatchKeyboardShortcut` reduced from 20 lines to 4 lines
+
+**Tests added to `tests/validation.test.mjs` — +32 tests:**
+- `classifyFailure` (17 tests): all 5 failure classes, all network error patterns, priority when multiple keywords match, empty string, unknown error
+- `parseKeyboardShortcut` (15 tests): single key, each modifier, combined modifiers, named key resolution (Enter, Space, arrow keys, Delete, Tab, Backspace, Escape), Cmd→Meta mapping, whitespace handling, unknown key passthrough
+
+#### Verification
+
+- `pnpm --filter @openbrowse/browser-runtime build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/validation.test.mjs` — 58/58 pass (was 26, +32 new)
+- `node --test tests/*.test.mjs` — 824/824 pass (was 792, +32 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (824 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 53)*
+
+---
+
+### Session 54 — 2026-03-16: Extract parseApprovalAnswer from OpenBrowseRuntime + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (824 tests). `OpenBrowseRuntime.ts` contains `parseApprovalAnswer(answer: string): boolean | null` — a pure function that maps user text to approve/deny/unknown. It's used in the approval flow (`resumeTaskFromMessage` and `resumeTaskFromMessageDetached`) but is a private module-scoped function, untestable in isolation. Same extraction pattern as Sessions 36–37, 53.
+
+#### Plan
+
+1. Extract `parseApprovalAnswer` from `OpenBrowseRuntime.ts` into a new `approvalParsing.ts` file (no Electron deps)
+2. Export from `index.ts`
+3. Update `OpenBrowseRuntime.ts` to import from `./approvalParsing.js`
+4. Run typecheck + build
+5. Write comprehensive test suite for `parseApprovalAnswer`
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Extracted `packages/runtime-core/src/approvalParsing.ts`:**
+- Moved `parseApprovalAnswer(answer: string): boolean | null` out of `OpenBrowseRuntime.ts`
+- Pure function, no dependencies — maps user free-text to approve (true), deny (false), or ambiguous (null)
+- Used in the approval flow by `resumeTaskFromMessage` and `resumeTaskFromMessageDetached`
+
+**Updated `OpenBrowseRuntime.ts`:**
+- Removed inline `parseApprovalAnswer` function (lines 150–155)
+- Added `import { parseApprovalAnswer } from "./approvalParsing.js"`
+
+**Updated `index.ts`:**
+- Added `export * from "./approvalParsing.js"` to preserve public API
+
+**Created `tests/approvalParsing.test.mjs` — 25 tests:**
+- Affirmative answers (7 tests): approve, approved, yes, y, ok, allow, go → true
+- Negative answers (7 tests): deny, denied, no, n, block, cancel, stop → false
+- Ambiguous/unrecognized (4 tests): empty string, random text, partial match, full sentence → null
+- Case insensitivity (4 tests): APPROVE, Yes, DENY, No
+- Whitespace handling (3 tests): trimmed approve, trimmed deny, whitespace-only → null
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/approvalParsing.test.mjs` — 25/25 pass
+- `node --test tests/*.test.mjs` — 849/849 pass (was 824, +25 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (849 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 54)*
+
+---
+
+### Session 55 — 2026-03-16: Code Review — Refactor Approval-Handling Duplication + Fix Stale Comment
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (849 tests). Code review found:
+
+1. **Stale comment** in `contracts/src/tasks.ts` line 99: says "Max 15" for `actionHistory` but `RunExecutor.ts` retains 25 entries (`.slice(-25)`). The cycle detection window is 20, so 25 is correct — the comment is just stale.
+
+2. **Code duplication** in `OpenBrowseRuntime.ts`: `resumeTaskFromMessage` (lines 207–274) and `resumeTaskFromMessageDetached` (lines 276–344) share ~80% identical approval-handling logic (parse answer, handle null, handle denial with deny-continue vs cancel, handle approval, handle clarification). The only differences are how resume and terminal callbacks work.
+
+#### Plan
+
+1. Fix stale "Max 15" comment → "Max 25"
+2. Extract shared approval-handling into `private async handleSuspensionMessage()` with resume/terminal callbacks
+3. Simplify both public methods to delegate to the shared helper
+4. Run typecheck + tests
+5. Update log and commit
+
+#### Implementation
+
+**Fix 1 — `packages/contracts/src/tasks.ts`:**
+- Line 99: Fixed stale comment "Max 15" → "Max 25" to match `RunExecutor.ts` line 255 (`.slice(-25)`)
+
+**Fix 2 — `packages/runtime-core/src/OpenBrowseRuntime.ts`:**
+- Extracted `private async handleSuspensionMessage(message, doResume, onTerminal)` — contains the shared approval-handling logic previously duplicated across `resumeTaskFromMessage` and `resumeTaskFromMessageDetached`
+- `resumeTaskFromMessage` now delegates to `handleSuspensionMessage` with `doResume → this.resumeExecution` and `onTerminal → no-op`
+- `resumeTaskFromMessageDetached` delegates with `doResume → this.detachedResume(run, onSettled, action)` and `onTerminal → onSettled?.(run)`
+- Net removal of ~65 duplicated lines. All behavior preserved — same approval parsing, denial outcome handling, clarification resume, workflow event logging, and handoff writes.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 849/849 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (849 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider integration testing under Electron test harness
+
+*Session log entry written: 2026-03-16 (Session 55)*
+
+---
+
+### Session 56 — 2026-03-16: Extract Bot Command Handlers into Testable Module + Test Suite
+
+#### Context
+
+Gap analysis: all P0–P2 backlog items done. P3 deferred. All pure-logic modules tested (849 tests). `wireBotCommands` in `OpenBrowseRuntime.ts` contains ~100 lines of command routing logic for `/status`, `/list`, `/cancel`, `/handoff` — 4 commands with multiple code paths each. This logic is pure (services bag + command + args → response text) but untestable because it's embedded in a function gated by `instanceof TelegramChatBridge`. Same extraction pattern as Sessions 36–54.
+
+#### Plan
+
+1. Extract `handleBotCommand(services, command, args)` into `botCommands.ts` (no TelegramChatBridge dependency)
+2. Update `wireBotCommands` in `OpenBrowseRuntime.ts` to delegate to the new function
+3. Export from `index.ts`
+4. Run typecheck + build
+5. Write comprehensive test suite covering all 4 commands + edge cases
+6. Run tests
+7. Commit
+
+#### Implementation
+
+**Created `packages/runtime-core/src/botCommands.ts`:**
+- Extracted `handleBotCommand(services, command, args, cancelRunFn?)` pure function
+- Returns `BotCommandResult` with `responses: string[]` — no TelegramChatBridge dependency
+- `cancelRunFn` is injectable (same DI pattern as RecoveryManager, compose.ts)
+- Handles all 4 commands: `/status`, `/list`, `/cancel`, `/handoff`
+
+**Updated `OpenBrowseRuntime.ts`:**
+- `wireBotCommands` now delegates to `handleBotCommand` (5 lines vs 100+)
+- Removed unused `buildHandoffArtifact`/`renderHandoffMarkdown` imports (moved to `botCommands.ts`)
+- Added `import { handleBotCommand } from "./botCommands.js"`
+
+**Updated `index.ts`:**
+- Added `export * from "./botCommands.js"` to public API
+
+**Created `tests/botCommands.test.mjs` — 28 tests:**
+- `/status` (6 tests): no active runs, running runs with emoji/id/goal, suspended runs, step count + URL, URL omitted, filters terminal statuses
+- `/list` (8 tests): empty, default 5, custom count, cap at 20, status emojis (✓✗⊘⏳), unknown status ?, sorted by updatedAt desc, invalid args default
+- `/cancel` (7 tests): no cancelFn available, no running tasks, auto-picks most recent, cancel returns null, specific id, id not found, goal truncation at 60
+- `/handoff` (5 tests): specific runId, auto-picks most recent terminal, not found, no terminal runs, long markdown chunking at 4000
+- Cross-cutting (2 tests): unknown command error, responses always array
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `node --test tests/botCommands.test.mjs` — 28/28 pass
+- `node --test tests/*.test.mjs` — 877/877 pass (was 849, +28 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages now have test coverage (877 tests, 0 failures)
+- Remaining untested code requires Electron context (CdpClient, ElectronBrowserKernel session management, SQLite stores)
+- P3-10 (profile system) remains deferred
+- Consider testing `handleInboundMessage`/`handleNewTaskMessage` module-level orchestration (needs service mocking with OpenBrowseRuntime constructor)
+
+*Session log entry written: 2026-03-16 (Session 56)*
+
+---
+
+### Session 57 — 2026-03-16: Fix scrollY Drop Bug + Stale Forms Type in capturePageModel
+
+#### Context
+
+Code review / gap analysis found two issues in `ElectronBrowserKernel.capturePageModel`:
+
+1. **Bug**: `scrollY` is extracted by `EXTRACT_PAGE_MODEL_SCRIPT` and defined in the `PageModel` contract, but not mapped in `capturePageModel`'s return statement. This means `scrollY` is always `undefined` in production — scroll position context is never sent to the planner (no scroll section in prompt) and never preserved in recovery snapshots.
+
+2. **Stale type annotation**: The raw result type for `forms` is typed as `Array<{ action: string; method: string; fieldCount: number }>` but the script also returns `fields` and `submitRef`. These properties flow through at runtime due to JS's structural nature, but the type is misleading and incomplete.
+
+#### Plan
+
+1. Add `scrollY: raw.scrollY` to `capturePageModel` return in `ElectronBrowserKernel.ts`
+2. Add `scrollY` to the raw type annotation
+3. Add `fields` and `submitRef` to the raw forms type annotation
+4. Run typecheck
+5. Run tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed `packages/browser-runtime/src/ElectronBrowserKernel.ts`:**
+- Added `scrollY: raw.scrollY` to `capturePageModel` return object — **fixes the scroll position drop bug**
+- Added `scrollY?: number` to the raw result type annotation
+- Added `fields` and `submitRef` to the raw `forms` type annotation to match what the script actually returns
+- No behavioral change for forms (data was already flowing through at runtime, just typed incorrectly)
+
+**Impact of the scrollY fix:**
+- `buildPlannerPrompt` scroll section will now render `Scroll position: Y=...px` instead of being always absent
+- `TaskOrchestrator.observePage` snapshots will now include `scrollY` for recovery context
+- `RunExecutor.continueResume` recovery context will now include `preInterruptionScrollY`
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 877/877 pass (unchanged)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (877 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+
+*Session log entry written: 2026-03-16 (Session 57)*
+
+---
+
+### Session 58 — 2026-03-16: Consolidate MAX_STEPS Constant + Surface totalSoftFailures in Planner Prompt
+
+#### Context
+
+Code review found two issues in the planner loop safety surface:
+
+1. **Duplicated constant**: `MAX_LOOP_STEPS = 35` in `RunExecutor.ts` and `MAX_STEPS = 35` in `buildPlannerPrompt.ts`. If one changes without the other, the step budget shown to Claude will diverge from the actual loop limit.
+
+2. **Invisible hard limit**: `RunExecutor.ts` terminates runs at `MAX_TOTAL_SOFT_FAILURES = 8` total soft failures across the entire run. But `buildPlannerPrompt` only shows `consecutiveSoftFailures` — the planner has NO visibility into the running total approaching the kill limit. This can cause unexpected hard termination without the planner having a chance to adjust strategy.
+
+#### Plan
+
+1. Export `MAX_PLANNER_STEPS = 35` from `buildPlannerPrompt.ts`, import in `RunExecutor.ts` (single source of truth)
+2. Add `totalSoftFailures` warning section to the planner prompt when count >= 5 (of 8 max)
+3. Add tests for both changes
+4. Run typecheck + tests
+5. Update this log and commit
+
+#### Implementation
+
+**Fix 1 — Consolidated `MAX_STEPS` constant:**
+- Exported `MAX_PLANNER_STEPS = 35` from `packages/planner/src/buildPlannerPrompt.ts` (was private `MAX_STEPS`)
+- Updated `packages/runtime-core/src/RunExecutor.ts`: removed local `MAX_LOOP_STEPS = 35`, imported `MAX_PLANNER_STEPS` from `@openbrowse/planner`
+- Single source of truth: if the step budget changes, both the planner prompt and the execution loop update together
+
+**Fix 2 — `totalSoftFailures` prompt visibility:**
+- Added `totalSoftWarning` section to `buildPlannerPrompt`: when `totalSoftFailures >= 5`, shows `CRITICAL: N total soft failures across this run (limit: 8)` with advice to switch strategy
+- Placed after the existing `softFailureWarning` (consecutive) — gives the planner 3 remaining "strikes" before hard termination
+- Previously, the planner had no visibility into the running total — runs could be killed without the planner having a chance to adjust
+
+**Tests added to `tests/planner-prompt.test.mjs` — 6 new tests:**
+- `MAX_PLANNER_STEPS is exported and equals 35` — verifies export value and type
+- `system prompt uses MAX_PLANNER_STEPS for step budget` — verifies step budget string
+- `totalSoftWarning appears when totalSoftFailures >= 5` — verifies CRITICAL + limit: 8
+- `totalSoftWarning appears at 7 total soft failures` — verifies at higher count
+- `totalSoftWarning absent when totalSoftFailures < 5` — verifies no warning at 4
+- `totalSoftWarning absent when totalSoftFailures undefined` — verifies no warning at default
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 50/50 pass (was 44, +6 new)
+- `node --test tests/runExecutor.test.mjs` — 28/28 pass (unchanged)
+- `node --test tests/*.test.mjs` — 883/883 pass (was 877, +6 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (883 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `focusedElementId` from PageModel in the planner prompt (captured but unused)
+
+*Session log entry written: 2026-03-16 (Session 58)*
+
+---
+
+### Session 59 — 2026-03-16: Surface focusedElementId in Planner Prompt + Tests
+
+#### Context
+
+Gap analysis (Session 58): `focusedElementId` is captured by the CDP extraction script, stored in `PageModel`, mapped through `ElectronBrowserKernel.capturePageModel`, but never surfaced in the planner prompt. This means the planner has no visibility into which element currently has keyboard focus — important context for deciding whether to type, press Enter, or click a different field.
+
+#### Plan
+
+1. Add `focusedElementId` context line to `buildPlannerPrompt` in the user prompt section (near scroll position)
+2. Add tests for presence/absence of focused element context
+3. Run typecheck + tests
+4. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `focusedSection` — renders `Focused element: [el_X] — this element currently has keyboard focus` when `pageModel.focusedElementId` is truthy
+- Placed after scroll position, before CAPTCHA hint in the user prompt
+
+**Impact:** The planner now knows which element has keyboard focus. This helps with:
+- Deciding whether to type (if the right field is already focused, no need to click first)
+- Understanding form state (which input the user was interacting with)
+- Pressing Enter after focus is on a submit button
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- `focusedSection shows focused element` — verifies `[el_7]` and "keyboard focus" in output
+- `focusedSection absent when no focused element` — verifies no "Focused element:" when undefined
+- `focusedSection absent when focusedElementId is empty string` — verifies falsy empty string handled
+
+#### Files Changed
+
+| File | Change |
+|---|---|
+| `packages/planner/src/buildPlannerPrompt.ts` | Added `focusedSection` variable + inserted into user prompt |
+| `tests/planner-prompt.test.mjs` | +3 tests for focusedSection presence/absence |
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 53/53 pass (was 50, +3 new)
+- `node --test tests/*.test.mjs` — 886/886 pass (was 883, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (886 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider adding `ariaSelected`/`ariaChecked`/`ariaExpanded` state to element rendering in prompt (captured by CDP but not surfaced)
+
+*Session log entry written: 2026-03-16 (Session 59)*
+
+---
+
+### Session 60 — 2026-03-16: Surface ARIA State Attributes in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 59): suggested surfacing `ariaSelected`/`ariaChecked`/`ariaExpanded` state in planner prompt. Investigation reveals these are NOT captured by the CDP extraction script at all — the planner has no visibility into checkbox/radio checked state, dropdown expanded state, or tab selected state. This limits the planner's ability to understand and interact with toggleable elements.
+
+#### Plan
+
+1. Add `checked`, `selected`, `expanded` to CDP element extraction in `extractPageModel.ts`
+2. Add corresponding optional fields to `PageElementModel` contract in `contracts/browser.ts`
+3. Surface in `buildPlannerPrompt.ts` element rendering (e.g., "(checked)", "(selected)", "(expanded)")
+4. Add tests for presence/absence of state annotations
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `checked?: boolean`, `selected?: boolean`, `expanded?: boolean` optional fields to `PageElementModel`
+- These represent ARIA interactive state: checkbox/radio checked state, tab/option selected state, accordion/dropdown expanded state
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- `checked`: Captures `el.checked` for checkbox/radio inputs, falls back to `aria-checked="true"` for custom components
+- `selected`: Captures `aria-selected="true"` for tabs, list items, tree items
+- `expanded`: Captures `aria-expanded` — `true` for expanded, `false` for collapsed, `undefined` when absent
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(checked)`, `(selected)`, `(expanded)`, `(collapsed)` state annotations
+- Placed before `(disabled)` and `(readonly)` for natural reading order
+
+**Impact:** The planner now knows:
+- Whether a checkbox/radio is checked or unchecked (no need to guess from page text)
+- Which tab is currently selected (avoid clicking an already-active tab)
+- Whether a dropdown/accordion is open or closed (decide whether to expand or collapse)
+
+**Added 8 tests to `tests/planner-prompt.test.mjs`:**
+- checked present/absent, selected present/absent, expanded/collapsed/absent, multiple states together
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 61/61 pass (was 53, +8 new)
+- `node --test tests/*.test.mjs` — 894/894 pass (was 886, +8 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (894 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-label` override in element rendering when it differs from visible text
+
+*Session log entry written: 2026-03-16 (Session 60)*
+
+---
+
+### Session 61 — 2026-03-16: Surface Select Option Values in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis: `<select>` elements appear in the page model as role "combobox" with their current `value`, but the **available options** are not captured. The `browser_select` tool expects an option `value` parameter, but the planner has no visibility into what options exist. This forces the planner to guess, leading to validation errors or incorrect selections.
+
+#### Plan
+
+1. Add `options?: Array<{ value: string; label: string }>` to `PageElementModel` in `contracts/browser.ts`
+2. Capture `<option>` elements for `<select>` in `extractPageModel.ts` (cap at 20 options per select)
+3. Surface options in `buildPlannerPrompt.ts` element rendering
+4. Add tests for options rendering in `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `options?: Array<{ value: string; label: string }>` to `PageElementModel`
+- Only populated for `<select>` elements — dropdown option values the planner needs for `browser_select`
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- For `<select>` elements, captures up to 20 non-disabled `<option>` children
+- Each option: `{ value, label }` (label capped at 60 chars)
+- Returns `undefined` when no options exist (keeps payload clean for non-select elements)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `options=["val" (Label), ...]` for elements with options
+- Omits label parenthetical when label equals value (avoids redundancy like `"Small" (Small)`)
+- This gives the planner the exact values to pass to `browser_select`
+
+**Impact:** The planner can now use `browser_select` accurately by seeing available option values in the prompt, instead of guessing.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- Options rendered with value+label parenthetical
+- Label parenthetical omitted when label equals value
+- Options absent when undefined
+- Options absent when empty array
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 65/65 pass (was 61, +4 new)
+- `node --test tests/*.test.mjs` — 898/898 pass (was 894, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (898 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider similar option extraction for `<datalist>` elements (HTML5 autocomplete suggestions)
+
+*Session log entry written: 2026-03-16 (Session 61)*
+
+---
+
+### Session 62 — 2026-03-16: Surface datalist Autocomplete Suggestions in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 61): suggested extracting `<datalist>` autocomplete suggestions. `<input>` elements with a `list` attribute link to a `<datalist>` element that provides autocomplete suggestions. Currently these suggestions are invisible to the planner — it can't see what options are available for autocomplete inputs (e.g., city selectors, search suggestion boxes). Same pattern as `<select>` options from Session 61.
+
+#### Plan
+
+1. Extend CDP extraction in `extractPageModel.ts` to capture `<datalist>` options for `<input list="...">` elements (cap at 20, reuse `options` field)
+2. No contract changes needed — `options` field already exists on `PageElementModel`
+3. No planner prompt changes needed — `options` rendering already handles the field
+4. Add tests for datalist options in `planner-prompt.test.mjs` (rendering already works, just verify)
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extended `options` extraction to handle `<input>` elements with `list` attribute linking to a `<datalist>`
+- Uses `document.getElementById(el.getAttribute('list'))` to resolve the datalist, verifies it's a `DATALIST` element
+- Reuses the same option extraction logic as `<select>`: cap at 20, skip disabled, capture `value` and `label`
+- Merged extraction into a single IIFE that handles both `SELECT` and `INPUT[list]` cases
+
+**Impact:** The planner can now see autocomplete suggestions for `<input>` fields with `<datalist>` (e.g., city selectors, search suggestion boxes). These appear in the prompt as `options=["val" (Label), ...]` — the same rendering as `<select>` options.
+
+**Added 2 tests to `tests/planner-prompt.test.mjs`:**
+- datalist options rendered same as select options (value+label format)
+- datalist options omit label when same as value (deduplication)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 67/67 pass (was 65, +2 new)
+- `node --test tests/*.test.mjs` — 900/900 pass (was 898, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (900 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` or `aria-errormessage` for form validation feedback
+
+*Session log entry written: 2026-03-16 (Session 62)*
+
+---
+
+### Session 63 — 2026-03-16: Surface Form Validation State in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis (Session 62): suggested surfacing `aria-errormessage` / form validation feedback. Currently, when a form submission fails validation, the planner cannot see which fields are invalid or why. The `alerts` extraction catches some page-level errors, but field-level validation (HTML5 `validationMessage`, `aria-invalid`) is invisible. This causes the planner to re-submit forms without fixing the actual validation error.
+
+#### Plan
+
+1. Add `invalid?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Capture `aria-invalid="true"` or `el.validity?.valid === false` in `extractPageModel.ts`
+3. Add `validationMessage?: string` to `PageFormField` in `contracts/browser.ts`
+4. Capture `el.validationMessage` in `extractForms()` in `extractPageModel.ts`
+5. Surface `(invalid)` annotation in `buildPlannerPrompt.ts` element rendering
+6. Surface `validationMessage` in `buildPlannerPrompt.ts` forms section
+7. Add tests to `planner-prompt.test.mjs`
+8. Run typecheck + tests
+9. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `invalid?: boolean` to `PageElementModel` — captures form validation / `aria-invalid` state
+- Added `validationMessage?: string` to `PageFormField` — captures HTML5 constraint validation messages
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Element enumeration: captures `invalid` from `aria-invalid="true"` or `el.validity.valid === false` (with non-empty `validationMessage`)
+- Form fields: captures `el.validationMessage` (capped at 120 chars), only when non-empty
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering: shows `(invalid)` annotation between `(collapsed)` and `(disabled)` for natural reading order
+- Form fields: shows `INVALID: "message"` after current value, making validation errors immediately visible
+
+**Impact:** The planner can now:
+- See which form fields have validation errors (red-outlined fields in the browser)
+- Read the exact validation message (e.g., "Please enter a valid email address")
+- Fix the specific field instead of re-submitting the entire form blindly
+
+**Added 5 tests to `tests/planner-prompt.test.mjs`:**
+- invalid element shows (invalid) annotation
+- non-invalid element omits (invalid) annotation
+- invalid annotation appears before disabled (ordering)
+- form field shows validation message
+- form field omits validation message when absent
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 72/72 pass (was 67, +5 new)
+- `node --test tests/*.test.mjs` — 905/905 pass (was 900, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (905 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-label` override when it differs from visible text (Session 60 suggestion)
+
+*Session log entry written: 2026-03-16 (Session 63)*
+
+---
+
+### Session 64 — 2026-03-16: Surface Element Visible Text When It Differs From aria-label
+
+#### Context
+
+Gap analysis (Session 60/63 suggestion): `getLabel()` in `extractPageModel.ts` uses `aria-label` as its first priority. When `aria-label` is set, the element's visible `innerText` is lost. For icon buttons (e.g., aria-label="Close" but showing "✕"), search toggles (aria-label="Search" but showing a magnifying glass icon text), or styled buttons where aria-label differs from display text, the planner only sees the programmatic label and cannot correlate with what's visually on the page.
+
+#### Plan
+
+1. Add `text?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `el.innerText` (trimmed, capped at 40 chars) and include as `text` only when it differs from `label` and is non-empty
+3. Surface `text="..."` in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `text?: string` optional field to `PageElementModel`
+- Captures the element's visible `innerText` when it differs from the resolved `label` (which may come from `aria-label`, `aria-labelledby`, `<label>`, title, or placeholder)
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `label` via `getLabel()`, captures `el.innerText` (trimmed, capped at 40 chars)
+- Sets `text` field only when `innerText` is non-empty AND differs from `label`
+- Zero overhead for elements where label matches visible text (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `text="..."` after label, before href
+- Example: `[el_5] button "Close" text="✕" *` — planner sees both the programmatic label and what's visually displayed
+
+**Impact:** The planner can now distinguish between:
+- An icon button with `aria-label="Close"` showing "✕"
+- A styled button with `aria-label="Search"` showing a different visual text
+- Any element where the accessibility label differs from visible content
+This helps the planner correlate what it "sees" in the prompt with what a user would see on screen.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- text rendered when different from label
+- text absent when undefined
+- text absent when same as label (undefined check)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 75/75 pass (was 72, +3 new)
+- `node --test tests/*.test.mjs` — 908/908 pass (was 905, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (908 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` for elements that have additional descriptive context
+
+*Session log entry written: 2026-03-16 (Session 64)*
+
+---
+
+### Session 65 — 2026-03-16: Surface Active Dialog/Modal Detection in Page Model + Planner Prompt
+
+#### Context
+
+Gap analysis: when a modal dialog is open (cookie consent banners, confirmation dialogs, login modals, popups), background elements are typically blocked by the dialog overlay. The planner currently has no way to know a dialog is present — it may try to click background elements that are unreachable. The `alerts` extraction catches `[role=alertdialog]` text, but doesn't indicate that a dialog is *blocking* the page.
+
+#### Plan
+
+1. Add `activeDialog?: { label: string }` to `PageModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, detect open `<dialog[open]>` or visible `[role="dialog"]`/`[role="alertdialog"]` elements
+3. In `buildPlannerPrompt.ts`, surface dialog notice prominently so the planner prioritizes dialog elements
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `activeDialog?: { label: string }` to `PageModel`
+- Captures the accessible label of the currently open modal dialog
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `detectActiveDialog()` function
+- Detects native `<dialog open>` elements first, then visible `[role="dialog"]`/`[role="alertdialog"]`
+- Resolves label from `aria-label`, `aria-labelledby`, or first heading inside the dialog
+- Falls back to "Dialog" when no label is available
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `dialogHint` section: `** DIALOG OPEN: "Label" — A modal dialog is covering the page...`
+- Placed between CAPTCHA hint and alerts section for prominence
+- Instructs the planner to interact with dialog elements first (accept, dismiss, fill) before background elements
+
+**Impact:** The planner now knows when a modal dialog is blocking the page and will prioritize interacting with the dialog instead of trying to click unreachable background elements. Common scenarios: cookie consent banners, confirmation dialogs, login modals, popups.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- active dialog hint shown when activeDialog present
+- active dialog hint absent when no activeDialog
+- active dialog hint absent when activeDialog is undefined
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 78/78 pass (was 75, +3 new)
+- `node --test tests/*.test.mjs` — 911/911 pass (was 908, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (911 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-description` for elements that have additional descriptive context
+- Consider table structure extraction for data-heavy pages
+
+*Session log entry written: 2026-03-16 (Session 65)*
+
+---
+
+### Session 66 — 2026-03-16: Surface aria-description in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 65 suggestion): elements can have `aria-description` or `aria-describedby` attributes that provide additional context beyond the label. For example, a "Delete" button might have `aria-description="Permanently removes the selected items"`, or a form field might have a linked description like "Password must be at least 8 characters". The planner currently has no way to see this supplementary context, which could help it make better decisions about which elements to interact with and how.
+
+#### Plan
+
+1. Add `description?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-description` attribute or resolve `aria-describedby` reference text (trimmed, capped at 80 chars)
+3. Surface `desc="..."` in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `description?: string` optional field to `PageElementModel`
+- Captures the element's `aria-description` or resolved `aria-describedby` text
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `label` and `text`, captures `aria-description` attribute directly
+- Falls back to resolving `aria-describedby` (space-separated IDs → referenced element text content)
+- Capped at 80 chars, only set when non-empty
+- Zero overhead for elements without description attributes (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `desc="..."` after text, before href
+- Example: `[el_5] button "Delete" desc="Permanently removes the selected items" *`
+
+**Impact:** The planner can now see supplementary context for elements:
+- A "Delete" button with `aria-description="Permanently removes the selected items"`
+- A form field with `aria-describedby` linking to helper text like "Password must be at least 8 characters"
+- Any element where authors added descriptive context beyond the label
+This helps the planner understand element purpose and make better interaction decisions.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- description rendered when present
+- description absent when undefined
+- description rendered after text and before href (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 81/81 pass (was 78, +3 new)
+- `node --test tests/*.test.mjs` — 914/914 pass (was 911, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (914 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-level` for headings to convey document structure
+
+*Session log entry written: 2026-03-16 (Session 66)*
+
+---
+
+### Session 67 — 2026-03-16: Surface Heading Level in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 66 suggestion): headings (h1–h6) and elements with `role="heading"` have an implicit or explicit level that conveys document structure hierarchy. The planner currently sees headings as generic elements — it can't distinguish an h1 page title from an h3 subsection. Surfacing heading level helps the planner understand page structure and make better navigation/extraction decisions.
+
+#### Plan
+
+1. Add `level?: number` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture heading level from tag name (h1→1, h2→2, etc.) or explicit `aria-level` attribute for `role="heading"` elements
+3. Surface `level=N` in `buildPlannerPrompt.ts` element rendering for heading elements
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `level?: number` optional field to `PageElementModel`
+- Captures the heading level (1–6) for h1–h6 elements and role="heading" with aria-level
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `description`, detects heading level from tag name (`H1`→1, `H2`→2, etc.)
+- Falls back to explicit `aria-level` attribute for elements with `role="heading"`
+- Only set for heading elements (field is `undefined` for non-headings)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `level=N` after role/label, before text
+- Example: `[el_3] heading "Getting Started" level=2 *`
+
+**Impact:** The planner can now see document structure hierarchy:
+- `[el_1] heading "Welcome to OpenBrowse" level=1` — page title
+- `[el_5] heading "Features" level=2` — main section
+- `[el_9] heading "Browser Automation" level=3` — subsection
+This helps the planner understand page structure, prioritize content extraction, and navigate to the right sections.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- heading level rendered when present
+- heading level absent when undefined
+- heading level rendered after role/label and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 84/84 pass (was 81, +3 new)
+- `node --test tests/*.test.mjs` — 917/917 pass (was 914, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (917 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-current` for navigation elements (active page, step indicators)
+
+*Session log entry written: 2026-03-16 (Session 67)*
+
+---
+
+### Session 68 — 2026-03-16: Surface aria-current in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 67 suggestion): `aria-current` is used on navigation elements (nav links, breadcrumb items, step indicators) to mark the currently active item. Values: "page", "step", "location", "date", "time", or "true". The planner currently has no visibility into which nav item is active — it may click a link that's already the current page, or miss the current step in a multi-step flow.
+
+#### Plan
+
+1. Add `current?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-current` attribute when truthy
+3. Surface `(current)` or `(current=page)` annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `current?: string` optional field to `PageElementModel`
+- Captures the `aria-current` attribute value for navigation elements, breadcrumbs, step indicators
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving heading level, captures `aria-current` attribute
+- Filters out `"false"` values (spec says `aria-current="false"` means not current)
+- Only set when truthy (field is `undefined` for non-current elements)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(current=page)`, `(current=step)`, `(current=location)`, etc.
+- For `aria-current="true"` (boolean form), shows bare `(current)` without redundant `=true`
+- Placed after `level` and before `text` for natural reading order
+
+**Impact:** The planner can now see:
+- Which nav link is the current page (`(current=page)`)
+- Which step is active in a multi-step flow (`(current=step)`)
+- Which breadcrumb is the current location (`(current=location)`)
+This prevents the planner from clicking already-active navigation items and helps it understand flow state.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- current=page rendered for nav links
+- bare (current) rendered when value is "true"
+- current absent when undefined
+- current=step rendered for step indicators
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 88/88 pass (was 84, +4 new)
+- `node --test tests/*.test.mjs` — 921/921 pass (was 917, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (921 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-sort` for sortable table columns
+
+*Session log entry written: 2026-03-16 (Session 68)*
+
+---
+
+### Session 69 — 2026-03-16: Surface aria-sort in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 68 suggestion): `aria-sort` is used on table column headers (`<th>` or `[role=columnheader]`) to indicate the current sort direction. Values: "ascending", "descending", "other", "none". Without this, the planner cannot see which column a table is sorted by or in which direction, leading to unnecessary re-sorting or missed sort state.
+
+#### Plan
+
+1. Add `sort?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-sort` attribute (skip "none")
+3. Surface `(sort=ascending)` etc. annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `sort?: string` optional field to `PageElementModel`
+- Captures the `aria-sort` attribute value for sortable table column headers
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `aria-current`, captures `aria-sort` attribute
+- Filters out `"none"` values (spec says `aria-sort="none"` means no sort applied)
+- Only set when truthy (field is `undefined` for unsorted columns)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(sort=ascending)`, `(sort=descending)`, `(sort=other)`
+- Placed after `current` annotation for natural reading order
+
+**Impact:** The planner can now see:
+- Which column a table is sorted by and in which direction
+- Whether sorting is ascending, descending, or other
+This prevents the planner from clicking a column that's already sorted in the desired direction and helps it understand data table state.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- sort=ascending rendered for sorted column header
+- sort=descending rendered for sorted column header
+- sort annotation absent when undefined
+- sort=other rendered for non-standard sort
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 92/92 pass (was 88, +4 new)
+- `node --test tests/*.test.mjs` — 925/925 pass (was 921, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (925 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-roledescription` for custom widget descriptions
+
+*Session log entry written: 2026-03-16 (Session 69)*
+
+---
+
+### Session 70 — 2026-03-16: Surface aria-roledescription in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 69 suggestion): `aria-roledescription` overrides the default role text for custom widgets. For example, `<div role="slider" aria-roledescription="temperature control">` should be presented as "temperature control" instead of generic "slider". Without this, the planner sees only the generic ARIA role and may not understand what a custom widget does.
+
+#### Plan
+
+1. Add `roleDescription?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-roledescription` attribute (capped at 40 chars)
+3. Surface `roleDesc="..."` in `buildPlannerPrompt.ts` element rendering (after role/label)
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `roleDescription?: string` optional field to `PageElementModel`
+- Captures the `aria-roledescription` attribute value for custom widget descriptions
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `aria-sort`, captures `aria-roledescription` attribute
+- Trimmed, capped at 40 chars, only set when non-empty
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `roleDesc="..."` after sort annotation and before text
+- Example: `[el_5] slider "Temperature" roleDesc="temperature control" *`
+
+**Impact:** The planner can now see custom widget descriptions:
+- A slider with `aria-roledescription="temperature control"` instead of generic "slider"
+- A carousel with `aria-roledescription="image gallery"` instead of generic "group"
+- Any custom component where authors provided a human-readable role description
+This helps the planner understand what custom widgets do and interact with them more appropriately.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- roleDescription rendered when present
+- roleDescription absent when undefined
+- roleDescription rendered after sort and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 95/95 pass (was 92, +3 new)
+- `node --test tests/*.test.mjs` — 928/928 pass (was 925, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (928 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-valuemin`/`aria-valuemax`/`aria-valuenow` for range widgets (sliders, progress bars)
+
+*Session log entry written: 2026-03-16 (Session 70)*
+
+---
+
+### Session 71 — 2026-03-16: Surface aria-value* Properties in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 70 suggestion): `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, and `aria-valuetext` are used on range widgets (`role=slider`, `role=progressbar`, `role=spinbutton`, `role=scrollbar`, `role=meter`). Without these, the planner cannot see a slider's current position, a progress bar's completion percentage, or a spinbutton's current/min/max values. This leads to blind interactions with range controls.
+
+#### Plan
+
+1. Add `valueNow?: number`, `valueMin?: number`, `valueMax?: number`, `valueText?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, `aria-valuetext` attributes
+3. Surface `range=now/min–max` or `valueText="..."` annotation in `buildPlannerPrompt.ts`
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `valueNow?: number`, `valueMin?: number`, `valueMax?: number`, `valueText?: string` optional fields to `PageElementModel`
+- Captures ARIA range widget properties for sliders, progress bars, spinbuttons, scrollbars, meters
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After `aria-roledescription`, captures `aria-valuenow`, `aria-valuemin`, `aria-valuemax` (parsed as float, NaN filtered)
+- Captures `aria-valuetext` (trimmed, capped at 60 chars)
+- Fields are `undefined` for elements without these attributes (zero overhead)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- `valueText` takes precedence: renders `valueText="72°F (warm)"`
+- Otherwise `valueNow` renders as `range=50/0–100` (with min/max) or `range=50` (without)
+- Missing min or max shown as `?` (e.g., `range=3/1–?`)
+- Placed after `roleDesc` and before `text` for natural reading order
+
+**Impact:** The planner can now see:
+- A slider at 50% out of 0–100 range
+- A progress bar at 75% completion
+- A spinbutton at value 3 with min 1
+- Human-readable value text like "72°F (warm)" for range widgets
+This prevents blind interactions with range controls and helps the planner understand current widget state.
+
+**Added 6 tests to `tests/planner-prompt.test.mjs`:**
+- valueNow rendered as range with min/max
+- valueNow without min/max rendered as simple range
+- valueText takes precedence over valueNow
+- range annotation absent when no value properties
+- valueNow with partial min renders `?` for missing max
+- range annotation placed after roleDesc and before text (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 101/101 pass (was 95, +6 new)
+- `node --test tests/*.test.mjs` — 934/934 pass (was 928, +6 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (934 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+
+*Session log entry written: 2026-03-16 (Session 71)*
+
+---
+
+### Session 72 — 2026-03-16: Surface Table Structure in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Sessions 67–71 repeatedly suggested): data tables on pages like comparison shopping, flight results, product lists, search result tables have no structural representation in the page model. The planner only gets a flat text dump in `visibleText` with no column/row awareness. This prevents the planner from understanding tabular data, making it difficult to compare items, extract specific cell values, or navigate table-heavy pages effectively.
+
+#### Plan
+
+1. Add `tables?: Array<{ caption?: string; headers: string[]; rowCount: number; sampleRows?: string[][] }>` to `PageModel` in `contracts/browser.ts`
+2. Add `extractTables()` function to `extractPageModel.ts` — capture up to 3 visible tables with headers and first 3 sample rows
+3. Surface table summaries in `buildPlannerPrompt.ts` between forms and scroll position
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `tables?: Array<{ caption?: string; headers: string[]; rowCount: number; sampleRows?: string[][] }>` to `PageModel`
+- Captures structural representation of data tables on the page
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `extractTables()` function: scans up to 3 visible `<table>` elements
+- Captures `<caption>` text (capped at 80 chars)
+- Extracts headers from `<thead><tr>` or first `<tr>` (up to 10 columns, 40 chars each)
+- Counts body rows (from `<tbody>` or all `<tr>` minus header)
+- Captures first 3 sample rows with cell text (up to 10 columns, 40 chars each)
+- Returns `undefined` when no tables exist (zero overhead)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Added `tablesSection` — renders `Data tables on page:` with structured table summaries
+- Each table shows: caption (if any), headers joined by ` | `, row count, and sample rows
+- Placed between forms section and scroll position in the user prompt
+
+**Impact:** The planner can now see:
+- Table structure on data-heavy pages (comparison shopping, flight results, product lists)
+- Column headers for understanding what data is available
+- Sample rows for understanding data format and values
+- Row counts for understanding table size
+This prevents the planner from relying solely on flat text dumps to understand tabular data.
+
+**Added 7 tests to `tests/planner-prompt.test.mjs`:**
+- table with caption, headers, sample rows rendered correctly
+- table without caption omits quote-wrapped caption
+- (no headers) shown when headers empty
+- singular "row" for rowCount 1
+- tables section absent when undefined
+- tables section absent when empty array
+- multiple tables both rendered
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 108/108 pass (was 101, +7 new)
+- `node --test tests/*.test.mjs` — 941/941 pass (was 934, +7 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (941 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 72)*
+
+---
+
+### Session 73 — 2026-03-16: Surface aria-pressed for Toggle Buttons in Page Model
+
+#### Context
+
+Gap analysis: toggle buttons (dark mode switches, mute buttons, bookmark/favorite toggles, like buttons) are ubiquitous on modern pages. The page model currently surfaces `checked` for checkboxes/radios and `expanded` for disclosure widgets, but has no representation for `aria-pressed` on toggle buttons. Without this, the planner cannot determine whether a toggle is currently active or inactive, leading to blind toggling.
+
+#### Plan
+
+1. Add `pressed?: boolean | "mixed"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-pressed` in `extractPageModel.ts` element enumeration
+3. Surface `(pressed)` / `(not pressed)` / `(partially pressed)` in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `pressed?: boolean | "mixed"` to `PageElementModel`
+- Supports true (pressed), false (not pressed), and "mixed" (partially pressed) states
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-pressed` attribute during element enumeration
+- Maps "true" → `true`, "false" → `false`, "mixed" → `"mixed"`, absent → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(pressed)`, `(not pressed)`, or `(partially pressed)` in element lines
+- Placed after expanded/collapsed rendering
+
+**Impact:** The planner can now see toggle button state on pages with:
+- Dark mode / light mode toggles
+- Mute/unmute buttons
+- Bookmark/favorite/like toggles
+- Bold/italic/underline toolbar buttons
+- Any button with `aria-pressed` attribute
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- pressed=true renders (pressed)
+- pressed=false renders (not pressed)
+- pressed=mixed renders (partially pressed)
+- pressed undefined does not render pressed text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 112/112 pass (was 108, +4 new)
+- `node --test tests/*.test.mjs` — 945/945 pass (was 941, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (945 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-orientation` for sliders/scrollbars (horizontal vs vertical)
+- Consider table column/row span awareness for complex tables
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+
+*Session log entry written: 2026-03-16 (Session 73)*
+
+---
+
+### Session 74 — 2026-03-16: Surface aria-orientation for Sliders/Scrollbars in Page Model
+
+#### Context
+
+Gap analysis (Sessions 71–73 suggested): sliders, scrollbars, separators, toolbars, and tab lists can have `aria-orientation` set to "horizontal" or "vertical". Without this, the planner cannot determine the axis of interaction for range widgets (e.g., whether to drag left/right or up/down) or understand toolbar/tablist layout direction.
+
+#### Plan
+
+1. Add `orientation?: "horizontal" | "vertical"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-orientation` in `extractPageModel.ts` element enumeration
+3. Surface `(horizontal)` / `(vertical)` in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `orientation?: "horizontal" | "vertical"` to `PageElementModel`
+- Captures axis direction for sliders, scrollbars, separators, toolbars, and tab lists
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-orientation` attribute during element enumeration
+- Maps "horizontal" → `"horizontal"`, "vertical" → `"vertical"`, absent → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(horizontal)` or `(vertical)` in element lines
+- Placed after pressed rendering, before invalid
+
+**Impact:** The planner can now see orientation for:
+- Sliders (drag left/right vs up/down)
+- Scrollbars (horizontal vs vertical scrolling)
+- Separators (horizontal vs vertical dividers)
+- Toolbars (horizontal vs vertical layout)
+- Tab lists (horizontal vs vertical tab arrangement)
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- orientation=horizontal renders (horizontal)
+- orientation=vertical renders (vertical)
+- orientation undefined does not render orientation text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 115/115 pass (was 112, +3 new)
+- `node --test tests/*.test.mjs` — 948/948 pass (was 945, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (948 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+- Consider table column/row span awareness for complex tables
+- Consider surfacing `aria-autocomplete` for combobox/search inputs
+
+*Session log entry written: 2026-03-16 (Session 74)*
+
+---
+
+### Session 75 — 2026-03-16: Surface aria-autocomplete for Combobox/Search Inputs in Page Model
+
+#### Context
+
+Gap analysis (Session 74 suggestion): `aria-autocomplete` is used on combobox, searchbox, and text input elements to indicate the type of autocomplete behavior. Values: "inline" (text completion in the field), "list" (popup list of suggestions), "both" (inline + list), or "none". Without this, the planner cannot distinguish between a plain text input and one that will show a suggestion dropdown — affecting whether it should type slowly and wait for suggestions or type the full value immediately.
+
+#### Plan
+
+1. Add `autocomplete?: "inline" | "list" | "both"` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-autocomplete` in `extractPageModel.ts` element enumeration (filter "none")
+3. Surface `(autocomplete=list)` etc. in `buildPlannerPrompt.ts` element lines
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `autocomplete?: "inline" | "list" | "both"` to `PageElementModel`
+- Captures the autocomplete behavior hint for combobox, searchbox, and text input elements
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Extracts `aria-autocomplete` attribute during element enumeration
+- Maps "inline" → `"inline"`, "list" → `"list"`, "both" → `"both"`, absent or "none" → `undefined`
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Renders `(autocomplete=inline)`, `(autocomplete=list)`, or `(autocomplete=both)` in element lines
+- Placed after orientation rendering, before invalid
+
+**Impact:** The planner can now see autocomplete behavior for:
+- Search boxes with dropdown suggestions (`autocomplete=list`)
+- Address fields with inline completion (`autocomplete=inline`)
+- Combo inputs with both inline and list suggestions (`autocomplete=both`)
+This helps the planner decide whether to type the full value or wait for suggestion dropdowns.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- autocomplete=list renders (autocomplete=list)
+- autocomplete=both renders (autocomplete=both)
+- autocomplete=inline renders (autocomplete=inline)
+- autocomplete undefined does not render autocomplete text
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 119/119 pass (was 115, +4 new)
+- `node --test tests/*.test.mjs` — 952/952 pass (was 948, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (952 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-multiselectable` for listboxes/grids
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 75)*
+
+---
+
+### Session 76 — 2026-03-16: Surface aria-multiselectable for Listbox/Grid Elements in Page Model
+
+#### Context
+
+Gap analysis (Session 75 suggestion): `aria-multiselectable` is used on `listbox`, `grid`, `tablist`, and `tree` container elements to indicate whether multiple children can be selected simultaneously. Without this, the planner cannot distinguish between a single-select listbox and a multi-select one — affecting whether it tries to select multiple items or assumes only one selection is allowed.
+
+#### Plan
+
+1. Add `multiselectable?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-multiselectable="true"` in `extractPageModel.ts` element enumeration
+3. Surface `(multiselectable)` annotation in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `multiselectable?: boolean` optional field to `PageElementModel`
+- Captures the `aria-multiselectable` attribute for listbox, grid, tablist, and tree container elements
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After `autocomplete`, captures `aria-multiselectable="true"` → `true`, otherwise `undefined`
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(multiselectable)` annotation between `autocomplete` and `invalid`
+- Example: `[el_5] listbox "Colors" (multiselectable) *`
+
+**Impact:** The planner can now distinguish between single-select and multi-select list/grid containers. This affects whether it tries to select multiple items or assumes only one selection is allowed.
+
+**Added 4 tests to `tests/planner-prompt.test.mjs`:**
+- multiselectable renders (multiselectable) for listbox
+- multiselectable absent when undefined
+- multiselectable absent when false
+- multiselectable renders after autocomplete and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 123/123 pass (was 119, +4 new)
+- `node --test tests/*.test.mjs` — 956/956 pass (was 952, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (956 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-required` for form elements that must be filled
+- Consider table column/row span awareness for complex tables
+
+*Session log entry written: 2026-03-16 (Session 76)*
+
+---
+
+### Session 77 — 2026-03-16: Fix Hard Failure on Pending Action Soft Failure in continueResume
+
+#### Context
+
+Code review found a bug in `RunExecutor.continueResume()` (lines 351-368). When a `pendingAction` (from an approval resume) fails, the run is immediately terminated via `failRun()` regardless of failure type. In contrast, `plannerLoop` (lines 198-234) treats `element_not_found` and `network_error` as soft failures that allow the planner to retry with a different approach.
+
+This matters because on resume, the page DOM has changed (new browser session, re-navigation to `lastKnownUrl`). The pending action's `targetId` may no longer exist because:
+1. The page was re-rendered and element IDs were reassigned
+2. Dynamic content changed between suspension and resume
+3. The page structure shifted after re-navigation
+
+Expected behavior: soft failure classes should be recoverable — skip the pending action and enter the planner loop, which will see the current page state and decide what to do.
+
+#### Plan
+
+1. In `continueResume`, check `result.failureClass` before calling `failRun`
+2. Treat `element_not_found` and `network_error` as soft failures → record result but continue to planner loop
+3. Only call `failRun` for hard failures (other failure classes)
+4. Add tests for both soft and hard failure paths
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Fixed `packages/runtime-core/src/RunExecutor.ts` — `continueResume()` pending action failure handling:**
+- Before: ALL pending action failures → `failRun()` → run terminates
+- After: `element_not_found` and `network_error` failures → add note to `checkpoint.notes` → continue to planner loop
+- Hard failures (interaction_failed, validation_error, etc.) → still call `failRun()` as before
+- The note informs the planner that the pending action failed and the page state may have changed
+
+**Impact:** On approval resume, when the page DOM has changed and the approved action's target element no longer exists, the run recovers gracefully instead of terminating. The planner sees the current page state and can retry with a different approach.
+
+**Updated `tests/runExecutor.test.mjs` — 2 new tests, 1 updated (28 → 30):**
+- Renamed "continueResume fails if pending action fails" → "continueResume fails if pending action has hard failure" — now explicitly uses `failureClass: "interaction_failed"`
+- Added "continueResume recovers from pending action element_not_found (soft failure)" — verifies run completes, note added to checkpoint
+- Added "continueResume recovers from pending action network_error (soft failure)" — verifies run continues to planner loop
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 30/30 pass (was 28, +2 new)
+- `node --test tests/*.test.mjs` — 958/958 pass (was 956, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (958 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider similar soft-failure recovery for other resume paths
+- Consider surfacing `aria-required` for form elements in element list
+
+*Session log entry written: 2026-03-16 (Session 77)*
+
+---
+
+### Session 78 — 2026-03-16: Surface aria-required in Page Model for Form Element Required State
+
+#### Context
+
+The page model currently surfaces `required` only inside `forms[].fields[].required` (via HTML `required` attribute or `aria-required="true"`). However, the element list — which the planner uses for action planning — does not expose required state. This means the planner cannot see which individual textboxes, comboboxes, or other inputs are required when deciding form-filling strategy.
+
+Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectable`, and `invalid` following the same pattern. This session adds `required`.
+
+#### Plan
+
+1. Add `required?: boolean` to `PageElementModel` in `packages/contracts/src/browser.ts`
+2. Extract `required` (HTML attribute) and `aria-required="true"` in `extractPageModel.ts` element enumeration
+3. Render `(required)` in `buildPlannerPrompt.ts` element line — place after `multiselectable` and before `invalid`
+4. Add 4 planner-prompt tests: required=true renders, undefined absent, false absent, ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `required?: boolean` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `required` extraction in element enumeration:
+- Uses `(el.required || el.getAttribute('aria-required') === 'true') ? true : undefined`
+- Covers both HTML `required` attribute (input, select, textarea) and ARIA `aria-required="true"` (custom widgets)
+- Placed after `multiselectable` and before `invalid` in the element object
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(required)` rendering in element line after `(multiselectable)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (123 → 127):
+- `required=true` renders `(required)` for textbox
+- `required` absent when undefined
+- `required` absent when false
+- `required` renders after multiselectable and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 127/127 pass (was 123, +4 new)
+- `node --test tests/*.test.mjs` — 962/962 pass (was 958, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (962 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-haspopup` so planner knows which buttons open menus/dialogs
+- Consider surfacing `aria-busy` for loading states
+
+*Session log entry written: 2026-03-16 (Session 78)*
+
+---
+
+### Session 79 — 2026-03-16: Surface aria-haspopup in Page Model for Menu/Dialog Trigger Awareness
+
+#### Context
+
+The planner currently cannot distinguish between buttons that perform direct actions and buttons that open menus, dialogs, listboxes, or other popups. The `aria-haspopup` attribute indicates what type of popup a trigger element controls (`true`/`menu`, `dialog`, `listbox`, `tree`, `grid`). Surfacing this helps the planner:
+- Know which buttons will open dropdown menus vs perform actions
+- Anticipate that clicking a trigger will reveal new interactive elements
+- Understand the interaction pattern (menu navigation, dialog filling, listbox selection)
+
+Previous sessions added `pressed`, `orientation`, `autocomplete`, `multiselectable`, `required`, and `invalid` following the same pattern.
+
+#### Plan
+
+1. Add `hasPopup?: string` to `PageElementModel` in `packages/contracts/src/browser.ts`
+2. Extract `aria-haspopup` in `extractPageModel.ts` element enumeration (normalize `true` → `menu`)
+3. Render `(haspopup=<type>)` in `buildPlannerPrompt.ts` element line — place after `required` and before `invalid`
+4. Add 4 planner-prompt tests: haspopup renders, absent when undefined, "true" normalizes to "menu", ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `hasPopup?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `hasPopup` extraction in element enumeration:
+- Reads `aria-haspopup` attribute; normalizes `"true"` → `"menu"` (per ARIA spec, `true` is equivalent to `menu`)
+- Filters out `"false"` (treated as no popup)
+- Valid values: `menu`, `dialog`, `listbox`, `tree`, `grid`
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(haspopup=<type>)` rendering in element line after `(required)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (127 → 131):
+- `hasPopup` renders `(haspopup=menu)` for button with menu trigger
+- `hasPopup` absent when undefined
+- `hasPopup` renders `(haspopup=dialog)` for dialog triggers
+- `hasPopup` renders after required and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 131/131 pass (was 127, +4 new)
+- `node --test tests/*.test.mjs` — 966/966 pass (was 962, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (966 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-busy` so planner sees loading states
+- Consider surfacing `aria-live` regions so planner knows about dynamic content areas
+
+*Session log entry written: 2026-03-16 (Session 79)*
+
+---
+
+### Session 80 — 2026-03-16: Surface aria-busy in Page Model for Loading State Awareness
+
+#### Context
+
+Gap analysis (Session 79 suggestion): `aria-busy="true"` is used on elements (and regions) that are currently loading or updating content. Common use cases: loading spinners, dynamically refreshing data tables, AJAX-fetched content areas. Without this, the planner may try to interact with elements inside busy regions that haven't finished loading, causing element_not_found failures or stale data extraction.
+
+#### Plan
+
+1. Add `busy?: boolean` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-busy="true"` in `extractPageModel.ts` element enumeration
+3. Render `(busy)` in `buildPlannerPrompt.ts` element line — place after `hasPopup` and before `invalid`
+4. Add 4 planner-prompt tests: busy=true renders, absent when undefined, absent when false, ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `busy?: boolean` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `busy` extraction in element enumeration:
+- Uses `el.getAttribute('aria-busy') === 'true' ? true : undefined`
+- Zero overhead for elements without the attribute (field is `undefined`)
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(busy)` rendering in element line after `(haspopup=...)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (131 → 135):
+- `busy=true` renders `(busy)` for region element
+- `busy` absent when undefined
+- `busy` absent when false
+- `busy` renders after haspopup and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 135/135 pass (was 131, +4 new)
+- `node --test tests/*.test.mjs` — 970/970 pass (was 966, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (970 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-live` regions so planner knows about dynamic content areas
+- Consider surfacing `aria-disabled` as distinct from HTML disabled (custom disabled widgets)
+
+*Session log entry written: 2026-03-16 (Session 80)*
+
+---
+
+### Session 81 — 2026-03-16: Surface aria-live in Page Model for Dynamic Content Region Awareness
+
+#### Context
+
+Gap analysis (Session 80 suggestion): `aria-live` marks regions whose content updates dynamically (e.g., status messages, notifications, search results, chat messages). Values: `polite`, `assertive`, `off`. Surfacing this helps the planner:
+- Know which regions will update dynamically (and may need re-reading after actions)
+- Understand that content in live regions may change without page navigation
+- Distinguish between static content and auto-updating areas
+
+#### Plan
+
+1. Add `live?: string` to `PageElementModel` in `contracts/browser.ts`
+2. Extract `aria-live` in `extractPageModel.ts` element enumeration (filter out `off`)
+3. Render `(live=<value>)` in `buildPlannerPrompt.ts` element line — place after `busy` and before `invalid`
+4. Add 4 planner-prompt tests: live renders, absent when undefined, absent when "off", ordering
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `live?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `live` extraction in element enumeration:
+- Reads `aria-live` attribute; filters out `"off"` (treated as no live region)
+- Valid values: `polite`, `assertive`
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `(live=<value>)` rendering in element line after `(busy)` and before `(invalid)`.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (135 → 139):
+- `live=polite` renders `(live=polite)` for region element
+- `live` absent when undefined
+- `live=assertive` renders `(live=assertive)` for alert regions
+- `live` renders after busy and before invalid (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 139/139 pass (was 135, +4 new)
+- `node --test tests/*.test.mjs` — 974/974 pass (was 970, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (974 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider surfacing `aria-disabled` as distinct from HTML disabled (custom disabled widgets)
+- Consider surfacing `aria-roledescription` for custom widget type labels
+
+*Session log entry written: 2026-03-16 (Session 81)*
+
+---
+
+### Session 82 — 2026-03-16: Extend disabled Detection to Cover aria-disabled for Custom Widgets
+
+#### Context
+
+Gap analysis (Session 81 suggestion): `disabled` extraction in `extractPageModel.ts` only checks `el.disabled` (HTML `disabled` property). Custom widgets that use `aria-disabled="true"` (e.g., custom buttons, ARIA toolbars, non-native form controls) are not detected as disabled. The planner will try to interact with these elements and get no response, wasting steps.
+
+#### Plan
+
+1. Extend `disabled` extraction to also check `aria-disabled="true"` in `extractPageModel.ts`
+2. No contract changes needed — `disabled?: boolean` already exists on `PageElementModel`
+3. No prompt changes needed — `(disabled)` rendering already handles the field
+4. Add tests to verify the fix
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Changed `disabled: el.disabled || undefined` → `disabled: el.disabled || el.getAttribute('aria-disabled') === 'true' || undefined`
+- Now detects disabled state from both HTML `disabled` property (native form elements) and `aria-disabled="true"` attribute (custom widgets)
+- Zero overhead for elements without either attribute (expression short-circuits to `undefined`)
+
+**Impact:** The planner now correctly sees custom widgets as disabled when they use `aria-disabled="true"` instead of the HTML `disabled` property. This prevents wasted steps trying to interact with non-functional custom controls (ARIA toolbars, custom buttons, React/Vue components that use `aria-disabled`).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 974/974 pass (unchanged — extraction runs in CDP, prompt rendering already tested)
+
+#### Status: DONE
+
+#### Next Steps
+
+- ARIA surfacing sweep is comprehensive (Sessions 60–82: checked, selected, expanded, pressed, orientation, autocomplete, multiselectable, required, hasPopup, busy, live, current, sort, roledescription, valueNow/min/max/text, invalid, description, level, text, options, activeDialog, tables, focusedElement, aria-disabled). This line of work is complete.
+- All pure-logic modules across all packages have test coverage (974 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element grouping/landmark awareness (nav, main, aside regions), iframe content extraction, or shadow DOM penetration
+
+*Session log entry written: 2026-03-16 (Session 82)*
+
+---
+
+### Session 83 — 2026-03-16: Surface Landmark Regions in Page Model for Planner Structural Awareness
+
+#### Context
+
+Gap analysis (Session 82 suggestion): The planner sees a flat list of elements with no page structure information. HTML5 landmark elements (`<nav>`, `<main>`, `<aside>`, `<header>`, `<footer>`) and ARIA landmark roles (`navigation`, `main`, `complementary`, `banner`, `contentinfo`, `search`, `region`, `form`) provide page structure that helps the planner understand where content lives and make better navigation decisions.
+
+#### Plan
+
+1. Add `landmarks?: Array<{ role: string; label: string }>` to `PageModel` in `contracts/browser.ts`
+2. Add landmark extraction function in `extractPageModel.ts` — find landmark elements, deduplicate, limit to 10
+3. Render landmarks section in `buildPlannerPrompt.ts` before elements list
+4. Add planner-prompt tests: landmarks render, absent when empty, label handling
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `landmarks?: Array<{ role: string; label: string }>` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `extractLandmarks()` function:
+- Detects explicit ARIA landmark roles (`banner`, `navigation`, `main`, `complementary`, `contentinfo`, `search`, `region`, `form`)
+- Detects implicit HTML5 landmark tags (`<header>`, `<nav>`, `<main>`, `<aside>`, `<footer>`) with correct role mapping
+- Deduplicates by role+label key, limits to 10 landmarks
+- Extracts label from `aria-label` or `aria-labelledby`
+- Returns `undefined` when no landmarks found (keeps model lean)
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added "Page regions" section rendering landmarks with role and optional label, placed after tables section in the prompt.
+
+**`tests/planner-prompt.test.mjs`** — 4 new tests (139 → 143):
+- Landmarks render with role and label
+- Landmarks absent when undefined
+- Landmarks absent when empty array
+- Landmarks render without label quotes when label is empty
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 143/143 pass (was 139, +4 new)
+- `node --test tests/*.test.mjs` — 978/978 pass (was 974, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (978 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, shadow DOM penetration, or element-to-landmark association (annotating each element with its containing landmark)
+
+*Session log entry written: 2026-03-16 (Session 83)*
+
+---
+
+### Session 84 — 2026-03-16: Show Element Count and Truncation Notice in Planner Prompt
+
+#### Context
+
+Gap analysis: The planner prompt shows up to 150 elements (sorted by actionability/visibility) but doesn't tell the planner how many total elements exist on the page. If a page has 250 interactive elements but only 150 are shown, the planner has no signal that additional elements exist below the fold or off-screen. This causes the planner to miss relevant elements without knowing they exist. Adding a truncation notice (e.g., "Showing 150 of 250 elements — scroll to reveal more") gives the planner the information to decide whether scrolling would help.
+
+#### Plan
+
+1. In `buildPlannerPrompt.ts`, add a truncation notice after the elements list when `pageModel.elements.length > 150`
+2. Add 3 planner-prompt tests: truncation notice appears when >150 elements, absent when <=150, correct count in message
+3. Run typecheck + tests
+
+#### Implementation
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added truncation notice in the "Interactive elements" header line. When `pageModel.elements.length > 150`, the header now reads: `Interactive elements (* = actionable) — showing 150 of N (scroll to reveal more):` instead of just `Interactive elements (* = actionable):`. This gives the planner a clear signal that more elements exist off-screen.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (143 → 146):
+- Truncation notice shown when elements exceed 150 (200 elements → "showing 150 of 200")
+- Truncation notice absent when elements are 150 or fewer
+- Truncation notice absent when no elements
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 146/146 pass (was 143, +3 new)
+- `node --test tests/*.test.mjs` — 981/981 pass (was 978, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (981 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element-to-landmark association (annotating each element with its containing landmark), iframe content extraction, shadow DOM penetration
+
+*Session log entry written: 2026-03-16 (Session 84)*
+
+---
+
+### Session 85 — 2026-03-16: Annotate Elements with Containing Landmark Region
+
+#### Context
+
+Gap analysis (Session 84 suggestion): The planner sees a flat list of elements and a separate list of landmark regions, but has no way to know which landmark a given element belongs to. Annotating each element with its containing landmark (e.g., `in=navigation`) gives the planner spatial context — it can prioritize elements in `main` over those in `banner`, and understand the structural relationship between elements and page regions.
+
+#### Plan
+
+1. Add `landmark?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, add a `getContainingLandmark(el)` helper that walks up the DOM to find the nearest landmark ancestor, returning its role (e.g., "navigation", "main")
+3. Include the `landmark` field in each element's output
+4. In `buildPlannerPrompt.ts`, render `in=<landmark>` after the element ID for elements that have a containing landmark
+5. Add planner-prompt tests for landmark annotation rendering
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `landmark?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `getContainingLandmark(el)` helper function:
+- Walks up from each element to find the nearest ancestor with a landmark role
+- Checks both explicit ARIA landmark roles (`navigation`, `main`, `banner`, etc.) and implicit HTML5 landmark tags (`<nav>`, `<main>`, `<header>`, etc.)
+- Returns `undefined` when no landmark ancestor exists (keeps model lean)
+- Added `landmark: getContainingLandmark(el)` to each element's output
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Renders `in=<landmark>` immediately after the element ID/role/label, before other attributes. Example: `[el_0] link "Home" in=navigation *`
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (146 → 149):
+- Elements with landmark annotation render `in=<landmark>`
+- Elements without landmark do not render `in=`
+- Landmark annotation renders before other attributes like `level`
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 149/149 pass (was 146, +3 new)
+- `node --test tests/*.test.mjs` — 984/984 pass (was 981, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (984 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, shadow DOM penetration, or smart element grouping by landmark in prompt output
+
+*Session log entry written: 2026-03-16 (Session 85)*
+
+---
+
+### Session 86 — 2026-03-16: Detect Cookie Consent Banners in Page Model
+
+#### Context
+
+Gap analysis: The planner system prompt instructs "For cookie consent banners: dismiss them first" but the page model has no signal for whether a cookie banner exists on the current page. The planner has `captchaDetected` for CAPTCHAs but no equivalent for cookie banners. Adding `cookieBannerDetected` gives the planner a clear trigger to prioritize banner dismissal before other interactions, preventing blocked clicks on obscured elements.
+
+#### Plan
+
+1. Add `cookieBannerDetected?: boolean` to `PageModel` in `contracts/browser.ts`
+2. Add `detectCookieBanner()` function in `extractPageModel.ts` — detect common cookie consent patterns (CMP frameworks, class names, ARIA roles, text patterns)
+3. Include `cookieBannerDetected` in the page model return
+4. In `buildPlannerPrompt.ts`, render a cookie banner hint (similar to captchaHint) when detected
+5. Add planner-prompt tests for cookie banner hint rendering
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `cookieBannerDetected?: boolean` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added `detectCookieBanner()` function with three detection strategies:
+- Common CMP framework selectors (OneTrust, CookieBot, cookie-consent, GDPR banner, etc.)
+- ARIA-labelled dialogs/banners containing "cookie", "consent", or "privacy" in the label
+- Fixed/sticky positioned elements with cookie/consent/privacy class/id names that also contain action text ("accept", "agree", "allow", "reject", "manage")
+- Returns `false` when no cookie banner is detected
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added cookie banner hint: when `cookieBannerDetected` is true, renders `** COOKIE BANNER DETECTED` in the user prompt, placed after the CAPTCHA hint. Instructs the planner to dismiss the banner first before other interactions.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (149 → 152):
+- Cookie banner hint shown when cookieBannerDetected is true
+- Cookie banner hint absent when cookieBannerDetected is false
+- Cookie banner hint absent when cookieBannerDetected is undefined
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 152/152 pass (was 149, +3 new)
+- `node --test tests/*.test.mjs` — 987/987 pass (was 984, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (987 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: shadow DOM penetration, iframe content extraction, or aria-keyshortcuts surfacing
+
+*Session log entry written: 2026-03-16 (Session 86)*
+
+---
+
+### Session 87 — 2026-03-16: Surface aria-keyshortcuts in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis: Elements with `aria-keyshortcuts` (e.g., `aria-keyshortcuts="Alt+S"`) expose keyboard shortcuts to assistive technology. The planner currently has no visibility into these shortcuts, so it cannot suggest using keyboard shortcuts as an alternative to clicking — which can be faster and more reliable for certain interactions.
+
+#### Plan
+
+1. Add `keyShortcuts?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, read `aria-keyshortcuts` attribute for each element
+3. In `buildPlannerPrompt.ts`, render `keys="..."` for elements with keyShortcuts
+4. Add 3 planner-prompt tests: keyShortcuts renders, absent when undefined, renders alongside other attrs
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `keyShortcuts?: string` to `PageElementModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added extraction of `aria-keyshortcuts` attribute for each element. Reads the attribute, trims and caps at 60 chars, stores as `keyShortcuts` in the element output.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Renders `keys="<shortcut>"` after `desc=` and before `href=` for elements that have keyShortcuts. Example: `[el_0] button "Save" keys="Alt+S" *`
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (152 → 155):
+- keyShortcuts renders `keys="Alt+S"` for elements with the attribute
+- keyShortcuts absent when element has no keyShortcuts
+- keyShortcuts renders alongside other attributes (landmark, level)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 155/155 pass (was 152, +3 new)
+- `node --test tests/*.test.mjs` — 990/990 pass (was 987, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (990 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: shadow DOM penetration, iframe content extraction, or element grouping by landmark
+
+*Session log entry written: 2026-03-16 (Session 87)*
+
+---
+
+### Session 88 — 2026-03-16: Penetrate Open Shadow DOM in Element Enumeration
+
+#### Context
+
+Gap analysis (Session 87 suggestion): `document.querySelectorAll()` in element enumeration does not penetrate shadow DOM boundaries. Web Components with open shadow roots (custom elements, many modern UI frameworks, CMPs like OneTrust) have their interactive elements completely invisible to the planner. This is a significant interaction gap — the planner literally cannot see or click elements inside shadow roots.
+
+#### Plan
+
+1. Add `querySelectorAllDeep()` helper function in `extractPageModel.ts` that recursively traverses open shadow roots
+2. Replace `document.querySelectorAll()` call in element enumeration with the deep query
+3. Ensure `getContainingLandmark()` traverses through shadow boundaries via `getRootNode().host`
+4. Add `inShadowDom?: boolean` field to `PageElementModel` to mark elements found inside shadow DOM
+5. Surface `(shadow)` annotation in `buildPlannerPrompt.ts`
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- Added `querySelectorAllDeep(root, selector)` recursive function that queries elements from a root node and then recurses into all open shadow roots found under that root
+- Added `isInShadowDom(el)` helper that walks up via `getRootNode()` to detect if an element is inside any shadow root
+- Replaced `document.querySelectorAll(...)` in element enumeration with `querySelectorAllDeep(document, INTERACTIVE_SELECTOR)` — now finds interactive elements inside open shadow DOM
+- Updated `getContainingLandmark(el)` to cross shadow boundaries: when `parentElement` is null, follows `getRootNode().host` to continue the landmark search through the shadow host chain
+- Added `inShadowDom: isInShadowDom(el) || undefined` to each element's output
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `inShadowDom?: boolean` optional field to `PageElementModel` interface
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `(shadow)` annotation for elements inside shadow DOM
+- Placed after options and before `(off-screen)` annotation
+
+**Impact:** The planner can now:
+- See and interact with elements inside open shadow DOM (Web Components, custom elements)
+- Understand which elements are inside shadow roots via the `(shadow)` annotation
+- Navigate landmark structure across shadow boundaries
+This covers many modern UI frameworks and CMP tools that use Web Components with shadow DOM.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- inShadowDom renders (shadow) annotation for element in shadow DOM
+- inShadowDom absent when undefined
+- inShadowDom renders after options and before off-screen (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 158/158 pass (was 155, +3 new)
+- `node --test tests/*.test.mjs` — 993/993 pass (was 990, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (993 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: iframe content extraction, element grouping by landmark in prompt, or closed shadow DOM handling (not possible without `mode: "open"`)
+
+*Session log entry written: 2026-03-16 (Session 88)*
+
+---
+
+### Session 89 — 2026-03-16: Detect Iframes in Page Model and Surface in Planner Prompt
+
+#### Context
+
+Gap analysis (Session 88 suggestion): Pages with `<iframe>` elements have content that is invisible to the planner's element enumeration (which only queries the main document and open shadow DOMs). Cross-origin iframes are completely opaque, and even same-origin iframes are not currently traversed. The planner should at least know when iframes exist so it can reason about missing content and consider alternative approaches.
+
+#### Plan
+
+1. Add `iframeCount?: number` and `iframeSources?: string[]` to `PageModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, count visible `<iframe>` elements and collect their `src` (truncated, max 5)
+3. In `buildPlannerPrompt.ts`, render an iframe hint when iframes are present
+4. Add 3 planner-prompt tests: iframe hint shown, absent when no iframes, shows sources
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `iframeCount?: number` and `iframeSources?: string[]` to `PageModel` interface.
+
+**`packages/browser-runtime/src/cdp/extractPageModel.ts`** — Added iframe detection at end of page model extraction:
+- Counts visible `<iframe>` elements (only those passing `isVisible()`)
+- Collects `src` attributes (truncated to 120 chars, max 5 sources), skips `about:blank`
+- Returns `undefined` when no visible iframes exist
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added `iframeHint` section rendered when `iframeCount > 0`:
+- Shows count and optionally lists sources
+- Advises the planner that iframe content is not visible in the element list
+- Suggests navigating directly to iframe source URLs if needed info is missing
+- Placed after cookie banner hint and before dialog hint
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests (158 → 161):
+- iframeCount hint shown when iframes are present
+- iframe hint absent when iframeCount is undefined
+- iframe hint includes sources when iframeSources provided
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 161/161 pass (was 158, +3 new)
+- `node --test tests/*.test.mjs` — 996/996 pass (was 993, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (996 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider: element grouping by landmark in prompt, loading/spinner state detection, or aria-errormessage surfacing
+
+*Session log entry written: 2026-03-16 (Session 89)*

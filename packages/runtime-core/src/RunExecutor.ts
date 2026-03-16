@@ -1,13 +1,42 @@
 import type { BrowserAction, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import { MAX_PLANNER_STEPS } from "@openbrowse/planner";
 import type { RuntimeServices } from "./types.js";
 import type { SessionManager } from "./SessionManager.js";
 import type { CancellationController } from "./CancellationController.js";
 import type { HandoffManager } from "./HandoffManager.js";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
-
-const MAX_LOOP_STEPS = 20;
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
-const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 3;
+const MAX_TOTAL_SOFT_FAILURES = 8;
+const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
+const MAX_URL_VISITS_BEFORE_FAIL = 12;
+const CYCLE_DETECTION_WINDOW = 20;
+
+/**
+ * Detect repeating cycles of length 2–5 in an array of action keys.
+ * Short cycles (len 2) require 4 full repetitions to avoid false positives
+ * on legitimate sequences like "click Play → click Close modal".
+ * Longer cycles (len 3–5) require 3 full repetitions.
+ * Returns cycle length or 0.
+ */
+export function detectCycle(keys: string[]): number {
+  for (let len = 2; len <= 5; len++) {
+    const reps = len === 2 ? 4 : 3;
+    const needed = len * reps;
+    if (keys.length < needed) continue;
+    const tail = keys.slice(-needed);
+    let isCycle = true;
+    for (let i = 0; i < len; i++) {
+      for (let r = 1; r < reps; r++) {
+        if (tail[i] !== tail[i + len * r]) {
+          isCycle = false; break;
+        }
+      }
+      if (!isCycle) break;
+    }
+    if (isCycle) return len;
+  }
+  return 0;
+}
 
 /**
  * Owns the planner loop core: page model → planner decision → execute action.
@@ -26,7 +55,7 @@ export class RunExecutor {
     let current = run;
     let consecutiveIdenticalActions = 0;
     let lastActionKey = "";
-    for (let step = 0; step < MAX_LOOP_STEPS; step++) {
+    for (let step = 0; step < MAX_PLANNER_STEPS; step++) {
       // Cooperative cancellation check at top of loop
       if (this.cancellation.isCancelled(current.id)) {
         this.cancellation.acknowledge(current.id);
@@ -34,7 +63,32 @@ export class RunExecutor {
         return latest ?? current;
       }
 
-      const pageModel = await this.services.browserKernel.capturePageModel(session);
+      let pageModel: PageModel;
+      try {
+        pageModel = await this.services.browserKernel.capturePageModel(session);
+      } catch (firstErr) {
+        // Retry once after a brief settle
+        await new Promise(r => setTimeout(r, 500));
+        try {
+          pageModel = await this.services.browserKernel.capturePageModel(session);
+        } catch (secondErr) {
+          const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+          await this.logEvent(current.id, "planner_request_failed", `capturePageModel failed twice: ${msg}`, {});
+          // Use minimal fallback so the loop can continue or fail gracefully
+          pageModel = {
+            id: `pm_fallback_${Date.now()}`,
+            url: current.checkpoint.lastKnownUrl ?? "unknown",
+            title: current.checkpoint.lastPageTitle ?? "Page capture failed",
+            summary: "Page model capture failed. The page may be loading or the browser session may be unresponsive.",
+            elements: [],
+            visibleText: "",
+            createdAt: new Date().toISOString(),
+            forms: [],
+            alerts: ["PAGE_MODEL_CAPTURE_FAILED"],
+            captchaDetected: false,
+          };
+        }
+      }
       current = this.services.orchestrator.observePage(current, pageModel, session.id);
       await this.services.runCheckpointStore.save(current);
 
@@ -151,9 +205,10 @@ export class RunExecutor {
             await this.handoff.writeHandoff(current);
             return current;
           }
+          // Check consecutive soft failures
           const softCount = current.checkpoint.consecutiveSoftFailures ?? 0;
           if (softCount >= MAX_CONSECUTIVE_SOFT_FAILURES) {
-            const msg = `Stuck: ${softCount} consecutive element-not-found failures. Last action: "${action.description}". The planner should try a different approach.`;
+            const msg = `Stuck: ${softCount} consecutive soft failures. Last: "${action.description}".`;
             current = this.services.orchestrator.failRun(current, msg);
             await this.services.runCheckpointStore.save(current);
             await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
@@ -163,16 +218,30 @@ export class RunExecutor {
             await this.handoff.writeHandoff(current);
             return current;
           }
+          // Check total soft failures (never resets — catches intermittent failure patterns)
+          const totalSoft = current.checkpoint.totalSoftFailures ?? 0;
+          if (totalSoft >= MAX_TOTAL_SOFT_FAILURES) {
+            const msg = `Too many failures: ${totalSoft} total soft failures across this run. The task may not be achievable with the current approach.`;
+            current = this.services.orchestrator.failRun(current, msg);
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
+              totalSoftFailures: String(totalSoft)
+            });
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
           await this.services.runCheckpointStore.save(current);
           continue;
         }
 
-        // Detect consecutive identical actions
-        const actionKey = `${action.type}:${pageModel.url}`;
+        // --- Stuck detection (only on successful actions — prevents false positives) ---
+
+        // 1. Consecutive identical actions
+        const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
         if (actionKey === lastActionKey) {
           consecutiveIdenticalActions++;
           if (consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
-            const msg = `Stuck: repeated "${action.type}" on ${pageModel.url} ${consecutiveIdenticalActions} times. The task may not be actionable.`;
+            const msg = `Stuck: repeated "${action.type}" on ${pageModel.url} ${consecutiveIdenticalActions} times.`;
             current = this.services.orchestrator.failRun(current, msg);
             await this.services.runCheckpointStore.save(current);
             await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
@@ -184,33 +253,31 @@ export class RunExecutor {
           lastActionKey = actionKey;
         }
 
-        // Cycle detection: A-B-A-B (length 2) and A-B-C-A-B-C (length 3)
-        const recentKeys = (current.checkpoint.actionHistory ?? [])
-          .slice(-6)
-          .map(r => `${r.type}:${r.targetUrl ?? r.url ?? ""}`);
-
-        if (recentKeys.length >= 4) {
-          const l4 = recentKeys.slice(-4);
-          if (l4[0] === l4[2] && l4[1] === l4[3]) {
-            const msg = `Stuck in cycle: alternating between actions. Try a completely different strategy.`;
-            current = this.services.orchestrator.failRun(current, msg);
-            await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-            await this.handoff.writeHandoff(current);
-            return current;
-          }
+        // 2. URL visit count — detect excessive revisiting
+        const urlCounts = current.checkpoint.urlVisitCounts ?? {};
+        const currentUrlVisits = urlCounts[pageModel.url] ?? 0;
+        if (currentUrlVisits >= MAX_URL_VISITS_BEFORE_FAIL) {
+          const msg = `Stuck: visited ${pageModel.url} ${currentUrlVisits} times. Moving on is not working.`;
+          current = this.services.orchestrator.failRun(current, msg);
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+          await this.handoff.writeHandoff(current);
+          return current;
         }
 
-        if (recentKeys.length >= 6) {
-          const l6 = recentKeys.slice(-6);
-          if (l6[0] === l6[3] && l6[1] === l6[4] && l6[2] === l6[5]) {
-            const msg = `Stuck in 3-step cycle. Try a completely different strategy.`;
-            current = this.services.orchestrator.failRun(current, msg);
-            await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-            await this.handoff.writeHandoff(current);
-            return current;
-          }
+        // 3. Cycle detection: 2/3/4/5-step cycles over extended window
+        const recentKeys = (current.checkpoint.actionHistory ?? [])
+          .slice(-CYCLE_DETECTION_WINDOW)
+          .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
+
+        const cycleLength = detectCycle(recentKeys);
+        if (cycleLength > 0) {
+          const msg = `Stuck in ${cycleLength}-step cycle. The agent is repeating the same sequence of actions.`;
+          current = this.services.orchestrator.failRun(current, msg);
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+          await this.handoff.writeHandoff(current);
+          return current;
         }
 
         await this.services.runCheckpointStore.save(current);
@@ -244,7 +311,7 @@ export class RunExecutor {
       }
     }
 
-    current = this.services.orchestrator.failRun(current, `Planner loop exceeded ${MAX_LOOP_STEPS} steps`);
+    current = this.services.orchestrator.failRun(current, `Planner loop exceeded ${MAX_PLANNER_STEPS} steps`);
     await this.services.runCheckpointStore.save(current);
     await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
     await this.handoff.writeHandoff(current);
@@ -292,11 +359,20 @@ export class RunExecutor {
       });
 
       if (!result.ok) {
-        const failedRun = this.services.orchestrator.failRun(current, result.summary);
-        await this.services.runCheckpointStore.save(failedRun);
-        await this.logEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
-        await this.handoff.writeHandoff(failedRun);
-        return failedRun;
+        // Soft failures (element_not_found, network_error) are recoverable on resume —
+        // the page DOM likely changed after re-navigation, so the planner should retry.
+        if (result.failureClass === "element_not_found" || result.failureClass === "network_error") {
+          current.checkpoint.notes.push(
+            `Pending action "${pendingAction.description}" failed after resume (${result.failureClass}). The page state may have changed. Trying a different approach.`
+          );
+          await this.services.runCheckpointStore.save(current);
+        } else {
+          const failedRun = this.services.orchestrator.failRun(current, result.summary);
+          await this.services.runCheckpointStore.save(failedRun);
+          await this.logEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {});
+          await this.handoff.writeHandoff(failedRun);
+          return failedRun;
+        }
       }
     }
 

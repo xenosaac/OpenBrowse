@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
+import { colors, glass, shadows } from "../styles/tokens";
 
 interface Props {
   runs: TaskRun[];
@@ -20,7 +21,7 @@ const RISK_CLASS_COLORS: Record<string, string> = {
   financial: "#ef4444",
   credential: "#f59e0b",
   destructive: "#dc2626",
-  submission: "#8b5cf6",
+  submission: colors.emerald,
   navigation: "#06b6d4",
   general: "#6b7280"
 };
@@ -157,6 +158,7 @@ export function RemoteQuestions({ runs, onResume, onDismiss }: Props) {
                   onClick={() => handleResume(run, "desktop")}
                   disabled={busy === run.id}
                   style={styles.button}
+                  className="ob-btn-primary"
                 >
                   {busy === run.id ? "Resuming..." : "Resume"}
                 </button>
@@ -183,12 +185,12 @@ export function RemoteQuestions({ runs, onResume, onDismiss }: Props) {
 
 const styles: Record<string, React.CSSProperties> = {
   card: {
-    background: "#151522",
+    ...glass.card,
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
-    border: "1px solid rgba(245,158,11,0.25)"
-  },
+    border: "1px solid " + colors.borderGlass
+  } as React.CSSProperties,
   question: {
     color: "#fbbf24",
     fontSize: "0.9rem",
@@ -210,18 +212,18 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: 8
   },
   input: {
+    ...glass.input,
     flex: 1,
-    background: "#1e1e2e",
-    border: "1px solid #2a2a3e",
+    border: "1px solid " + colors.borderGlass,
     borderRadius: 10,
     padding: "10px 12px",
     color: "#f5f5ff",
     fontSize: "0.9rem"
-  },
+  } as React.CSSProperties,
   button: {
-    background: "#7c3aed",
+    background: colors.emerald,
     color: "#fffdf9",
-    border: "1px solid #8b5cf6",
+    border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 10,
     padding: "8px 10px",
     cursor: "pointer",

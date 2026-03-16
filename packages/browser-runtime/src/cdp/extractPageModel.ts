@@ -102,7 +102,7 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     var SKIP_TAGS = new Set(['NAV', 'HEADER', 'FOOTER', 'ASIDE', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG']);
     var result = [];
     var charCount = 0;
-    var MAX_CHARS = 2000;
+    var MAX_CHARS = 4000;
 
     var walker = document.createTreeWalker(
       document.body,
@@ -165,16 +165,46 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return 'unknown';
   }
 
-  // --- Forms extraction ---
+  // --- Forms extraction (enriched with field details) ---
   function extractForms() {
     var forms = document.querySelectorAll('form');
     var result = [];
     for (var i = 0; i < Math.min(forms.length, 5); i++) {
       var form = forms[i];
+      var fields = [];
+      var inputs = form.querySelectorAll('input, select, textarea');
+      for (var fi = 0; fi < Math.min(inputs.length, 20); fi++) {
+        var inp = inputs[fi];
+        if (inp.type === 'hidden') continue;
+        var fLabel = '';
+        if (inp.id) {
+          var lbl = document.querySelector('label[for="' + CSS.escape(inp.id) + '"]');
+          if (lbl) fLabel = (lbl.textContent || '').trim().slice(0, 60);
+        }
+        if (!fLabel && inp.closest && inp.closest('label')) {
+          fLabel = (inp.closest('label').textContent || '').trim().slice(0, 60);
+        }
+        if (!fLabel) {
+          fLabel = inp.getAttribute('aria-label') || inp.getAttribute('placeholder') || inp.name || '';
+        }
+        var ref = inp.getAttribute(targetAttr) || '';
+        var valMsg = inp.validationMessage || '';
+        fields.push({
+          ref: ref,
+          label: fLabel.slice(0, 60),
+          type: inp.type || inp.tagName.toLowerCase(),
+          required: inp.required || inp.getAttribute('aria-required') === 'true',
+          currentValue: inp.value || '',
+          validationMessage: valMsg ? valMsg.slice(0, 120) : undefined
+        });
+      }
+      var submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
       result.push({
         action: form.getAttribute('action') || '',
         method: (form.getAttribute('method') || 'get').toUpperCase(),
-        fieldCount: form.querySelectorAll('input, select, textarea').length
+        fieldCount: inputs.length,
+        fields: fields,
+        submitRef: submitBtn ? (submitBtn.getAttribute(targetAttr) || '') : ''
       });
     }
     return result;
@@ -204,13 +234,265 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     return false;
   }
 
+  // --- Active dialog detection ---
+  function detectActiveDialog() {
+    // 1. Native <dialog> with open attribute
+    var dialog = document.querySelector('dialog[open]');
+    if (dialog) {
+      var label = dialog.getAttribute('aria-label')
+        || dialog.getAttribute('aria-labelledby') && (function() {
+          var ref = document.getElementById(dialog.getAttribute('aria-labelledby'));
+          return ref ? (ref.textContent || '').trim() : '';
+        })()
+        || (dialog.querySelector('h1, h2, h3, h4, h5, h6') || {}).textContent
+        || '';
+      return { label: (label || '').trim().slice(0, 80) || 'Dialog' };
+    }
+    // 2. ARIA role="dialog" or role="alertdialog" that is visible
+    var roleDialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
+    for (var di = 0; di < roleDialogs.length; di++) {
+      var rd = roleDialogs[di];
+      if (isVisible(rd)) {
+        var rdLabel = rd.getAttribute('aria-label')
+          || rd.getAttribute('aria-labelledby') && (function() {
+            var ref = document.getElementById(rd.getAttribute('aria-labelledby'));
+            return ref ? (ref.textContent || '').trim() : '';
+          })()
+          || (rd.querySelector('h1, h2, h3, h4, h5, h6') || {}).textContent
+          || '';
+        return { label: (rdLabel || '').trim().slice(0, 80) || 'Dialog' };
+      }
+    }
+    return undefined;
+  }
+
+  // --- Table structure extraction ---
+  function extractTables() {
+    var tables = document.querySelectorAll('table');
+    var result = [];
+    for (var ti = 0; ti < Math.min(tables.length, 3); ti++) {
+      var table = tables[ti];
+      if (!isVisible(table)) continue;
+
+      // Caption
+      var captionEl = table.querySelector('caption');
+      var caption = captionEl ? (captionEl.textContent || '').trim().slice(0, 80) : undefined;
+
+      // Headers from <thead> or first <tr>
+      var headers = [];
+      var headerRow = table.querySelector('thead tr') || table.querySelector('tr');
+      if (headerRow) {
+        var headerCells = headerRow.querySelectorAll('th, td');
+        for (var hi = 0; hi < Math.min(headerCells.length, 10); hi++) {
+          headers.push((headerCells[hi].textContent || '').trim().slice(0, 40));
+        }
+      }
+
+      // Row count (excluding header row)
+      var allRows = table.querySelectorAll('tbody tr');
+      if (allRows.length === 0) {
+        // No tbody, count all tr minus the header
+        var allTr = table.querySelectorAll('tr');
+        var rowCount = Math.max(0, allTr.length - (headerRow ? 1 : 0));
+        var bodyRows = [];
+        for (var ri = (headerRow ? 1 : 0); ri < allTr.length; ri++) {
+          bodyRows.push(allTr[ri]);
+        }
+        allRows = bodyRows;
+      } else {
+        var rowCount = allRows.length;
+      }
+
+      // Sample rows (first 3)
+      var sampleRows = [];
+      for (var si = 0; si < Math.min(allRows.length, 3); si++) {
+        var row = allRows[si];
+        var cells = row.querySelectorAll('td, th');
+        var rowData = [];
+        for (var ci = 0; ci < Math.min(cells.length, 10); ci++) {
+          rowData.push((cells[ci].textContent || '').trim().slice(0, 40));
+        }
+        sampleRows.push(rowData);
+      }
+
+      if (headers.length > 0 || rowCount > 0) {
+        result.push({
+          caption: caption || undefined,
+          headers: headers,
+          rowCount: rowCount,
+          sampleRows: sampleRows.length > 0 ? sampleRows : undefined
+        });
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  }
+
+  // --- Cookie consent banner detection ---
+  function detectCookieBanner() {
+    // 1. Common CMP (Consent Management Platform) frameworks
+    if (document.querySelector('#CybotCookiebotDialog, .cmp-container, #onetrust-banner-sdk, #onetrust-consent-sdk, .cc-banner, .cc-window, #cookie-law-info-bar, .cookie-consent, #gdpr-consent, .gdpr-banner, #cookieNotice, .js-cookie-consent')) return true;
+
+    // 2. Aria-labelled cookie dialogs
+    var ariaDialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="banner"]');
+    for (var ci = 0; ci < ariaDialogs.length; ci++) {
+      var cd = ariaDialogs[ci];
+      if (!isVisible(cd)) continue;
+      var cdLabel = (cd.getAttribute('aria-label') || '').toLowerCase();
+      if (cdLabel.includes('cookie') || cdLabel.includes('consent') || cdLabel.includes('privacy')) return true;
+    }
+
+    // 3. Text pattern matching on fixed/sticky positioned overlays
+    var candidates = document.querySelectorAll('[class*="cookie" i], [class*="consent" i], [class*="gdpr" i], [id*="cookie" i], [id*="consent" i], [id*="gdpr" i]');
+    for (var ki = 0; ki < candidates.length; ki++) {
+      var ce = candidates[ki];
+      if (!isVisible(ce)) continue;
+      var style = window.getComputedStyle(ce);
+      if (style.position === 'fixed' || style.position === 'sticky') {
+        var txt = (ce.textContent || '').toLowerCase().slice(0, 500);
+        if ((txt.includes('cookie') || txt.includes('consent') || txt.includes('privacy')) && (txt.includes('accept') || txt.includes('agree') || txt.includes('allow') || txt.includes('reject') || txt.includes('manage'))) return true;
+      }
+    }
+
+    return false;
+  }
+
+  // --- Landmark region extraction ---
+  function extractLandmarks() {
+    var landmarkRoles = new Set([
+      'banner', 'navigation', 'main', 'complementary',
+      'contentinfo', 'search', 'region', 'form'
+    ]);
+    var tagToRole = {
+      'HEADER': 'banner',
+      'NAV': 'navigation',
+      'MAIN': 'main',
+      'ASIDE': 'complementary',
+      'FOOTER': 'contentinfo'
+    };
+
+    var result = [];
+    var seen = new Set();
+
+    // Explicit ARIA landmark roles
+    var roleEls = document.querySelectorAll('[role]');
+    for (var ri = 0; ri < roleEls.length; ri++) {
+      var rel = roleEls[ri];
+      var r = (rel.getAttribute('role') || '').toLowerCase();
+      if (!landmarkRoles.has(r)) continue;
+      if (!isVisible(rel)) continue;
+      var lbl = rel.getAttribute('aria-label')
+        || (rel.getAttribute('aria-labelledby') ? (function() {
+          var ref = document.getElementById(rel.getAttribute('aria-labelledby'));
+          return ref ? (ref.textContent || '').trim() : '';
+        })() : '')
+        || '';
+      var key = r + '::' + lbl.slice(0, 40);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push({ role: r, label: lbl.slice(0, 60).trim() });
+      if (result.length >= 10) return result;
+    }
+
+    // Implicit landmark tags (only if not already covered by explicit role)
+    var tagSelectors = ['HEADER', 'NAV', 'MAIN', 'ASIDE', 'FOOTER'];
+    for (var ti = 0; ti < tagSelectors.length; ti++) {
+      var tagName = tagSelectors[ti];
+      var els = document.querySelectorAll(tagName);
+      for (var ei = 0; ei < els.length; ei++) {
+        var tel = els[ei];
+        if (tel.getAttribute('role')) continue; // already handled above
+        if (!isVisible(tel)) continue;
+        var implicitRole = tagToRole[tagName];
+        var tLbl = tel.getAttribute('aria-label')
+          || (tel.getAttribute('aria-labelledby') ? (function() {
+            var ref = document.getElementById(tel.getAttribute('aria-labelledby'));
+            return ref ? (ref.textContent || '').trim() : '';
+          })() : '')
+          || '';
+        var tKey = implicitRole + '::' + tLbl.slice(0, 40);
+        if (seen.has(tKey)) continue;
+        seen.add(tKey);
+        result.push({ role: implicitRole, label: tLbl.slice(0, 60).trim() });
+        if (result.length >= 10) return result;
+      }
+    }
+
+    return result.length > 0 ? result : undefined;
+  }
+
+  // --- Containing landmark lookup ---
+  var landmarkRolesSet = new Set([
+    'banner', 'navigation', 'main', 'complementary',
+    'contentinfo', 'search', 'region', 'form'
+  ]);
+  var tagToLandmarkRole = {
+    'HEADER': 'banner',
+    'NAV': 'navigation',
+    'MAIN': 'main',
+    'ASIDE': 'complementary',
+    'FOOTER': 'contentinfo'
+  };
+
+  function getContainingLandmark(el) {
+    var node = el.parentElement;
+    while (node) {
+      if (node === document.body || node === document.documentElement) break;
+      if (node.getAttribute) {
+        var r = (node.getAttribute('role') || '').toLowerCase();
+        if (landmarkRolesSet.has(r)) return r;
+        if (node.tagName) {
+          var implicitRole = tagToLandmarkRole[node.tagName];
+          if (implicitRole && !node.getAttribute('role')) return implicitRole;
+        }
+      }
+      // Cross shadow boundary: if parent is null, check for shadow host
+      if (!node.parentElement) {
+        var root = node.getRootNode ? node.getRootNode() : null;
+        if (root && root instanceof ShadowRoot && root.host) {
+          node = root.host;
+          continue;
+        }
+        break;
+      }
+      node = node.parentElement;
+    }
+    return undefined;
+  }
+
+  // --- Deep query that penetrates open shadow DOM ---
+  var INTERACTIVE_SELECTOR = 'a, button, input, select, textarea, [role], [tabindex], [contenteditable], summary, details, [onclick]';
+
+  function querySelectorAllDeep(root, selector) {
+    var result = [];
+    // Collect from this root
+    var found = root.querySelectorAll(selector);
+    for (var qi = 0; qi < found.length; qi++) result.push(found[qi]);
+    // Recurse into open shadow roots
+    var allEls = root.querySelectorAll('*');
+    for (var si = 0; si < allEls.length; si++) {
+      if (allEls[si].shadowRoot) {
+        var shadowFound = querySelectorAllDeep(allEls[si].shadowRoot, selector);
+        for (var sfi = 0; sfi < shadowFound.length; sfi++) result.push(shadowFound[sfi]);
+      }
+    }
+    return result;
+  }
+
+  function isInShadowDom(el) {
+    var node = el;
+    while (node) {
+      var root = node.getRootNode ? node.getRootNode() : document;
+      if (root instanceof ShadowRoot) return true;
+      node = root.host || null;
+    }
+    return false;
+  }
+
   // --- Element enumeration ---
   var elements = [];
   var idCounter = 0;
 
-  var allElements = document.querySelectorAll(
-    'a, button, input, select, textarea, [role], [tabindex], [contenteditable], summary, details, [onclick]'
-  );
+  var allElements = querySelectorAllDeep(document, INTERACTIVE_SELECTOR);
 
   for (var j = 0; j < allElements.length; j++) {
     allElements[j].removeAttribute(targetAttr);
@@ -231,16 +513,116 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
       && rect.top < window.innerHeight && rect.bottom > 0
       && rect.left < window.innerWidth && rect.right > 0;
 
+    var elLabel = getLabel(el);
+    var elInnerText = (el.innerText || '').trim().slice(0, 40);
+    var elText = (elInnerText && elInnerText !== elLabel) ? elInnerText : undefined;
+
+    // aria-description or aria-describedby
+    var elDesc = el.getAttribute('aria-description');
+    if (!elDesc) {
+      var describedBy = el.getAttribute('aria-describedby');
+      if (describedBy) {
+        var descParts = describedBy.split(/\\s+/).map(function(id) {
+          var ref = document.getElementById(id);
+          return ref ? (ref.textContent || '').trim() : '';
+        }).filter(Boolean);
+        if (descParts.length > 0) elDesc = descParts.join(' ');
+      }
+    }
+    elDesc = elDesc ? elDesc.trim().slice(0, 80) : undefined;
+
+    // Heading level: h1-h6 tags or explicit aria-level on role="heading"
+    var elLevel = undefined;
+    var tagMatch = el.tagName.match && el.tagName.match(/^H([1-6])$/);
+    if (tagMatch) {
+      elLevel = parseInt(tagMatch[1], 10);
+    } else if (role === 'heading') {
+      var ariaLevel = el.getAttribute('aria-level');
+      if (ariaLevel) elLevel = parseInt(ariaLevel, 10) || undefined;
+    }
+
+    // aria-current: marks the current item in navigation, breadcrumbs, step indicators
+    var elCurrent = el.getAttribute('aria-current');
+    elCurrent = (elCurrent && elCurrent !== 'false') ? elCurrent : undefined;
+
+    // aria-sort: indicates sort direction on table column headers
+    var elSort = el.getAttribute('aria-sort');
+    elSort = (elSort && elSort !== 'none') ? elSort : undefined;
+
+    // aria-roledescription: custom widget description overriding generic role
+    var elRoleDesc = (el.getAttribute('aria-roledescription') || '').trim().slice(0, 40) || undefined;
+
+    // aria-value*: range widget properties (slider, progressbar, spinbutton, scrollbar, meter)
+    var rawValueNow = el.getAttribute('aria-valuenow');
+    var elValueNow = rawValueNow !== null ? parseFloat(rawValueNow) : undefined;
+    if (elValueNow !== undefined && isNaN(elValueNow)) elValueNow = undefined;
+    var rawValueMin = el.getAttribute('aria-valuemin');
+    var elValueMin = rawValueMin !== null ? parseFloat(rawValueMin) : undefined;
+    if (elValueMin !== undefined && isNaN(elValueMin)) elValueMin = undefined;
+    var rawValueMax = el.getAttribute('aria-valuemax');
+    var elValueMax = rawValueMax !== null ? parseFloat(rawValueMax) : undefined;
+    if (elValueMax !== undefined && isNaN(elValueMax)) elValueMax = undefined;
+    var elValueText = (el.getAttribute('aria-valuetext') || '').trim().slice(0, 60) || undefined;
+
+    // aria-keyshortcuts: keyboard shortcut assigned to this element
+    var elKeyShortcuts = (el.getAttribute('aria-keyshortcuts') || '').trim().slice(0, 60) || undefined;
+
     elements.push({
       id: targetId,
       role: role,
-      label: getLabel(el),
+      label: elLabel,
+      text: elText,
+      description: elDesc,
+      level: elLevel,
+      current: elCurrent,
+      sort: elSort,
+      roleDescription: elRoleDesc,
+      valueNow: elValueNow,
+      valueMin: elValueMin,
+      valueMax: elValueMax,
+      valueText: elValueText,
       value: el.value || undefined,
       isActionable: isActionable,
       href: el.tagName === 'A' ? el.getAttribute('href') || undefined : undefined,
       inputType: el.tagName === 'INPUT' ? (el.type || 'text') : undefined,
-      disabled: el.disabled || undefined,
+      disabled: el.disabled || el.getAttribute('aria-disabled') === 'true' || undefined,
       readonly: el.readOnly || undefined,
+      checked: (el.type === 'checkbox' || el.type === 'radio') ? !!el.checked : (el.getAttribute('aria-checked') === 'true' ? true : undefined),
+      selected: el.getAttribute('aria-selected') === 'true' ? true : undefined,
+      expanded: el.getAttribute('aria-expanded') === 'true' ? true : (el.getAttribute('aria-expanded') === 'false' ? false : undefined),
+      pressed: el.getAttribute('aria-pressed') === 'true' ? true : (el.getAttribute('aria-pressed') === 'false' ? false : (el.getAttribute('aria-pressed') === 'mixed' ? 'mixed' : undefined)),
+      orientation: (el.getAttribute('aria-orientation') === 'horizontal' ? 'horizontal' : (el.getAttribute('aria-orientation') === 'vertical' ? 'vertical' : undefined)),
+      autocomplete: (function() { var ac = el.getAttribute('aria-autocomplete'); return ac === 'inline' || ac === 'list' || ac === 'both' ? ac : undefined; })(),
+      multiselectable: el.getAttribute('aria-multiselectable') === 'true' ? true : undefined,
+      required: (el.required || el.getAttribute('aria-required') === 'true') ? true : undefined,
+      hasPopup: (function() { var hp = el.getAttribute('aria-haspopup'); if (!hp || hp === 'false') return undefined; return hp === 'true' ? 'menu' : hp; })(),
+      busy: el.getAttribute('aria-busy') === 'true' ? true : undefined,
+      live: (function() { var lv = el.getAttribute('aria-live'); return lv && lv !== 'off' ? lv : undefined; })(),
+      invalid: el.getAttribute('aria-invalid') === 'true' ? true : (el.validity && !el.validity.valid && el.validationMessage ? true : undefined),
+      options: (function() {
+        var opts;
+        if (el.tagName === 'SELECT') {
+          opts = el.querySelectorAll('option');
+        } else if (el.tagName === 'INPUT' && el.getAttribute('list')) {
+          var dl = document.getElementById(el.getAttribute('list'));
+          if (dl && dl.tagName === 'DATALIST') {
+            opts = dl.querySelectorAll('option');
+          }
+        }
+        if (!opts) return undefined;
+        var result = [];
+        for (var oi = 0; oi < Math.min(opts.length, 20); oi++) {
+          var opt = opts[oi];
+          if (opt.disabled) continue;
+          var val = opt.value || '';
+          var lbl = (opt.textContent || '').trim().slice(0, 60);
+          if (val || lbl) result.push({ value: val, label: lbl });
+        }
+        return result.length > 0 ? result : undefined;
+      })(),
+      keyShortcuts: elKeyShortcuts,
+      landmark: getContainingLandmark(el),
+      inShadowDom: isInShadowDom(el) || undefined,
       boundingVisible: bv,
       boundingBox: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
     });
@@ -267,7 +649,33 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     forms: extractForms(),
     alerts: extractAlerts(),
     captchaDetected: detectCaptcha(),
-    scrollY: window.scrollY
+    cookieBannerDetected: detectCookieBanner(),
+    scrollY: window.scrollY,
+    activeDialog: detectActiveDialog(),
+    tables: extractTables(),
+    landmarks: extractLandmarks(),
+    iframeCount: (function() {
+      var iframes = document.querySelectorAll('iframe');
+      var count = 0;
+      for (var ii = 0; ii < iframes.length; ii++) {
+        if (isVisible(iframes[ii])) count++;
+      }
+      return count > 0 ? count : undefined;
+    })(),
+    iframeSources: (function() {
+      var iframes = document.querySelectorAll('iframe');
+      var sources = [];
+      for (var ii = 0; ii < iframes.length; ii++) {
+        if (!isVisible(iframes[ii])) continue;
+        var src = iframes[ii].getAttribute('src') || '';
+        if (src && src !== 'about:blank') {
+          // Truncate long URLs and cap at 5 sources
+          sources.push(src.slice(0, 120));
+          if (sources.length >= 5) break;
+        }
+      }
+      return sources.length > 0 ? sources : undefined;
+    })()
   };
 })()
 `;

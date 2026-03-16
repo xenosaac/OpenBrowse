@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -18,6 +18,7 @@ import { useChatSessions } from "../hooks/useChatSessions";
 import { useAddressBar } from "../hooks/useAddressBar";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useUILayout } from "../hooks/useUILayout";
+import { colors, glass, shadows } from "../styles/tokens";
 import { Sidebar } from "./sidebar/Sidebar";
 import { TabBar } from "./chrome/TabBar";
 import { NavBar } from "./chrome/NavBar";
@@ -84,6 +85,39 @@ declare global {
         artifact: RunHandoffArtifact;
         markdown: string;
       } | null>;
+      // Bookmarks
+      listBookmarks: () => Promise<Array<{ id: string; url: string; title: string; faviconUrl?: string; createdAt: string }>>;
+      getBookmarkByUrl: (url: string) => Promise<unknown>;
+      addBookmark: (data: { url: string; title: string; faviconUrl?: string }) => Promise<{ id: string }>;
+      deleteBookmark: (id: string) => Promise<void>;
+      searchBookmarks: (query: string) => Promise<unknown[]>;
+      // DevTools / Print / PDF
+      openDevTools: (sessionId: string) => Promise<unknown>;
+      printPage: (sessionId: string) => Promise<unknown>;
+      saveAsPdf: (sessionId: string) => Promise<boolean>;
+      // Chat persistence
+      chatListSessions: () => Promise<Array<{
+        id: string; title: string; createdAt: string; updatedAt: string;
+        messages: Array<{ id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string }>;
+        runIds: string[];
+      }>>;
+      chatCreateSession: (data: { id: string; title: string; createdAt: string }) => Promise<void>;
+      chatDeleteSession: (sessionId: string) => Promise<boolean>;
+      chatUpdateTitle: (sessionId: string, title: string) => Promise<void>;
+      chatAppendMessage: (msg: {
+        id: string; sessionId: string; role: string; content: string; tone?: string; createdAt: string;
+      }) => Promise<void>;
+      chatClearMessages: (sessionId: string) => Promise<void>;
+      chatLinkRun: (sessionId: string, runId: string) => Promise<void>;
+      // Browsing history
+      listHistory: (limit?: number) => Promise<unknown[]>;
+      searchHistory: (query: string) => Promise<unknown[]>;
+      clearHistory: () => Promise<void>;
+
+      // Cookie management
+      listCookies: (sessionId: string) => Promise<unknown[]>;
+      removeCookie: (sessionId: string, url: string, name: string) => Promise<void>;
+      removeAllCookies: (sessionId: string) => Promise<void>;
     };
   }
 }
@@ -125,6 +159,26 @@ export function App() {
   const displayUrl = selection.mainPanel === "browser" && selection.activeBrowserTab
     ? selection.activeBrowserTab.url : "";
   const isSecure = displayUrl.startsWith("https://");
+
+  // ---- Bookmark state ----
+  const [isBookmarked, setIsBookmarked] = useState(false);
+  useEffect(() => {
+    if (!displayUrl || displayUrl === "about:blank") { setIsBookmarked(false); return; }
+    window.openbrowse.getBookmarkByUrl(displayUrl).then(b => setIsBookmarked(!!b)).catch(() => setIsBookmarked(false));
+  }, [displayUrl]);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (!displayUrl || displayUrl === "about:blank") return;
+    if (isBookmarked) {
+      const bk = await window.openbrowse.getBookmarkByUrl(displayUrl) as { id: string } | null;
+      if (bk) await window.openbrowse.deleteBookmark(bk.id);
+      setIsBookmarked(false);
+    } else {
+      const title = selection.activeBrowserTab?.title ?? displayUrl;
+      await window.openbrowse.addBookmark({ url: displayUrl, title });
+      setIsBookmarked(true);
+    }
+  }, [displayUrl, isBookmarked, selection.activeBrowserTab?.title]);
 
   // ---- Step 1.6: Cross-cutting handlers ----
 
@@ -280,11 +334,130 @@ export function App() {
   useEffect(() => {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
-    document.body.style.background = "#0a0a12";
+    document.body.style.background = colors.bgBase;
     const style = document.createElement("style");
     style.textContent = `
       @keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
       @keyframes ob-loading-slide { 0%{transform:translateX(-100%)} 50%{transform:translateX(0%)} 100%{transform:translateX(100%)} }
+      @keyframes ob-glow-pulse {
+        0%,100% { box-shadow: 0 0 8px rgba(16,185,129,0.1); }
+        50% { box-shadow: 0 0 16px rgba(16,185,129,0.25); }
+      }
+
+      /* ---- Liquid Glass specular light band ---- */
+      .ob-glass-panel {
+        position: relative;
+      }
+      .ob-glass-panel::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 1px;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          rgba(255,255,255,0.12) 15%,
+          rgba(255,255,255,0.22) 50%,
+          rgba(255,255,255,0.12) 85%,
+          transparent 100%
+        );
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      /* ---- Button hover/active with glass ---- */
+      .ob-btn {
+        transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .ob-btn:hover {
+        background: rgba(16,185,129,0.1) !important;
+        border-color: rgba(255,255,255,0.2) !important;
+        box-shadow: 0 0 16px rgba(16,185,129,0.1), inset 0 1px 0 rgba(255,255,255,0.06);
+        backdrop-filter: blur(8px) saturate(150%);
+        -webkit-backdrop-filter: blur(8px) saturate(150%);
+        color: ${colors.emerald} !important;
+      }
+      .ob-btn:active {
+        transform: scale(0.94);
+        background: rgba(16,185,129,0.16) !important;
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.3);
+      }
+
+      /* Primary CTA (send, approve, etc.) */
+      .ob-btn-primary {
+        transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .ob-btn-primary:hover {
+        background: ${colors.emeraldHover} !important;
+        box-shadow: 0 0 24px rgba(16,185,129,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+        transform: translateY(-1px);
+      }
+      .ob-btn-primary:active {
+        background: ${colors.emeraldActive} !important;
+        transform: translateY(1px) scale(0.95);
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+      }
+
+      /* Tab hover — glass materializes */
+      .ob-tab {
+        transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .ob-tab:hover {
+        background: rgba(255,255,255,0.04) !important;
+        backdrop-filter: blur(8px) saturate(150%);
+        -webkit-backdrop-filter: blur(8px) saturate(150%);
+        border-color: rgba(255,255,255,0.1) !important;
+        color: ${colors.textPrimary} !important;
+      }
+      .ob-tab:hover .ob-tab-close {
+        opacity: 1 !important;
+      }
+      .ob-tab-close {
+        opacity: 0;
+        transition: opacity 150ms ease, color 150ms ease;
+      }
+      .ob-tab-close:hover {
+        color: ${colors.statusFailed} !important;
+      }
+
+      /* Address bar focus — emerald glass glow */
+      .ob-address {
+        transition: border-color 200ms ease, box-shadow 200ms ease;
+      }
+      .ob-address:focus-within {
+        border-color: rgba(16,185,129,0.35) !important;
+        box-shadow: 0 0 16px rgba(16,185,129,0.1), inset 0 1px 0 rgba(16,185,129,0.08);
+      }
+
+      /* Card hover — glass + emerald shimmer */
+      .ob-card {
+        transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .ob-card:hover {
+        border-color: rgba(255,255,255,0.22) !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.2), 0 0 12px rgba(16,185,129,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
+        transform: translateY(-1px);
+      }
+
+      /* Dropdown item hover */
+      .ob-dropdown-item {
+        transition: background 150ms ease, color 150ms ease;
+      }
+      .ob-dropdown-item:hover {
+        background: rgba(16,185,129,0.08) !important;
+        color: #ffffff !important;
+      }
+
+      /* Scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,0.1);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(16,185,129,0.25);
+      }
     `;
     document.head.appendChild(style);
     return () => { style.remove(); };
@@ -420,6 +593,7 @@ export function App() {
   const menuContent = (
     <div style={styles.dropdownMenu} onClick={() => layout.setMenuOpen(false)}>
       <button
+        className="ob-dropdown-item"
         style={styles.dropdownItem}
         onClick={async () => {
           const pending = agentRuns.suspendedRuns.filter(
@@ -435,21 +609,49 @@ export function App() {
       >
         New Session
       </button>
-      <button style={styles.dropdownItem} onClick={() => layout.openManagement("sessions")}>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("history")}>
         History
       </button>
       <div style={styles.dropdownSeparator} />
       <button
-        style={styles.dropdownItem}
-        disabled
-        title="Open Developer Tools (not yet available)"
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.openDevTools(selection.activeBrowserTab.id);
+        }}
       >
         Developer Tools
       </button>
       <div style={styles.dropdownSeparator} />
-      <button style={styles.dropdownItem} disabled>Print Page</button>
-      <button style={styles.dropdownItem} disabled>Save as PDF</button>
-      <button style={styles.dropdownItem} disabled>Bookmarks</button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.printPage(selection.activeBrowserTab.id);
+        }}
+      >
+        Print Page
+      </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (selection.activeBrowserTab) void window.openbrowse.saveAsPdf(selection.activeBrowserTab.id);
+        }}
+      >
+        Save as PDF
+      </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("bookmarks")}>Bookmarks</button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("cookies")}>Cookies</button>
     </div>
   );
 
@@ -458,6 +660,7 @@ export function App() {
     <div style={styles.app}>
       {/* Sidebar */}
       <aside
+        className="ob-glass-panel"
         style={{
           ...styles.sidebar,
           width: layout.sidebarVisible ? layout.sidebarWidth : 0,
@@ -481,6 +684,8 @@ export function App() {
           onToggleSessionList={() => chat.setSessionListOpen(v => !v)}
           onNewSession={chat.createSession}
           onSwitchSession={chat.switchSession}
+          onDeleteSession={chat.deleteSession}
+          onClearChat={chat.clearCurrentChat}
           onChatInputChange={chat.setChatInput}
           onSubmitTask={submitChatTask}
           onResumeRun={handleResumeRun}
@@ -517,6 +722,8 @@ export function App() {
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
           menuOpen={layout.menuOpen}
+          isBookmarked={isBookmarked}
+          onToggleBookmark={() => void handleToggleBookmark()}
           onAddressChange={addressBar.setAddressInput}
           onAddressFocus={addressBar.startEditing}
           onAddressBlur={addressBar.stopEditing}
@@ -547,11 +754,11 @@ export function App() {
 
         {/* Loading indicator */}
         {selection.activeBrowserTab && browserTabs.loadingTabs[selection.activeBrowserTab.id] && (
-          <div style={{ height: 2, background: "#1a1a26", overflow: "hidden", flexShrink: 0 }}>
+          <div style={{ height: 2, background: colors.bgElevated, overflow: "hidden", flexShrink: 0 }}>
             <div style={{
               height: "100%",
               width: "40%",
-              background: "#8b5cf6",
+              background: colors.emerald,
               animation: "ob-loading-slide 1.5s ease-in-out infinite"
             }} />
           </div>
@@ -590,6 +797,7 @@ export function App() {
             replaySteps={agentRuns.replaySteps}
             profiles={agentRuns.profiles}
             selectedRunId={selection.selectedRunId}
+            activeSessionId={selection.activeBrowserTab?.id ?? null}
             initialTab={layout.managementTab}
             onSaved={async () => {
               await agentRuns.refresh();
@@ -621,17 +829,18 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     height: "100vh",
     overflow: "hidden",
-    background: "#0a0a12",
-    color: "#e8e8f0",
+    background: colors.bgBase,
+    color: colors.textPrimary,
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
   sidebar: {
     display: "flex",
     flexDirection: "column",
-    background: "#0f0f18",
-    borderRight: "1px solid #2a2a3e",
+    ...glass.panel,
+    borderRight: `1px solid ${colors.borderGlass}`,
+    boxShadow: shadows.glass,
     flexShrink: 0
-  },
+  } as React.CSSProperties,
   sidebarDragHandle: {
     width: 4,
     cursor: "col-resize",
@@ -646,7 +855,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    background: "#0a0a12",
+    background: colors.bgBase,
     position: "relative"
   },
   mainBody: {
@@ -659,20 +868,20 @@ const styles: Record<string, React.CSSProperties> = {
     top: "100%",
     right: 0,
     marginTop: 4,
-    background: "#1a1a2a",
-    border: "1px solid #2a2a3e",
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
     borderRadius: 10,
     padding: "6px 0",
     minWidth: 180,
-    boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
+    boxShadow: shadows.glassElevated,
     zIndex: 2000
-  },
+  } as React.CSSProperties,
   dropdownItem: {
     display: "block",
     width: "100%",
     background: "none",
     border: "none",
-    color: "#e8e8f0",
+    color: colors.textPrimary,
     fontSize: "0.82rem",
     padding: "8px 16px",
     textAlign: "left" as const,
@@ -681,7 +890,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dropdownSeparator: {
     height: 1,
-    background: "#2a2a3e",
+    background: colors.borderDefault,
     margin: "4px 0"
   }
 };

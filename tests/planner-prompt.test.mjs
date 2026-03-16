@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildPlannerPrompt } from "../packages/planner/dist/index.js";
+import { buildPlannerPrompt, MAX_PLANNER_STEPS } from "../packages/planner/dist/index.js";
 
 function makeRun(overrides = {}) {
   return {
@@ -206,11 +206,9 @@ test("elements capped at 80", () => {
 
   const { user } = buildPlannerPrompt(makeRun(), makePageModel({ elements }));
 
-  // el_0 through el_79 should be present, el_80+ should not
-  // (sorting is stable for identical scores, so order is preserved)
+  // el_0 through el_99 should be present (cap is 150), el_150+ should not
   assert.match(user, /\[el_0\]/);
-  assert.match(user, /\[el_79\]/);
-  assert.doesNotMatch(user, /\[el_99\]/);
+  assert.match(user, /\[el_99\]/);
 });
 
 test("step budget shows correct values", () => {
@@ -225,7 +223,7 @@ test("step budget shows correct values", () => {
   });
 
   const { system } = buildPlannerPrompt(run, makePageModel());
-  assert.match(system, /step 6 of 20/);
+  assert.match(system, /step 6 of 35/);
 });
 
 test("captcha hint appears when captchaDetected", () => {
@@ -234,13 +232,1622 @@ test("captcha hint appears when captchaDetected", () => {
   assert.match(user, /CAPTCHA DETECTED/);
 });
 
-test("visibleText truncated to 1500 chars", () => {
-  const longText = "A".repeat(3000);
+test("targetId appears in action history output", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 2,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click Play button", ok: true, targetId: "el_14", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "click", description: "Close modal", ok: true, targetId: "el_22", createdAt: "2026-03-15T00:01:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /→ Element: \[el_14\]/);
+  assert.match(user, /→ Element: \[el_22\]/);
+});
+
+test("self-assessment triggers after 15 steps", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 15,
+      actionHistory: [],
+      consecutiveSoftFailures: 0
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /PROGRESS CHECK/);
+});
+
+test("self-assessment triggers on 3+ same-type actions in last 5", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click A", ok: true, createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go somewhere", ok: true, createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "click", description: "Click B", ok: true, createdAt: "2026-03-15T00:02:00Z" },
+        { step: 3, type: "click", description: "Click C", ok: true, createdAt: "2026-03-15T00:03:00Z" },
+        { step: 4, type: "click", description: "Click D", ok: true, createdAt: "2026-03-15T00:04:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /PROGRESS CHECK/);
+});
+
+test("self-assessment does NOT trigger on early varied steps", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to page", ok: true, createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "click", description: "Click A", ok: true, createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "type", description: "Type text", ok: true, createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /PROGRESS CHECK/);
+});
+
+test("visibleText truncated to 3000 chars", () => {
+  const longText = "A".repeat(5000);
   const pm = makePageModel({ visibleText: longText });
   const { user } = buildPlannerPrompt(makeRun(), pm);
 
-  // The prompt should contain at most 1500 A's
+  // The prompt should contain at most 3000 A's
   const matches = user.match(/A+/g);
   const longestRun = Math.max(...matches.map((m) => m.length));
-  assert.ok(longestRun <= 1500, `Expected at most 1500 chars, got ${longestRun}`);
+  assert.ok(longestRun <= 3000, `Expected at most 3000 chars, got ${longestRun}`);
+});
+
+// ---------------------------------------------------------------------------
+// Untested conditional sections
+// ---------------------------------------------------------------------------
+
+test("failedUrlsSection lists unique failed URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to A", ok: false, targetUrl: "https://a.com", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go to B", ok: false, targetUrl: "https://b.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go to A again", ok: false, targetUrl: "https://a.com", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /FAILED URLs.*do NOT revisit/);
+  assert.match(user, /https:\/\/a\.com/);
+  assert.match(user, /https:\/\/b\.com/);
+});
+
+test("failedUrlsSection absent when no failed URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to page", ok: true, targetUrl: "https://ok.com", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /FAILED URLs/);
+});
+
+test("usedQueriesSection lists unique typed search queries", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "type", description: "Type query", ok: true, typedText: "flights to tokyo", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "type", description: "Type again", ok: true, typedText: "cheap flights japan", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "type", description: "Dupe", ok: true, typedText: "flights to tokyo", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Search queries already used.*DIFFERENT terms/);
+  assert.match(user, /flights to tokyo/);
+  assert.match(user, /cheap flights japan/);
+});
+
+test("usedQueriesSection absent when no type actions", () => {
+  const { user } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.doesNotMatch(user, /Search queries already used/);
+});
+
+test("repeatedNavWarning appears when last 3 actions are same-URL navigations", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 4,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click something", ok: true, createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go to page", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go again", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:02:00Z" },
+        { step: 3, type: "navigate", description: "Go third time", ok: true, url: "https://redirect.com", createdAt: "2026-03-15T00:03:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /navigated to the same URL.*times in a row/);
+});
+
+test("repeatedNavWarning absent for varied navigations", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go A", ok: true, url: "https://a.com", createdAt: "2026-03-15T00:00:00Z" },
+        { step: 1, type: "navigate", description: "Go B", ok: true, url: "https://b.com", createdAt: "2026-03-15T00:01:00Z" },
+        { step: 2, type: "navigate", description: "Go C", ok: true, url: "https://c.com", createdAt: "2026-03-15T00:02:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /navigated to the same URL/);
+});
+
+test("scrollSection shows scroll position", () => {
+  const pm = makePageModel({ scrollY: 1234 });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Scroll position: Y=1234px/);
+});
+
+test("scrollSection absent when scrollY undefined", () => {
+  const pm = makePageModel();
+  delete pm.scrollY;
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Scroll position:/);
+});
+
+test("focusedSection shows focused element", () => {
+  const pm = makePageModel({ focusedElementId: "el_7" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Focused element: \[el_7\]/);
+  assert.match(user, /keyboard focus/);
+});
+
+test("focusedSection absent when no focused element", () => {
+  const pm = makePageModel();
+  delete pm.focusedElementId;
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Focused element:/);
+});
+
+test("focusedSection absent when focusedElementId is empty string", () => {
+  const pm = makePageModel({ focusedElementId: "" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Focused element:/);
+});
+
+test("lastActionSection shows success result", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click Submit", ok: true, createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Last action result: SUCCESS.*click "Click Submit"/);
+});
+
+test("lastActionSection shows failure result with class", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 1,
+      actionHistory: [
+        { step: 0, type: "click", description: "Click Missing", ok: false, failureClass: "element_not_found", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Last action result: FAILED \(element_not_found\).*click "Click Missing"/);
+});
+
+test("urlWarning shows frequently visited URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://stuck.com": 5, "https://ok.com": 2 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /WARNING.*visited these URLs too many times/);
+  assert.match(user, /https:\/\/stuck\.com: 5 visits/);
+  assert.doesNotMatch(user, /https:\/\/ok\.com/);
+});
+
+test("urlWarning absent when no frequent URLs", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 2,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://ok.com": 2 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /visited these URLs too many times/);
+});
+
+test("pageTypeStr appears when pageType is not unknown", () => {
+  const pm = makePageModel({ pageType: "search_results" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page type: search_results/);
+});
+
+test("pageTypeStr absent when pageType is unknown", () => {
+  const pm = makePageModel({ pageType: "unknown" });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page type:/);
+});
+
+test("alertsSection lists page alerts", () => {
+  const pm = makePageModel({ alerts: ["Session expired", "Please log in"] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page alerts:/);
+  assert.match(user, /Session expired/);
+  assert.match(user, /Please log in/);
+});
+
+test("alertsSection absent when no alerts", () => {
+  const pm = makePageModel({ alerts: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page alerts:/);
+});
+
+test("formsSection renders enriched form fields", () => {
+  const pm = makePageModel({
+    forms: [{
+      method: "POST",
+      action: "/login",
+      fieldCount: 2,
+      fields: [
+        { ref: "el_5", label: "Username", type: "text", required: true, currentValue: "john" },
+        { ref: "el_6", label: "Password", type: "password", required: true }
+      ],
+      submitRef: "el_7"
+    }]
+  });
+
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /FORM: POST \/login \(2 fields\)/);
+  assert.match(user, /\[el_5\] "Username" type=text REQUIRED value="john"/);
+  assert.match(user, /\[el_6\] "Password" type=password REQUIRED/);
+  assert.match(user, /Submit button: \[el_7\]/);
+});
+
+test("formsSection absent when no forms", () => {
+  const pm = makePageModel({ forms: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Forms on page:/);
+});
+
+test("activePageHint appears on step 0 with non-blank URL", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 0,
+      actionHistory: [],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "https://shopping.example.com" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.match(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("activePageHint absent on step 0 with about:blank", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 0,
+      actionHistory: [],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "about:blank" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.doesNotMatch(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("activePageHint absent after step 0", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go", ok: true, createdAt: "2026-03-15T00:00:00Z" }
+      ],
+      consecutiveSoftFailures: 0
+    }
+  });
+  const pm = makePageModel({ url: "https://shopping.example.com" });
+
+  const { user } = buildPlannerPrompt(run, pm);
+  assert.doesNotMatch(user, /CONTEXT.*page the user currently has open/);
+});
+
+test("self-assessment triggers on URL visited 4+ times", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      urlVisitCounts: { "https://stuck.com": 4 }
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /PROGRESS CHECK/);
+});
+
+test("typedText appears in action history", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "type", description: "Type search", ok: true, typedText: "hello world", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /→ Typed: "hello world"/);
+});
+
+test("targetUrl appears in action history", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 1,
+      consecutiveSoftFailures: 0,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to page", ok: true, targetUrl: "https://target.com", createdAt: "2026-03-15T00:00:00Z" }
+      ]
+    }
+  });
+
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /→ URL: https:\/\/target\.com/);
+});
+
+test("element attributes rendered (href, inputType, value, disabled, readonly, off-screen)", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_1", role: "link", label: "Home", isActionable: true, boundingVisible: true, href: "https://home.com" },
+      { id: "el_2", role: "input", label: "Email", isActionable: true, boundingVisible: true, inputType: "email", value: "test@test.com" },
+      { id: "el_3", role: "button", label: "Disabled", isActionable: true, boundingVisible: true, disabled: true },
+      { id: "el_4", role: "input", label: "ReadOnly", isActionable: true, boundingVisible: true, readonly: true },
+      { id: "el_5", role: "button", label: "Hidden", isActionable: true, boundingVisible: false }
+    ]
+  });
+
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_1\].*href="https:\/\/home\.com"/);
+  assert.match(user, /\[el_2\].*type="email".*value="test@test\.com"/);
+  assert.match(user, /\[el_3\].*\(disabled\)/);
+  assert.match(user, /\[el_4\].*\(readonly\)/);
+  assert.match(user, /\[el_5\].*\(off-screen\)/);
+});
+
+test("no interactive elements message when elements empty", () => {
+  const pm = makePageModel({ elements: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(no interactive elements found\)/);
+});
+
+test("constraints shows none when empty", () => {
+  const run = makeRun({ constraints: [] });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Constraints: none/);
+});
+
+// --- MAX_PLANNER_STEPS export ---
+
+test("MAX_PLANNER_STEPS is exported and equals 35", () => {
+  assert.strictEqual(MAX_PLANNER_STEPS, 35);
+  assert.strictEqual(typeof MAX_PLANNER_STEPS, "number");
+});
+
+test("system prompt uses MAX_PLANNER_STEPS for step budget", () => {
+  const run = makeRun({ checkpoint: { ...makeRun().checkpoint, stepCount: 5 } });
+  const { system } = buildPlannerPrompt(run, makePageModel());
+  assert.match(system, new RegExp(`step 6 of ${MAX_PLANNER_STEPS}`));
+});
+
+// --- totalSoftFailures warning ---
+
+test("totalSoftWarning appears when totalSoftFailures >= 5", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 5 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /CRITICAL.*5 total soft failures/);
+  assert.match(user, /limit: 8/);
+});
+
+test("totalSoftWarning appears at 7 total soft failures", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 7 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /CRITICAL.*7 total soft failures/);
+});
+
+test("totalSoftWarning absent when totalSoftFailures < 5", () => {
+  const run = makeRun({
+    checkpoint: { ...makeRun().checkpoint, totalSoftFailures: 4 }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /total soft failures/);
+});
+
+test("totalSoftWarning absent when totalSoftFailures undefined", () => {
+  const run = makeRun();
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.doesNotMatch(user, /total soft failures/);
+});
+
+// --- ARIA state attributes ---
+
+test("checked attribute renders (checked) for checkbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "checkbox", label: "Accept terms", isActionable: true, checked: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(checked\)/);
+});
+
+test("checked attribute absent when not set", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "checkbox", label: "Accept terms", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(checked\)/);
+});
+
+test("selected attribute renders (selected) for tab", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "tab", label: "Overview", isActionable: true, selected: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(selected\)/);
+});
+
+test("selected attribute absent when not set", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "tab", label: "Overview", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(selected\)/);
+});
+
+test("expanded=true renders (expanded) for dropdown", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true, expanded: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(expanded\)/);
+});
+
+test("expanded=false renders (collapsed) for dropdown", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true, expanded: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(collapsed\)/);
+});
+
+test("expanded absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Menu", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(expanded\)/);
+  assert.doesNotMatch(user, /\(collapsed\)/);
+});
+
+test("multiple ARIA state attributes render together", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "option", label: "Choice A", isActionable: true, selected: true, checked: true, expanded: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(checked\)/);
+  assert.match(user, /\(selected\)/);
+  assert.match(user, /\(expanded\)/);
+});
+
+// --- Select options rendering ---
+
+test("select options rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "combobox", label: "Country", isActionable: true,
+      options: [
+        { value: "us", label: "United States" },
+        { value: "uk", label: "United Kingdom" },
+        { value: "jp", label: "Japan" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\[/);
+  assert.match(user, /"us" \(United States\)/);
+  assert.match(user, /"uk" \(United Kingdom\)/);
+  assert.match(user, /"jp" \(Japan\)/);
+});
+
+test("select options omit label parenthetical when label equals value", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "combobox", label: "Size", isActionable: true,
+      options: [
+        { value: "Small", label: "Small" },
+        { value: "Large", label: "Large" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["Small", "Large"\]/);
+  assert.doesNotMatch(user, /\(Small\)/);
+});
+
+test("select options absent when options undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /options=\[/);
+});
+
+test("select options absent when options empty", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", isActionable: true, options: [] }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /options=\[/);
+});
+
+// --- datalist suggestions reuse same options rendering ---
+
+test("datalist options rendered same as select options", () => {
+  // datalist options populate the same `options` field on PageElementModel
+  // so they render identically via the existing options rendering path
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "City", isActionable: true, boundingVisible: true,
+      inputType: "text",
+      options: [
+        { value: "NYC", label: "New York City" },
+        { value: "LAX", label: "Los Angeles" },
+        { value: "CHI", label: "Chicago" }
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["NYC" \(New York City\), "LAX" \(Los Angeles\), "CHI" \(Chicago\)\]/);
+});
+
+test("datalist options omit label when same as value", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Color", isActionable: true, boundingVisible: true,
+      options: [{ value: "Red", label: "Red" }, { value: "Blue", label: "Blue" }]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /options=\["Red", "Blue"\]/);
+});
+
+// --- Invalid / validation state ---
+
+test("invalid element shows (invalid) annotation", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true,
+      invalid: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(invalid\)/);
+});
+
+test("non-invalid element omits (invalid) annotation", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(invalid)"));
+});
+
+test("invalid annotation appears before disabled", () => {
+  const pm = makePageModel({
+    elements: [{
+      id: "el_0", role: "textbox", label: "Email", isActionable: true, boundingVisible: true,
+      invalid: true, disabled: true
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const invalidIdx = user.indexOf("(invalid)");
+  const disabledIdx = user.indexOf("(disabled)");
+  assert.ok(invalidIdx < disabledIdx, "(invalid) should appear before (disabled)");
+});
+
+test("form field shows validation message", () => {
+  const pm = makePageModel({
+    forms: [{
+      action: "/submit",
+      method: "POST",
+      fieldCount: 1,
+      fields: [{
+        ref: "el_0",
+        label: "Email",
+        type: "email",
+        required: true,
+        currentValue: "notanemail",
+        validationMessage: "Please enter a valid email address"
+      }],
+      submitRef: "el_1"
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /INVALID: "Please enter a valid email address"/);
+});
+
+test("form field omits validation message when absent", () => {
+  const pm = makePageModel({
+    forms: [{
+      action: "/submit",
+      method: "POST",
+      fieldCount: 1,
+      fields: [{
+        ref: "el_0",
+        label: "Email",
+        type: "email",
+        required: true,
+        currentValue: "test@example.com"
+      }],
+      submitRef: "el_1"
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("INVALID:"));
+});
+
+// ---------------------------------------------------------------------------
+// text (visible text differing from label)
+// ---------------------------------------------------------------------------
+
+test("element text rendered when different from label", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Close", text: "✕", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_1\] button "Close" text="✕"/);
+});
+
+test("element text absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('text='));
+});
+
+test("element text absent when same as label", () => {
+  // text field should not be set when innerText === label, but even if passed,
+  // the prompt renderer checks for truthy text
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Submit", text: undefined, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('text='));
+});
+
+// ---------------------------------------------------------------------------
+// Active dialog detection
+// ---------------------------------------------------------------------------
+
+test("active dialog hint shown when activeDialog present", () => {
+  const pm = makePageModel({ activeDialog: { label: "Cookie Consent" } });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /DIALOG OPEN: "Cookie Consent"/);
+  assert.match(user, /modal dialog is covering the page/);
+});
+
+test("active dialog hint absent when no activeDialog", () => {
+  const pm = makePageModel();
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("DIALOG OPEN"));
+});
+
+test("active dialog hint absent when activeDialog is undefined", () => {
+  const pm = makePageModel({ activeDialog: undefined });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("DIALOG OPEN"));
+});
+
+// ---------------------------------------------------------------------------
+// Element description (aria-description)
+// ---------------------------------------------------------------------------
+
+test("element description rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Delete", description: "Permanently removes the selected items", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /desc="Permanently removes the selected items"/);
+});
+
+test("element description absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Delete", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('desc='));
+});
+
+test("element description rendered after text and before href", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Help", text: "?", description: "Opens help center", href: "/help", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  // Verify ordering: text before desc before href
+  const textIdx = user.indexOf('text="?"');
+  const descIdx = user.indexOf('desc="Opens help center"');
+  const hrefIdx = user.indexOf('href="/help"');
+  assert.ok(textIdx < descIdx, "text should come before desc");
+  assert.ok(descIdx < hrefIdx, "desc should come before href");
+});
+
+// --- Heading level tests ---
+
+test("heading level rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "heading", label: "Welcome", level: 1, isActionable: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(user.includes('level=1'), "should show level=1 for h1 heading");
+});
+
+test("heading level absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "button", label: "Click me", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes('level='), "should not show level for non-heading elements");
+});
+
+test("heading level rendered after role/label and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "heading", label: "Section Title", level: 2, text: "Subtitle", isActionable: false }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const levelIdx = user.indexOf('level=2');
+  const textIdx = user.indexOf('text="Subtitle"');
+  assert.ok(levelIdx > 0, "level should be present");
+  assert.ok(textIdx > 0, "text should be present");
+  assert.ok(levelIdx < textIdx, "level should come before text");
+});
+
+// --- aria-current ---
+
+test("current annotation rendered when aria-current is 'page'", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Home", current: "page", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current=page\)/);
+});
+
+test("current annotation rendered as bare (current) when value is 'true'", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Dashboard", current: "true", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current\)/);
+  assert.ok(!user.includes("(current=true)"), "should not show =true for boolean current");
+});
+
+test("current annotation absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "About", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(current"), "should not show current annotation");
+});
+
+test("current=step rendered for step indicators", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "link", label: "Step 2", current: "step", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(current=step\)/);
+});
+
+// --- aria-sort ---
+
+test("sort=ascending rendered for sorted column header", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Name", sort: "ascending", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=ascending\)/);
+});
+
+test("sort=descending rendered for sorted column header", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Date", sort: "descending", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=descending\)/);
+});
+
+test("sort annotation absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Size", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("(sort"), "should not show sort annotation");
+});
+
+test("sort=other rendered for non-standard sort", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Priority", sort: "other", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(sort=other\)/);
+});
+
+// --- aria-roledescription ---
+
+test("roleDescription rendered when present", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Temperature", roleDescription: "temperature control", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /roleDesc="temperature control"/);
+});
+
+test("roleDescription absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Volume", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("roleDesc"), "should not show roleDesc annotation");
+});
+
+test("roleDescription rendered after sort and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "columnheader", label: "Name", sort: "ascending", roleDescription: "sortable column", text: "Name ▲", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const sortIdx = user.indexOf("(sort=ascending)");
+  const roleDescIdx = user.indexOf('roleDesc="sortable column"');
+  const textIdx = user.indexOf('text="Name ▲"');
+  assert.ok(sortIdx < roleDescIdx, "sort should come before roleDesc");
+  assert.ok(roleDescIdx < textIdx, "roleDesc should come before text");
+});
+
+// --- aria-value* (range widgets) ---
+
+test("valueNow rendered as range for slider", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Volume", valueNow: 50, valueMin: 0, valueMax: 100, isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=50\/0–100/);
+});
+
+test("valueNow without min/max rendered as simple range", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "progressbar", label: "Upload", valueNow: 75, isActionable: false, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=75\b/);
+  assert.ok(!user.includes("range=75/"), "should not show min-max when both undefined");
+});
+
+test("valueText takes precedence over valueNow", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Temperature", valueNow: 72, valueText: "72°F (warm)", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /valueText="72°F \(warm\)"/);
+  assert.ok(!user.includes("range="), "should not show range when valueText present");
+});
+
+test("range annotation absent when no value properties", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Brightness", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.ok(!user.includes("range="), "should not show range annotation");
+  assert.ok(!user.includes("valueText"), "should not show valueText annotation");
+});
+
+test("valueNow with partial min renders question mark for missing max", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "spinbutton", label: "Quantity", valueNow: 3, valueMin: 1, isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /range=3\/1–\?/);
+});
+
+test("range annotation placed after roleDesc and before text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_1", role: "slider", label: "Speed", roleDescription: "speed control", valueNow: 5, valueMin: 1, valueMax: 10, text: "5 mph", isActionable: true, boundingVisible: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const roleDescIdx = user.indexOf('roleDesc="speed control"');
+  const rangeIdx = user.indexOf("range=5/1–10");
+  const textIdx = user.indexOf('text="5 mph"');
+  assert.ok(roleDescIdx < rangeIdx, "roleDesc should come before range");
+  assert.ok(rangeIdx < textIdx, "range should come before text");
+});
+
+// ---------------------------------------------------------------------------
+// tables section
+// ---------------------------------------------------------------------------
+
+test("tablesSection shows table with caption, headers, and sample rows", () => {
+  const pm = makePageModel({
+    tables: [{
+      caption: "Flight Results",
+      headers: ["Airline", "Price", "Duration"],
+      rowCount: 5,
+      sampleRows: [
+        ["Delta", "$450", "14h 30m"],
+        ["United", "$520", "15h 10m"],
+        ["ANA", "$480", "13h 45m"]
+      ]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE "Flight Results"/);
+  assert.match(user, /Airline \| Price \| Duration/);
+  assert.match(user, /5 rows/);
+  assert.match(user, /Delta \| \$450 \| 14h 30m/);
+  assert.match(user, /ANA \| \$480 \| 13h 45m/);
+});
+
+test("tablesSection shows table without caption", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: ["Name", "Value"],
+      rowCount: 2,
+      sampleRows: [["A", "1"], ["B", "2"]]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE: Name \| Value/);
+  assert.doesNotMatch(user, /TABLE "/);
+});
+
+test("tablesSection shows (no headers) when headers empty", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: [],
+      rowCount: 3,
+      sampleRows: [["x", "y"]]
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(no headers\)/);
+  assert.match(user, /3 rows/);
+});
+
+test("tablesSection shows singular row for rowCount 1", () => {
+  const pm = makePageModel({
+    tables: [{
+      headers: ["Col"],
+      rowCount: 1
+    }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /1 row\)/);
+  assert.doesNotMatch(user, /1 rows/);
+});
+
+test("tablesSection absent when no tables", () => {
+  const pm = makePageModel({ tables: undefined });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Data tables on page/);
+});
+
+test("tablesSection absent when tables empty array", () => {
+  const pm = makePageModel({ tables: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Data tables on page/);
+});
+
+test("tablesSection shows multiple tables", () => {
+  const pm = makePageModel({
+    tables: [
+      { headers: ["A"], rowCount: 1 },
+      { headers: ["B"], rowCount: 2 }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /TABLE: A/);
+  assert.match(user, /TABLE: B/);
+});
+
+// --- aria-pressed (toggle button state) ---
+
+test("pressed=true renders (pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Mute", pressed: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(pressed\)/);
+});
+
+test("pressed=false renders (not pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Mute", pressed: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(not pressed\)/);
+});
+
+test("pressed=mixed renders (partially pressed)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Select All", pressed: "mixed", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(partially pressed\)/);
+});
+
+test("pressed undefined does not render pressed text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /pressed/);
+});
+
+// --- aria-orientation (slider/scrollbar/toolbar direction) ---
+
+test("orientation=horizontal renders (horizontal)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", orientation: "horizontal", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(horizontal\)/);
+});
+
+test("orientation=vertical renders (vertical)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", orientation: "vertical", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(vertical\)/);
+});
+
+test("orientation undefined does not render orientation text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "slider", label: "Volume", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(horizontal\)/);
+  assert.doesNotMatch(user, /\(vertical\)/);
+});
+
+// --- autocomplete ---
+
+test("autocomplete=list renders (autocomplete=list)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", autocomplete: "list", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=list\)/);
+});
+
+test("autocomplete=both renders (autocomplete=both)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "City", autocomplete: "both", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=both\)/);
+});
+
+test("autocomplete=inline renders (autocomplete=inline)", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Email", autocomplete: "inline", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(autocomplete=inline\)/);
+});
+
+test("autocomplete undefined does not render autocomplete text", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /autocomplete=/);
+});
+
+// --- multiselectable ---
+
+test("multiselectable renders (multiselectable) for listbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Colors", multiselectable: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(multiselectable\)/);
+});
+
+test("multiselectable absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Colors", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /multiselectable/);
+});
+
+test("multiselectable absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "grid", label: "Data", multiselectable: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /multiselectable/);
+});
+
+test("multiselectable renders after autocomplete and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Items", autocomplete: "list", multiselectable: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const acIdx = user.indexOf("(autocomplete=list)");
+  const msIdx = user.indexOf("(multiselectable)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(acIdx < msIdx, "multiselectable should come after autocomplete");
+  assert.ok(msIdx < invIdx, "multiselectable should come before invalid");
+});
+
+// --- aria-required (form element required state) ---
+
+test("required=true renders (required) for textbox", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "textbox", label: "Email", required: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(required\)/);
+});
+
+test("required absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "textbox", label: "Email", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /required/);
+});
+
+test("required absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", required: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /required/);
+});
+
+test("required renders after multiselectable and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "listbox", label: "Items", multiselectable: true, required: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const msIdx = user.indexOf("(multiselectable)");
+  const reqIdx = user.indexOf("(required)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(msIdx < reqIdx, "required should come after multiselectable");
+  assert.ok(reqIdx < invIdx, "required should come before invalid");
+});
+
+// --- hasPopup tests ---
+
+test("hasPopup renders (haspopup=menu) for button with aria-haspopup=menu", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Options", hasPopup: "menu", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(haspopup=menu\)/);
+});
+
+test("hasPopup absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Submit", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /haspopup/);
+});
+
+test("hasPopup renders (haspopup=dialog) for dialog triggers", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "button", label: "Settings", hasPopup: "dialog", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(haspopup=dialog\)/);
+});
+
+test("hasPopup renders after required and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Country", required: true, hasPopup: "listbox", invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const reqIdx = user.indexOf("(required)");
+  const hpIdx = user.indexOf("(haspopup=listbox)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(reqIdx < hpIdx, "hasPopup should come after required");
+  assert.ok(hpIdx < invIdx, "hasPopup should come before invalid");
+});
+
+// --- busy tests ---
+
+test("busy renders (busy) for element with aria-busy=true", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(busy\)/);
+});
+
+test("busy absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(busy\)/);
+});
+
+test("busy absent when false", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: false, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(busy\)/);
+});
+
+test("busy renders after haspopup and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "combobox", label: "Search", hasPopup: "listbox", busy: true, invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const hpIdx = user.indexOf("(haspopup=listbox)");
+  const busyIdx = user.indexOf("(busy)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(hpIdx < busyIdx, "busy should come after haspopup");
+  assert.ok(busyIdx < invIdx, "busy should come before invalid");
+});
+
+// --- live tests ---
+
+test("live renders (live=polite) for element with aria-live=polite", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Status", live: "polite", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(live=polite\)/);
+});
+
+test("live absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Content", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(live=/);
+});
+
+test("live renders (live=assertive) for assertive regions", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "alert", label: "Error", live: "assertive", isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(live=assertive\)/);
+});
+
+test("live renders after busy and before invalid", () => {
+  const pm = makePageModel({
+    elements: [{ id: "el_0", role: "region", label: "Results", busy: true, live: "polite", invalid: true, isActionable: true }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  const busyIdx = user.indexOf("(busy)");
+  const liveIdx = user.indexOf("(live=polite)");
+  const invIdx = user.indexOf("(invalid)");
+  assert.ok(busyIdx < liveIdx, "live should come after busy");
+  assert.ok(liveIdx < invIdx, "live should come before invalid");
+});
+
+// --- landmarks tests ---
+
+test("landmarks render Page regions section with role and label", () => {
+  const pm = makePageModel({
+    landmarks: [
+      { role: "navigation", label: "Main menu" },
+      { role: "main", label: "" },
+      { role: "complementary", label: "Sidebar" }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page regions:/);
+  assert.match(user, /navigation "Main menu"/);
+  assert.match(user, /^\s+main$/m);
+  assert.match(user, /complementary "Sidebar"/);
+});
+
+test("landmarks absent when undefined", () => {
+  const pm = makePageModel({});
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page regions:/);
+});
+
+test("landmarks absent when empty array", () => {
+  const pm = makePageModel({ landmarks: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /Page regions:/);
+});
+
+test("landmarks render without label when label is empty", () => {
+  const pm = makePageModel({
+    landmarks: [{ role: "banner", label: "" }]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /Page regions:/);
+  // Should render just the role, no quotes
+  assert.match(user, /^\s+banner$/m);
+  assert.doesNotMatch(user, /banner ""/);
+});
+
+// ---------------------------------------------------------------------------
+// Element count truncation notice
+// ---------------------------------------------------------------------------
+
+test("truncation notice shown when elements exceed 150", () => {
+  const elements = Array.from({ length: 200 }, (_, i) => ({
+    id: `el_${i}`, role: "button", label: `Btn ${i}`, isActionable: true
+  }));
+  const pm = makePageModel({ elements });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /showing 150 of 200/);
+  assert.match(user, /scroll to reveal more/);
+});
+
+test("truncation notice absent when elements are 150 or fewer", () => {
+  const elements = Array.from({ length: 150 }, (_, i) => ({
+    id: `el_${i}`, role: "button", label: `Btn ${i}`, isActionable: true
+  }));
+  const pm = makePageModel({ elements });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /showing 150 of/);
+  assert.doesNotMatch(user, /scroll to reveal more/);
+});
+
+test("truncation notice absent when no elements", () => {
+  const pm = makePageModel({ elements: [] });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /showing.*of/);
+});
+
+// ---------------------------------------------------------------------------
+// Element-to-landmark association
+// ---------------------------------------------------------------------------
+
+test("element with landmark annotation renders in=<landmark>", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "link", label: "Home", isActionable: true, landmark: "navigation" },
+      { id: "el_1", role: "button", label: "Submit", isActionable: true, landmark: "main" },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] link "Home" in=navigation/);
+  assert.match(user, /\[el_1\] button "Submit" in=main/);
+});
+
+test("element without landmark annotation does not render in=", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "OK", isActionable: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] button "OK"/);
+  assert.doesNotMatch(user, /in=/);
+});
+
+test("landmark annotation renders before other attributes like level", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "heading", label: "Section Title", isActionable: false, landmark: "main", level: 2 },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] heading "Section Title" in=main level=2/);
+});
+
+// --- aria-keyshortcuts surfacing ---
+
+test("keyShortcuts renders keys attribute for elements with aria-keyshortcuts", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Save", isActionable: true, keyShortcuts: "Alt+S", boundingVisible: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] button "Save" keys="Alt\+S" \*/);
+});
+
+test("keyShortcuts absent when element has no keyShortcuts", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Save", isActionable: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /keys=/);
+});
+
+test("keyShortcuts renders alongside other attributes like landmark and level", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "heading", label: "Dashboard", isActionable: false, landmark: "main", level: 1, keyShortcuts: "Alt+D" },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[el_0\] heading "Dashboard" in=main level=1 keys="Alt\+D"/);
+});
+
+// --- Cookie banner detection hint ---
+
+test("cookie banner hint appears when cookieBannerDetected is true", () => {
+  const pm = makePageModel({ cookieBannerDetected: true });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /COOKIE BANNER DETECTED/);
+  assert.match(user, /Dismiss it first/);
+});
+
+test("cookie banner hint absent when cookieBannerDetected is false", () => {
+  const pm = makePageModel({ cookieBannerDetected: false });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /COOKIE BANNER/);
+});
+
+test("cookie banner hint absent when cookieBannerDetected is undefined", () => {
+  const pm = makePageModel();
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /COOKIE BANNER/);
+});
+
+// --- Shadow DOM annotation ---
+
+test("inShadowDom renders (shadow) annotation for element in shadow DOM", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, inShadowDom: true, boundingVisible: true }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\(shadow\)/);
+  assert.match(user, /\[el_0\] button "Accept".*\(shadow\)/);
+});
+
+test("inShadowDom absent when undefined", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, boundingVisible: true }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /\(shadow\)/);
+});
+
+test("inShadowDom renders after options and before off-screen", () => {
+  const pm = makePageModel({
+    elements: [
+      { id: "el_0", role: "button", label: "Accept", isActionable: true, inShadowDom: true, boundingVisible: false }
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  // (shadow) should appear before (off-screen)
+  const line = user.split("\n").find(l => l.includes("[el_0]"));
+  const shadowIdx = line.indexOf("(shadow)");
+  const offscreenIdx = line.indexOf("(off-screen)");
+  assert.ok(shadowIdx < offscreenIdx, "(shadow) should appear before (off-screen)");
+});
+
+// --- Iframe detection ---
+
+test("iframeCount hint shown when iframes are present", () => {
+  const pm = makePageModel({ iframeCount: 3 });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /IFRAMES DETECTED/);
+  assert.match(user, /3 iframe\(s\)/);
+});
+
+test("iframe hint absent when iframeCount is undefined", () => {
+  const pm = makePageModel({});
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.doesNotMatch(user, /IFRAMES DETECTED/);
+});
+
+test("iframe hint includes sources when iframeSources provided", () => {
+  const pm = makePageModel({
+    iframeCount: 2,
+    iframeSources: ["https://ads.example.com/banner", "https://maps.example.com/embed"]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /IFRAMES DETECTED/);
+  assert.match(user, /2 iframe\(s\)/);
+  assert.match(user, /ads\.example\.com/);
+  assert.match(user, /maps\.example\.com/);
+  assert.match(user, /navigating directly to the iframe source URL/);
 });

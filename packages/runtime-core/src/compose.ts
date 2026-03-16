@@ -30,8 +30,7 @@ import { DefaultClarificationPolicy, TaskOrchestrator } from "@openbrowse/orches
 import type { PlannerGateway } from "@openbrowse/planner";
 import { IntervalWatchScheduler } from "@openbrowse/scheduler";
 import { DefaultApprovalPolicy } from "@openbrowse/security";
-import { bootstrapRun as bootstrapRuntimeRun } from "./OpenBrowseRuntime.js";
-import { buildRuntimeDescriptor } from "./settings.js";
+import { buildRuntimeDescriptor } from "./runtimeDescriptor.js";
 import type { RuntimeServices } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -143,6 +142,8 @@ export interface AssembleServicesParams extends StorageBundle {
   browserDescriptor: RuntimeDescriptor["browser"];
   hasDemos?: boolean;
   telegramStatePath: string;
+  /** Scheduler dispatch function — called when a watch fires to bootstrap a new run. */
+  schedulerDispatch: (services: RuntimeServices, intent: TaskIntent) => Promise<unknown>;
 }
 
 /**
@@ -160,7 +161,7 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
       source: "scheduler",
       createdAt: new Date().toISOString()
     };
-    await bootstrapRuntimeRun(services, schedulerIntent);
+    await params.schedulerDispatch(services, schedulerIntent);
   });
 
   services = {

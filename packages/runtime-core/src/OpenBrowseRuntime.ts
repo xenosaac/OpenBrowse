@@ -1,12 +1,13 @@
 import { StubBrowserKernel } from "@openbrowse/browser-runtime";
 import type { BrowserAction, BrowserSession, PageModel, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { TelegramChatBridge, StubChatBridge } from "@openbrowse/chat-bridge";
-import { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";
 import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
 import { HandoffManager } from "./HandoffManager.js";
 import { SessionManager } from "./SessionManager.js";
 import { CancellationController } from "./CancellationController.js";
 import { RunExecutor } from "./RunExecutor.js";
+import { parseApprovalAnswer } from "./approvalParsing.js";
+import { handleBotCommand } from "./botCommands.js";
 import type { RuntimeServices } from "./types.js";
 
 // ── Backward-compatible module-level functions ────────────────────────────
@@ -22,105 +23,9 @@ export function wireBotCommands(services: RuntimeServices): void {
 
   services.chatBridge.setCommandHandler(async (ctx) => {
     const { command, args, respond } = ctx;
-
-    switch (command) {
-      case "status": {
-        const runs = await services.runCheckpointStore.listAll();
-        const active = runs.filter(
-          (r) => r.status === "running" || r.status.startsWith("suspended")
-        );
-        if (active.length === 0) {
-          await respond("No active runs.");
-          return;
-        }
-        const lines = active.map((r) => {
-          const emoji = r.status === "running" ? "\u2699" : "\u23F8";
-          const steps = r.checkpoint.stepCount ?? 0;
-          const url = r.checkpoint.lastKnownUrl
-            ? ` \u2014 ${r.checkpoint.lastKnownUrl.slice(0, 50)}`
-            : "";
-          return `${emoji} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 40)} (step ${steps}${url})`;
-        });
-        await respond(`Active runs:\n${lines.join("\n")}`);
-        break;
-      }
-
-      case "list": {
-        const n = Math.min(parseInt(args) || 5, 20);
-        const all = await services.runCheckpointStore.listAll();
-        const recent = all.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, n);
-        if (recent.length === 0) {
-          await respond("No runs yet.");
-          return;
-        }
-        const statusEmoji: Record<string, string> = {
-          running: "\u2699", completed: "\u2713", failed: "\u2717",
-          cancelled: "\u2298", suspended_for_clarification: "\u23F8",
-          suspended_for_approval: "\u23F8", queued: "\u23F3"
-        };
-        const lines = recent.map((r) => {
-          const e = statusEmoji[r.status] ?? "?";
-          return `${e} \`${r.id.slice(0, 12)}\` ${r.goal.slice(0, 50)}`;
-        });
-        await respond(`Recent runs:\n${lines.join("\n")}`);
-        break;
-      }
-
-      case "cancel": {
-        const targetId = args.trim() || null;
-        if (!targetId) {
-          const all = await services.runCheckpointStore.listAll();
-          const running = all
-            .filter((r) => r.status === "running")
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-          if (running.length === 0) {
-            await respond("No running tasks to cancel.");
-            return;
-          }
-          const target = running[0];
-          const cancelled = await cancelTrackedRun(services, target.id, "Cancelled by remote operator.");
-          await respond(
-            cancelled
-              ? `Cancelled: "${target.goal.slice(0, 60)}"`
-              : "Failed to cancel the run."
-          );
-          return;
-        }
-        const cancelled = await cancelTrackedRun(services, targetId, "Cancelled by remote operator.");
-        if (!cancelled) {
-          await respond(`Run not found: ${targetId}`);
-          return;
-        }
-        await respond(`Cancelled: "${cancelled.goal.slice(0, 60)}"`);
-        break;
-      }
-
-      case "handoff": {
-        const targetId = args.trim() || null;
-        let run: TaskRun | null = null;
-        if (targetId) {
-          run = await services.runCheckpointStore.load(targetId);
-        } else {
-          const all = await services.runCheckpointStore.listAll();
-          const terminal = all
-            .filter((r) => ["completed", "failed", "cancelled"].includes(r.status))
-            .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-          run = terminal[0] ?? null;
-        }
-        if (!run) {
-          await respond("Run not found.");
-          return;
-        }
-        const artifact = buildHandoffArtifact(run);
-        const md = renderHandoffMarkdown(artifact);
-        for (let i = 0; i < md.length; i += 4000) {
-          await respond(md.slice(i, i + 4000));
-        }
-        break;
-      }
-
-      default:
-        await respond(`Unknown command: /${command}`);
+    const result = await handleBotCommand(services, command, args, cancelTrackedRun);
+    for (const text of result.responses) {
+      await respond(text);
     }
   });
 }
@@ -145,13 +50,6 @@ export async function handleNewTaskMessage(
   }
 
   return run;
-}
-
-function parseApprovalAnswer(answer: string): boolean | null {
-  const normalized = answer.trim().toLowerCase();
-  if (["approve", "approved", "yes", "y", "ok", "allow", "go"].includes(normalized)) return true;
-  if (["deny", "denied", "no", "n", "block", "cancel", "stop"].includes(normalized)) return false;
-  return null;
 }
 
 async function resolveRuntimeServicesForIntent(
@@ -211,6 +109,37 @@ export class OpenBrowseRuntime {
   }
 
   async resumeTaskFromMessage(message: TaskMessage): Promise<TaskRun | null> {
+    return this.handleSuspensionMessage(
+      message,
+      (run, action) => this.resumeExecution(run, action),
+      async () => {}
+    );
+  }
+
+  async resumeTaskFromMessageDetached(
+    message: TaskMessage,
+    onSettled?: (run: TaskRun) => Promise<void> | void
+  ): Promise<TaskRun | null> {
+    return this.handleSuspensionMessage(
+      message,
+      (run, action) => this.detachedResume(run, onSettled, action),
+      async (run) => { await onSettled?.(run); }
+    );
+  }
+
+  /**
+   * Shared logic for handling a message directed at a suspended run.
+   * Handles approval parsing (approve/deny/ambiguous), denial outcomes
+   * (deny-continue vs cancel), and clarification resume.
+   *
+   * @param doResume — called to continue the run (sync or detached)
+   * @param onTerminal — called when the run reaches a terminal state (cancel)
+   */
+  private async handleSuspensionMessage(
+    message: TaskMessage,
+    doResume: (run: TaskRun, pendingAction?: BrowserAction) => Promise<TaskRun>,
+    onTerminal: (run: TaskRun) => Promise<void>
+  ): Promise<TaskRun | null> {
     if (!message.runId) return null;
     const run = await this.services.runCheckpointStore.load(message.runId);
     if (!run || !run.suspension) return null;
@@ -238,80 +167,9 @@ export class OpenBrowseRuntime {
           resumedRun.checkpoint.pendingBrowserAction = undefined;
           await this.services.runCheckpointStore.save(resumedRun);
           await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied \u2014 continuing with alternative.", {
-            channel: message.channel,
-            approved: "false",
-            outcome: "denied_continue"
-          });
-          return this.resumeExecution(resumedRun);
-        }
-
-        const cancelledRun = this.services.orchestrator.cancelRun(run, "User denied approval request.", message.createdAt);
-        await this.services.runCheckpointStore.save(cancelledRun);
-        await this.logWorkflowEvent(cancelledRun.id, "approval_answered", "Approval denied by user.", {
-          channel: message.channel, approved: "false"
-        });
-        await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
-        await this.handoff.writeHandoff(cancelledRun);
-        return cancelledRun;
-      }
-
-      const pendingAction = run.checkpoint.pendingBrowserAction;
-      const resumedRun = this.services.orchestrator.resumeFromApproval(run, true, message.createdAt);
-      await this.services.runCheckpointStore.save(resumedRun);
-      await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval granted by user.", {
-        channel: message.channel, approved: "true"
-      });
-      return this.resumeExecution(resumedRun, pendingAction);
-    }
-
-    if (!run.checkpoint.pendingClarificationId) return run;
-
-    const resumedRun = this.services.orchestrator.resumeFromClarification(run, {
-      requestId: run.checkpoint.pendingClarificationId,
-      runId: run.id,
-      answer: message.text,
-      respondedAt: message.createdAt
-    });
-    await this.services.runCheckpointStore.save(resumedRun);
-    await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
-      channel: message.channel
-    });
-    return this.resumeExecution(resumedRun);
-  }
-
-  async resumeTaskFromMessageDetached(
-    message: TaskMessage,
-    onSettled?: (run: TaskRun) => Promise<void> | void
-  ): Promise<TaskRun | null> {
-    if (!message.runId) return null;
-    const run = await this.services.runCheckpointStore.load(message.runId);
-    if (!run || !run.suspension) return null;
-
-    if (run.suspension.type === "approval") {
-      const approved = parseApprovalAnswer(message.text);
-      if (approved === null) {
-        await this.services.chatBridge.send({
-          channel: message.channel, runId: run.id,
-          text: `Run "${run.goal}" is waiting for approval. Reply with "approve" or "deny".`
-        });
-        return run;
-      }
-
-      if (!approved) {
-        const pendingAction = run.checkpoint.pendingBrowserAction;
-        const denialOutcome = pendingAction
-          ? this.services.securityPolicy.resolveDenial(run, pendingAction)
-          : "denied";
-
-        if (denialOutcome === "denied_continue") {
-          const resumedRun = this.services.orchestrator.resumeFromApproval(run, false, message.createdAt);
-          resumedRun.checkpoint.notes.push(`Action denied by user: "${pendingAction?.description ?? "unknown"}". Try a different approach.`);
-          resumedRun.checkpoint.pendingBrowserAction = undefined;
-          await this.services.runCheckpointStore.save(resumedRun);
-          await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval denied \u2014 continuing with alternative.", {
             channel: message.channel, approved: "false", outcome: "denied_continue"
           });
-          return this.detachedResume(resumedRun, onSettled);
+          return doResume(resumedRun);
         }
 
         const cancelledRun = this.services.orchestrator.cancelRun(run, "User denied approval request.", message.createdAt);
@@ -321,7 +179,7 @@ export class OpenBrowseRuntime {
         });
         await this.logWorkflowEvent(cancelledRun.id, "run_cancelled", cancelledRun.outcome?.summary ?? "Cancelled", {});
         await this.handoff.writeHandoff(cancelledRun);
-        await onSettled?.(cancelledRun);
+        await onTerminal(cancelledRun);
         return cancelledRun;
       }
 
@@ -331,7 +189,7 @@ export class OpenBrowseRuntime {
       await this.logWorkflowEvent(resumedRun.id, "approval_answered", "Approval granted by user.", {
         channel: message.channel, approved: "true"
       });
-      return this.detachedResume(resumedRun, onSettled, pendingAction);
+      return doResume(resumedRun, pendingAction);
     }
 
     if (!run.checkpoint.pendingClarificationId) return run;
@@ -346,7 +204,7 @@ export class OpenBrowseRuntime {
     await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
       channel: message.channel
     });
-    return this.detachedResume(resumedRun, onSettled);
+    return doResume(resumedRun);
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
