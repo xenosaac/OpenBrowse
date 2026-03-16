@@ -608,6 +608,31 @@ test("continueResume injects recovery context", async () => {
   assert.equal(withRecovery.checkpoint.recoveryContext.preInterruptionPageSummary, "Snapshot Summary");
 });
 
+test("continueResume skips navigate when no lastKnownUrl", async () => {
+  const navigateActions = [];
+  const { services } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done" }],
+  });
+  const origExecute = services.browserKernel.executeAction;
+  services.browserKernel.executeAction = async (session, action) => {
+    navigateActions.push(action);
+    return origExecute(session, action);
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  // Run with no lastKnownUrl (and no pending action) — should skip navigate and go straight to plannerLoop
+  const run = makeRun({ lastKnownUrl: undefined });
+  run.checkpoint.lastKnownUrl = undefined;
+  const result = await executor.continueResume(run, makeSession());
+
+  // No navigate actions should have been called
+  const navActions = navigateActions.filter(a => a.type === "navigate");
+  assert.equal(navActions.length, 0);
+  assert.equal(result.status, "completed");
+});
+
 // --- plannerLoop: consecutive identical action stuck detection ---
 
 test("plannerLoop fails after MAX_CONSECUTIVE_IDENTICAL_ACTIONS identical actions", async () => {

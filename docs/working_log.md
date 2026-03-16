@@ -2608,3 +2608,58 @@ Extended `tests/planner-prompt.test.mjs` — 27 new tests (18 → 45, but file a
 - Consider testing `continueResume` without `lastKnownUrl` (skip navigate path)
 
 *Session log entry written: 2026-03-16*
+
+---
+
+### Session 46 — 2026-03-16: Comprehensive TaskOrchestrator Test Suite
+
+#### Context
+
+Gap analysis: `TaskOrchestrator` has 10 public methods (`createRun`, `startRun`, `attachSession`, `observePage`, `applyPlannerDecision` × 6 decision types, `recordBrowserResult`, `resumeFromClarification`, `resumeFromApproval`, `failRun`, `cancelRun`) but only 1 test covering clarification suspend/resume. This is the largest pure-logic coverage gap in the codebase.
+
+Also adding `continueResume` without `lastKnownUrl` test to `runExecutor.test.mjs`.
+
+#### Plan
+
+1. Replace `task-orchestrator.test.mjs` with comprehensive test suite covering all 10 methods
+2. Add `continueResume` skip-navigate test to `runExecutor.test.mjs`
+3. Run tests
+4. Update this log and commit
+
+#### Implementation
+
+**Rewrote `tests/task-orchestrator.test.mjs` — 52 tests (was 1):**
+- `createRun` (5 tests): field mapping, createdAt handling, constraints/metadata, preferredProfileId
+- `startRun` (2 tests): queued→running transition, invalid transition from completed
+- `attachSession` (2 tests): profileId/browserSessionId/pageModelId, optional pageModelId
+- `observePage` (7 tests): URL/title/summary/stepCount updates, stepCount increments, snapshot with truncated visibleText, formValues extraction from input elements, omitted formValues when empty, browserSessionId override, empty title→undefined
+- `applyPlannerDecision — clarification_request` (2 tests): full suspension fields, fallback when no request object
+- `applyPlannerDecision — approval_request` (2 tests): full suspension fields with action, irreversibleActionSummary fallback
+- `applyPlannerDecision — task_complete` (2 tests): full completion fields, completionSummary priority over reasoning
+- `applyPlannerDecision — task_failed` (2 tests): full failure fields, failureSummary priority over reasoning
+- `applyPlannerDecision — browser_action` (3 tests): keeps running with nextSuggestedStep, reasoning fallback, queued→running transition
+- `recordBrowserResult` (12 tests): actionHistory append, cap at 25, consecutiveSoftFailures for element_not_found/network_error, reset on success, non-soft excluded, urlVisitCounts for navigate/non-navigate, targetUrl/typedText recording, lastFailureClass set/cleared
+- `resumeFromClarification` (2 tests): transitions to running with answer in notes, throws from completed
+- `resumeFromApproval` (3 tests): granted/denied notes, custom respondedAt
+- `failRun` (3 tests): running→failed, suspended→failed, throws from completed
+- `cancelRun` (4 tests): running→cancelled, queued→cancelled, suspended→cancelled, throws from failed
+- Full lifecycle (1 test): create→start→attach→observe→decide→record→complete
+
+**Extended `tests/runExecutor.test.mjs` — 1 new test (27 → 28):**
+- `continueResume skips navigate when no lastKnownUrl`: verifies no navigate action executed, goes straight to plannerLoop
+
+#### Verification
+
+- `node --test tests/task-orchestrator.test.mjs` — 52/52 pass
+- `node --test tests/runExecutor.test.mjs` — 28/28 pass
+- `node --test tests/*.test.mjs` — 770/770 pass (was 718, +52 new, +1 new, -1 replaced)
+
+#### Status: DONE
+
+#### Next Steps
+
+- `TelegramChatBridge` message routing tests (needs HTTP mock for Telegram API)
+- P3-10 (profile system) remains deferred
+- Consider testing `ClaudePlannerGateway.decide` integration paths (needs API mock)
+
+*Session log entry written: 2026-03-16*
