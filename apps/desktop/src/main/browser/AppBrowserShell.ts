@@ -139,6 +139,18 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  zoomIn(sessionId: string): number {
+    return this.viewManager?.zoomIn(sessionId) ?? 0;
+  }
+
+  zoomOut(sessionId: string): number {
+    return this.viewManager?.zoomOut(sessionId) ?? 0;
+  }
+
+  resetZoom(sessionId: string): number {
+    return this.viewManager?.resetZoom(sessionId) ?? 0;
+  }
+
   setNavigationCallback(cb: (sessionId: string, url: string, title: string) => void): void {
     if (this.viewManager) {
       this.viewManager.onNavigate = cb;

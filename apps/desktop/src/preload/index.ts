@@ -58,6 +58,9 @@ const api = {
     sessionId: string
   ): Promise<{ canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null> =>
     ipcRenderer.invoke("browser:nav-state", sessionId),
+  browserZoomIn: (sessionId: string) => ipcRenderer.invoke("browser:zoom-in", sessionId),
+  browserZoomOut: (sessionId: string) => ipcRenderer.invoke("browser:zoom-out", sessionId),
+  browserZoomReset: (sessionId: string) => ipcRenderer.invoke("browser:zoom-reset", sessionId),
   findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) =>
     ipcRenderer.invoke("browser:find-in-page", { sessionId, text, ...options }),
   stopFindInPage: (sessionId: string) => ipcRenderer.invoke("browser:stop-find-in-page", sessionId),

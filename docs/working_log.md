@@ -7616,3 +7616,69 @@ Key decisions:
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 125)*
+
+---
+
+### Session 126 — 2026-03-16: T19 — Browser Zoom Controls (Cmd+/-, Cmd+0)
+
+#### Mode: feature
+
+Rationale: PM ordering says T19 is next after T18. Framework maturity checklist is satisfied. T19 is a browser completeness feature — zoom is universally expected in every desktop browser. Small scope, high perceived quality.
+
+#### Plan
+
+1. **BrowserViewManager.ts**: Add `zoomIn(sessionId)`, `zoomOut(sessionId)`, `resetZoom(sessionId)` methods using `webContents.setZoomLevel()`. Increment/decrement by 0.5. Clamp to [-3, 5].
+2. **AppBrowserShell.ts**: Add proxy methods.
+3. **registerIpcHandlers.ts**: Add `browser:zoom-in`, `browser:zoom-out`, `browser:zoom-reset` IPC handlers.
+4. **preload/index.ts**: Add `browserZoomIn`, `browserZoomOut`, `browserZoomReset` API methods.
+5. **useKeyboardShortcuts.ts**: Add `=` (zoom in), `-` (zoom out), `0` (reset) shortcuts when browser tab is active.
+6. Run `pnpm run typecheck`.
+7. Update this log and commit.
+
+#### Implementation
+
+**`BrowserViewManager.ts`** — Added 3 zoom methods:
+- `zoomIn(sessionId)` — increments zoom level by 0.5, clamped to max 5. Returns new level.
+- `zoomOut(sessionId)` — decrements zoom level by 0.5, clamped to min -3. Returns new level.
+- `resetZoom(sessionId)` — sets zoom level to 0 (100%). Returns 0.
+
+**`AppBrowserShell.ts`** — Added 3 proxy methods (`zoomIn`, `zoomOut`, `resetZoom`) delegating to BrowserViewManager.
+
+**`registerIpcHandlers.ts`** — Added 3 IPC handlers:
+- `browser:zoom-in` — calls `browserShell.zoomIn(sessionId)`, returns `{ zoomLevel }`
+- `browser:zoom-out` — calls `browserShell.zoomOut(sessionId)`, returns `{ zoomLevel }`
+- `browser:zoom-reset` — calls `browserShell.resetZoom(sessionId)`, returns `{ zoomLevel }`
+
+**`preload/index.ts`** — Added 3 preload API methods: `browserZoomIn`, `browserZoomOut`, `browserZoomReset`.
+
+**`useKeyboardShortcuts.ts`** — Added 3 keyboard shortcuts (require active browser tab):
+- `Cmd+=` or `Cmd++` → zoom in
+- `Cmd+-` → zoom out
+- `Cmd+0` → reset zoom
+
+**`App.tsx`** — Added `browserZoomIn`/`browserZoomOut`/`browserZoomReset` to Window type declaration. Wired `onZoomIn`/`onZoomOut`/`onZoomReset` callbacks in `useKeyboardShortcuts` call.
+
+#### Files Changed
+
+- `apps/desktop/src/main/browser/BrowserViewManager.ts` — 3 zoom methods
+- `apps/desktop/src/main/browser/AppBrowserShell.ts` — 3 proxy methods
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — 3 IPC handlers
+- `apps/desktop/src/preload/index.ts` — 3 preload API methods
+- `apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts` — 3 keyboard shortcut handlers
+- `apps/desktop/src/renderer/components/App.tsx` — type declarations + callback wiring
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1092/1092 pass (no change — feature is Electron main-process + renderer wiring only)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T19 is complete. Users can now zoom in (Cmd+=), zoom out (Cmd+-), and reset zoom (Cmd+0) on the active browser tab. Zoom level persists per tab via Electron's `webContents.setZoomLevel()`.
+- PM ordering: T20 (navigation error handling) is next.
+- D12 (sidebar residual token cleanup) is available as a quick design polish task.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 126)*
