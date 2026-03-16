@@ -3722,3 +3722,66 @@ Gap analysis: when a modal dialog is open (cookie consent banners, confirmation 
 - Consider table structure extraction for data-heavy pages
 
 *Session log entry written: 2026-03-16 (Session 65)*
+
+---
+
+### Session 66 — 2026-03-16: Surface aria-description in Page Model and Planner Prompt
+
+#### Context
+
+Gap analysis (Session 65 suggestion): elements can have `aria-description` or `aria-describedby` attributes that provide additional context beyond the label. For example, a "Delete" button might have `aria-description="Permanently removes the selected items"`, or a form field might have a linked description like "Password must be at least 8 characters". The planner currently has no way to see this supplementary context, which could help it make better decisions about which elements to interact with and how.
+
+#### Plan
+
+1. Add `description?: string` to `PageElementModel` in `contracts/browser.ts`
+2. In `extractPageModel.ts`, capture `aria-description` attribute or resolve `aria-describedby` reference text (trimmed, capped at 80 chars)
+3. Surface `desc="..."` in `buildPlannerPrompt.ts` element rendering
+4. Add tests to `planner-prompt.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Modified `packages/contracts/src/browser.ts`:**
+- Added `description?: string` optional field to `PageElementModel`
+- Captures the element's `aria-description` or resolved `aria-describedby` text
+
+**Modified `packages/browser-runtime/src/cdp/extractPageModel.ts`:**
+- After resolving `label` and `text`, captures `aria-description` attribute directly
+- Falls back to resolving `aria-describedby` (space-separated IDs → referenced element text content)
+- Capped at 80 chars, only set when non-empty
+- Zero overhead for elements without description attributes (field is `undefined`)
+
+**Modified `packages/planner/src/buildPlannerPrompt.ts`:**
+- Element rendering now shows `desc="..."` after text, before href
+- Example: `[el_5] button "Delete" desc="Permanently removes the selected items" *`
+
+**Impact:** The planner can now see supplementary context for elements:
+- A "Delete" button with `aria-description="Permanently removes the selected items"`
+- A form field with `aria-describedby` linking to helper text like "Password must be at least 8 characters"
+- Any element where authors added descriptive context beyond the label
+This helps the planner understand element purpose and make better interaction decisions.
+
+**Added 3 tests to `tests/planner-prompt.test.mjs`:**
+- description rendered when present
+- description absent when undefined
+- description rendered after text and before href (ordering)
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 81/81 pass (was 78, +3 new)
+- `node --test tests/*.test.mjs` — 914/914 pass (was 911, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All pure-logic modules across all packages have test coverage (914 tests, 0 failures)
+- Remaining untested code requires Electron context
+- P3-10 (profile system) remains deferred
+- Consider table structure extraction for data-heavy pages
+- Consider surfacing `aria-level` for headings to convey document structure
+
+*Session log entry written: 2026-03-16 (Session 66)*
