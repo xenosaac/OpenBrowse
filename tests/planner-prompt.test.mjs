@@ -2761,7 +2761,7 @@ test("T25: system prompt includes anti-loop strategies section", () => {
   assert.match(system, /Breaking Out of Loops/);
   // Key strategies from PM acceptance criteria
   assert.match(system, /browser_read_text/);
-  assert.match(system, /NEVER take a screenshot more than once on the same page/);
+  assert.match(system, /Cannot make progress after 3 attempts/);
   assert.match(system, /task_complete.*partial result/i);
   assert.match(system, /ask_user/);
 });

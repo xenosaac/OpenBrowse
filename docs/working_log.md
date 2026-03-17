@@ -8387,4 +8387,56 @@ Rationale: Worktree is clean, no unfinished task. PM Program I (T24-T26, T23) fu
 
 *Session log entry written: 2026-03-16 (Session 135)*
 
-*Session log entry written: 2026-03-16 (Session 134)*
+---
+
+### Session 136 — 2026-03-16: Remove browser_screenshot from Planner Tools (Prevents Screenshot Loop Failures)
+
+#### Mode: framework
+
+Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T26) and design tasks (D1-D15) done. Database failure evidence shows `run_task_1773649494964` stuck in a screenshot loop: "Stuck: repeated 'screenshot' on birdbreeders.com 3 times." Root cause: `browser_screenshot` is in the planner tool list but the planner has no vision capability — it can't see the screenshot image. The tool returns "Screenshot captured" but the image data is never surfaced in the next planner prompt. The planner thinks it's doing something useful and keeps retrying. This is a correctness issue (harmful tool trap), not a feature addition.
+
+#### Plan
+
+1. Remove `browser_screenshot` from `BROWSER_TOOLS` array in `toolMapping.ts`
+2. Keep `mapToolCallToDecision` case for `screenshot` (robustness if somehow triggered)
+3. Keep kernel handler for `screenshot` action type (diagnostic screenshots on failure still work)
+4. Remove screenshot references from planner system prompt anti-loop section in `buildPlannerPrompt.ts`
+5. Update tool count assertions in affected tests
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**Removed `browser_screenshot` from `BROWSER_TOOLS` in `packages/planner/src/toolMapping.ts`:**
+- Deleted the tool definition (lines 109-117 in old file)
+- Tool count: 17 → 16
+- Kept `browser_screenshot` case in `mapToolCallToDecision` for robustness (if somehow triggered, maps to `screenshot` action — kernel still handles it)
+- Kept kernel `screenshot` handler in `ElectronBrowserKernel.ts` (diagnostic screenshots on failure still work)
+
+**Updated planner prompt in `packages/planner/src/buildPlannerPrompt.ts`:**
+- Removed "Use browser_read_text or screenshot" → "Use browser_read_text" (line 303)
+- Removed entire "NEVER take a screenshot more than once" bullet point (line 306) — tool no longer available, guidance unnecessary
+- The planner will now use `browser_read_text` for page understanding instead of the useless screenshot tool
+
+**Updated test assertions:**
+- `tests/toolMapping.test.mjs`: tool count 17 → 16, removed `browser_screenshot` from expected names
+- `tests/planner-prompt.test.mjs`: updated T25 anti-loop assertion to check for "Cannot make progress after 3 attempts" instead of screenshot line
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 46/46 pass (unchanged count — screenshot mapping test still exercises mapToolCallToDecision robustness)
+- `node --test tests/planner-prompt.test.mjs` — 152/152 pass (1 assertion updated)
+- `node --test tests/*.test.mjs` — 1114/1114 pass (no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The planner now has 16 tools (was 17). Screenshot capability can be re-added if/when vision integration is implemented.
+- All PM-directed tasks (T23-T26) and design tasks (D1-D15) remain complete.
+- PM Program I results should be re-validated after user rebuilds and re-tests with T24+T25+T26 deployed.
+- Consider further planner prompt improvements based on post-deployment failure analysis.
+
+*Session log entry written: 2026-03-16 (Session 136)*

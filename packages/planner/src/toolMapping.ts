@@ -107,15 +107,6 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
-    name: "browser_screenshot",
-    description: "Capture a screenshot of the current page. Use when you need to see the visual layout.",
-    input_schema: {
-      type: "object" as const,
-      properties: {},
-      required: []
-    }
-  },
-  {
     name: "browser_go_back",
     description: "Navigate back to the previous page (like pressing the browser back button). Use after visiting a page to return to search results or a previous page.",
     input_schema: {
