@@ -70,6 +70,10 @@ export class RunExecutor {
     let consecutiveIdenticalActions = 0;
     let lastActionKey = "";
 
+    // On-demand screenshot: stored when the planner calls browser_screenshot,
+    // included as screenshotBase64 in the *next* planner call, then cleared.
+    let pendingScreenshot: string | null = null;
+
     // Initialize openedTabs with primary session if not yet tracked
     if (!current.checkpoint.openedTabs || current.checkpoint.openedTabs.length === 0) {
       current = {
@@ -164,20 +168,16 @@ export class RunExecutor {
         plannerMode: this.services.descriptor.planner.mode
       });
 
-      // Capture screenshot for vision-enabled planner (graceful — null on failure)
-      let screenshotBase64: string | null = null;
-      try {
-        screenshotBase64 = await this.services.browserKernel.captureScreenshot(activeSession);
-      } catch {
-        // Screenshot capture failed — planner proceeds text-only
-      }
+      // Include on-demand screenshot from previous step's browser_screenshot call
+      const screenshotForThisStep = pendingScreenshot;
+      pendingScreenshot = null; // Clear after one use
 
       let decision;
       try {
         decision = await this.services.planner.decide({
           run: current,
           pageModel,
-          ...(screenshotBase64 ? { screenshotBase64 } : {})
+          ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -243,6 +243,32 @@ export class RunExecutor {
             ...current,
             checkpoint: { ...current.checkpoint, plannerNotes }
           };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true",
+            description: action.description
+          });
+          continue;
+        }
+
+        // Handle screenshot — capture and store for the next planner call
+        if (action.type === "screenshot") {
+          let screenshotData: string | null = null;
+          try {
+            screenshotData = await this.services.browserKernel.captureScreenshot(activeSession);
+          } catch {
+            // Capture failed — proceed without screenshot
+          }
+          pendingScreenshot = screenshotData;
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: screenshotData
+              ? "Screenshot captured — visual context will be available on your next step."
+              : "Screenshot capture failed — proceeding without visual context.",
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
           await this.services.runCheckpointStore.save(current);
           await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
             actionType: action.type,
