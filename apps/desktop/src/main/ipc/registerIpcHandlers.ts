@@ -307,6 +307,22 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  // Split view
+  register("browser:split-view:enter", async (_event, data: { leftId: string; rightId: string }) => {
+    browserShell.enterSplitView(data.leftId, data.rightId);
+    return { ok: true };
+  });
+
+  register("browser:split-view:exit", async () => {
+    browserShell.exitSplitView();
+    return { ok: true };
+  });
+
+  register("browser:split-view:set-bounds", async (_event, data: { leftBounds: BrowserViewportBounds; rightBounds: BrowserViewportBounds }) => {
+    browserShell.setSplitBounds(data.leftBounds, data.rightBounds);
+    return { ok: true };
+  });
+
   // Handles both standalone tabs and agent-run groups.
   register("browser:close-group", async (_event, groupId: string) => {
     if (browserShell.isStandaloneTab(groupId)) {

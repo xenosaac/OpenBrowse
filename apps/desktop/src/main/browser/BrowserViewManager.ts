@@ -31,6 +31,13 @@ export class BrowserViewManager {
   private activeViewId: string | null = null;
   private hostWindow: BrowserWindow;
   private viewportBounds: ViewportBounds | null = null;
+
+  // Split view state
+  private splitMode = false;
+  private splitLeftId: string | null = null;
+  private splitRightId: string | null = null;
+  private splitLeftBounds: ViewportBounds | null = null;
+  private splitRightBounds: ViewportBounds | null = null;
   onNavigate: ((sessionId: string, url: string, title: string) => void) | null = null;
   onLoadingStateChanged: ((sessionId: string, isLoading: boolean) => void) | null = null;
   onFaviconUpdated: ((sessionId: string, faviconUrl: string) => void) | null = null;
@@ -320,6 +327,11 @@ export class BrowserViewManager {
       this.activeViewId = null;
     }
 
+    // Exit split if destroying a split pane
+    if (this.splitMode && (sessionId === this.splitLeftId || sessionId === this.splitRightId)) {
+      this.exitSplit();
+    }
+
     try {
       this.hostWindow.contentView.removeChildView(managed.view);
     } catch {
@@ -338,7 +350,67 @@ export class BrowserViewManager {
     }
   }
 
+  // ---- Split view ----
+
+  showSplit(leftId: string, rightId: string): void {
+    this.splitMode = true;
+    this.splitLeftId = leftId;
+    this.splitRightId = rightId;
+    this.activeViewId = leftId;
+    this.promote(leftId);
+    this.promote(rightId);
+    this.applyVisibility();
+  }
+
+  setSplitBounds(leftBounds: ViewportBounds, rightBounds: ViewportBounds): void {
+    this.splitLeftBounds = {
+      x: Math.max(0, Math.round(leftBounds.x)),
+      y: Math.max(0, Math.round(leftBounds.y)),
+      width: Math.max(0, Math.round(leftBounds.width)),
+      height: Math.max(0, Math.round(leftBounds.height))
+    };
+    this.splitRightBounds = {
+      x: Math.max(0, Math.round(rightBounds.x)),
+      y: Math.max(0, Math.round(rightBounds.y)),
+      width: Math.max(0, Math.round(rightBounds.width)),
+      height: Math.max(0, Math.round(rightBounds.height))
+    };
+    this.relayout();
+  }
+
+  exitSplit(): void {
+    this.splitMode = false;
+    const keepId = this.splitLeftId;
+    this.splitLeftId = null;
+    this.splitRightId = null;
+    this.splitLeftBounds = null;
+    this.splitRightBounds = null;
+    if (keepId) {
+      this.activeViewId = keepId;
+    }
+    this.applyVisibility();
+  }
+
+  isSplit(): boolean {
+    return this.splitMode;
+  }
+
+  getSplitIds(): { leftId: string | null; rightId: string | null } {
+    return { leftId: this.splitLeftId, rightId: this.splitRightId };
+  }
+
   relayout(): void {
+    if (this.splitMode) {
+      const left = this.splitLeftId ? this.views.get(this.splitLeftId) : null;
+      const right = this.splitRightId ? this.views.get(this.splitRightId) : null;
+      if (left && this.splitLeftBounds) {
+        left.view.setBounds(this.splitLeftBounds);
+      }
+      if (right && this.splitRightBounds) {
+        right.view.setBounds(this.splitRightBounds);
+      }
+      return;
+    }
     if (this.activeViewId) {
       const managed = this.views.get(this.activeViewId);
       if (managed) {
@@ -349,7 +421,16 @@ export class BrowserViewManager {
 
   private applyVisibility(): void {
     for (const [id, managed] of this.views) {
-      if (id === this.activeViewId) {
+      if (this.splitMode && (id === this.splitLeftId || id === this.splitRightId)) {
+        const bounds = id === this.splitLeftId ? this.splitLeftBounds : this.splitRightBounds;
+        if (bounds) {
+          managed.view.setBounds(bounds);
+        }
+        managed.view.setVisible(true);
+        if (id === this.activeViewId) {
+          try { managed.view.webContents.focus(); } catch { /* best-effort */ }
+        }
+      } else if (!this.splitMode && id === this.activeViewId) {
         this.layoutView(managed.view);
         managed.view.setVisible(true);
         try {

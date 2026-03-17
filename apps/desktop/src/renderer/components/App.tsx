@@ -137,6 +137,11 @@ declare global {
       // Keybinding preferences
       getKeybindings: () => Promise<Array<{ key: string; value: string }>>;
       saveKeybindings: (entries: Array<{ key: string; value: string }>) => Promise<{ ok: boolean }>;
+
+      // Split view
+      enterSplitView: (leftId: string, rightId: string) => Promise<{ ok: boolean }>;
+      exitSplitView: () => Promise<{ ok: boolean }>;
+      setSplitViewBounds: (leftBounds: { x: number; y: number; width: number; height: number }, rightBounds: { x: number; y: number; width: number; height: number }) => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -312,6 +317,39 @@ export function App() {
     }
   }, [selection.activeBrowserTab]);
 
+  // ---- Split view state ----
+  const [splitViewTabId, setSplitViewTabId] = useState<string | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+
+  const splitTab = splitViewTabId
+    ? browserTabs.shellTabs.find(t => t.id === splitViewTabId) ?? null
+    : null;
+
+  // Exit split view when the split tab is closed
+  useEffect(() => {
+    if (splitViewTabId && !browserTabs.shellTabs.some(t => t.id === splitViewTabId)) {
+      setSplitViewTabId(null);
+    }
+  }, [splitViewTabId, browserTabs.shellTabs]);
+
+  // Exit split view when leaving browser panel
+  useEffect(() => {
+    if (selection.mainPanel !== "browser" && splitViewTabId) {
+      setSplitViewTabId(null);
+    }
+  }, [selection.mainPanel, splitViewTabId]);
+
+  const handleEnterSplitView = useCallback((tabId: string) => {
+    if (!selection.activeBrowserTab || tabId === selection.activeBrowserTab.id) return;
+    setSplitViewTabId(tabId);
+    setSplitRatio(0.5);
+    selection.setMainPanel("browser");
+  }, [selection.activeBrowserTab, selection.setMainPanel]);
+
+  const handleExitSplitView = useCallback(() => {
+    setSplitViewTabId(null);
+  }, []);
+
   // ---- Step 1.6: Cross-cutting handlers ----
 
   const handleCancelRun = useCallback(async (runId: string) => {
@@ -320,6 +358,11 @@ export function App() {
   }, [agentRuns.refresh]);
 
   const handleCloseTab = useCallback(async (tab: BrowserShellTabDescriptor) => {
+    // Exit split view if closing one of the split panes
+    if (splitViewTabId === tab.id || (selection.activeBrowserTab?.id === tab.id && splitViewTabId)) {
+      setSplitViewTabId(null);
+    }
+
     const closingActive = selection.mainPanel === "browser" &&
       selection.activeBrowserTab?.groupId === tab.groupId;
     const tabIndex = browserTabs.shellTabs.findIndex(t => t.groupId === tab.groupId);
@@ -343,10 +386,10 @@ export function App() {
       }
     }
   }, [
-    selection.mainPanel, selection.activeBrowserTab?.groupId, browserTabs.shellTabs,
+    selection.mainPanel, selection.activeBrowserTab?.groupId, selection.activeBrowserTab?.id, browserTabs.shellTabs,
     browserTabs.closeTab, agentRuns.refresh, browserTabs.refreshTabs,
     selection.clearGroupSelection, selection.selectGroup, selection.selectRun,
-    selection.setForegroundRunId, selection.setMainPanel
+    selection.setForegroundRunId, selection.setMainPanel, splitViewTabId
   ]);
 
   const handleNewTab = useCallback(async (url?: string) => {
@@ -846,6 +889,26 @@ export function App() {
         className="ob-dropdown-item"
         style={{
           ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab && browserTabs.shellTabs.length >= 2 && !splitViewTabId) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (!selection.activeBrowserTab) return;
+          const other = browserTabs.shellTabs.find(t => t.id !== selection.activeBrowserTab!.id);
+          if (other) handleEnterSplitView(other.id);
+        }}
+      >
+        Split View
+      </button>
+      {splitViewTabId && (
+        <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={handleExitSplitView}>
+          Exit Split View
+        </button>
+      )}
+      <div style={styles.dropdownSeparator} />
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
           ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
         }}
         onClick={() => {
@@ -967,6 +1030,9 @@ export function App() {
             onSetTabGroupColor={browserTabs.setTabGroupColor}
             onToggleCollapseTabGroup={browserTabs.toggleCollapseTabGroup}
             onDeleteTabGroup={browserTabs.deleteTabGroup}
+            splitViewTabId={splitViewTabId}
+            onOpenInSplitView={handleEnterSplitView}
+            onExitSplitView={handleExitSplitView}
           />
           <div style={styles.chromeSeparator} />
           <NavBar
@@ -1060,6 +1126,9 @@ export function App() {
                 }}
                 downloads={downloads}
                 onDismissDownload={(id) => setDownloads(prev => prev.filter(d => d.id !== id))}
+                splitTab={splitTab}
+                splitRatio={splitRatio}
+                onSplitRatioChange={setSplitRatio}
               />
             </>
           ) : (

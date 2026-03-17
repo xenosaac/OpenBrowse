@@ -30,6 +30,9 @@ interface Props {
   onSetTabGroupColor: (tgId: string, colorId: string) => void;
   onToggleCollapseTabGroup: (tgId: string) => void;
   onDeleteTabGroup: (tgId: string) => void;
+  splitViewTabId?: string | null;
+  onOpenInSplitView?: (tabId: string) => void;
+  onExitSplitView?: () => void;
 }
 
 function getGroupColor(colorId: string): string {
@@ -56,7 +59,8 @@ export function TabBar(props: Props) {
     tabGroups, groupAssignments,
     onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onDuplicateTab, onMoveTab,
     onCreateTabGroup, onAddTabToGroup, onRemoveTabFromGroup,
-    onRenameTabGroup, onSetTabGroupColor, onToggleCollapseTabGroup, onDeleteTabGroup
+    onRenameTabGroup, onSetTabGroupColor, onToggleCollapseTabGroup, onDeleteTabGroup,
+    splitViewTabId, onOpenInSplitView, onExitSplitView
   } = props;
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: BrowserShellTabDescriptor } | null>(null);
@@ -234,6 +238,7 @@ export function TabBar(props: Props) {
           // tab item
           const { tab } = item;
           const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+          const isSplitTab = splitViewTabId === tab.id;
           const pinned = pinnedTabs.has(tab.groupId);
           const dot = getTabStatusDot(tab, runs);
           const favicon = tabFavicons[tab.id];
@@ -248,8 +253,9 @@ export function TabBar(props: Props) {
               style={{
                 ...styles.headerTabWrap,
                 ...(active ? styles.headerTabWrapActive : {}),
+                ...(isSplitTab && !active ? { background: "rgba(16,185,129,0.06)", borderColor: "rgba(16,185,129,0.2)" } : {}),
                 ...(pinned ? styles.headerTabWrapPinned : {}),
-                ...(groupColor && !active ? {
+                ...(groupColor && !active && !isSplitTab ? {
                   borderBottom: `2px solid ${groupColor}`,
                 } : {}),
                 ...(draggedGroupId === tab.groupId ? { opacity: 0.4 } : {}),
@@ -408,6 +414,31 @@ export function TabBar(props: Props) {
             >
               Remove from Group
             </button>
+          )}
+          {/* Split view */}
+          {onOpenInSplitView && !splitViewTabId && activeBrowserTab && contextMenu.tab.id !== activeBrowserTab.id && (
+            <>
+              <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
+              <button
+                className="ob-dropdown-item"
+                style={styles.ctxItem}
+                onClick={() => { onOpenInSplitView(contextMenu.tab.id); setContextMenu(null); }}
+              >
+                Open in Split View
+              </button>
+            </>
+          )}
+          {splitViewTabId && onExitSplitView && (
+            <>
+              <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
+              <button
+                className="ob-dropdown-item"
+                style={styles.ctxItem}
+                onClick={() => { onExitSplitView(); setContextMenu(null); }}
+              >
+                Exit Split View
+              </button>
+            </>
           )}
           <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
           <button

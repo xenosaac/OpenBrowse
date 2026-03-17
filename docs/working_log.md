@@ -9924,3 +9924,98 @@ Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complet
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 160)*
+
+---
+
+### Session 161 — 2026-03-16: Split View (Self-Directed Browser Feature)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complete. PM guidance: "After T45, self-directed features should remain browser-visible or capability work. Good candidates: print-to-PDF improvements, tab grouping, split view." Sessions 159-160 did reader mode and tab grouping. Split view is the next PM-suggested candidate. Framework maturity checklist satisfied — 1170/1170 tests passing.
+
+#### Plan
+
+1. **`BrowserViewManager.ts`**: Add split view state (`splitMode`, `splitLeftId`, `splitRightId`, split bounds). Methods: `showSplit(leftId, rightId)`, `setSplitBounds(leftBounds, rightBounds)`, `exitSplit()`, `isSplit()`, `getSplitIds()`. Modify `applyVisibility()` and `relayout()` to handle two visible views in split mode.
+2. **`AppBrowserShell.ts`**: Add passthrough methods: `enterSplitView`, `exitSplitView`, `setSplitBounds`, `isSplitView`.
+3. **`registerIpcHandlers.ts`**: Add `browser:split-view:enter`, `browser:split-view:exit`, `browser:split-view:set-bounds` IPC handlers.
+4. **`preload/index.ts`**: Add `enterSplitView`, `exitSplitView`, `setSplitViewBounds` preload APIs.
+5. **`BrowserPanel.tsx`**: When split view active, render two side-by-side viewport divs with a draggable divider. Each viewport sends independent bounds via `setSplitViewBounds`. ResizeObserver tracks both panes.
+6. **`App.tsx`**: Add `splitViewTabId` state (secondary tab ID). Wire enter/exit handlers. Pass split props to BrowserPanel. Add to hamburger menu.
+7. **`TabBar.tsx`**: Add "Open in Split View" to tab context menu.
+8. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/browser/BrowserViewManager.ts`** — Split view state + methods:
+- Added `splitMode`, `splitLeftId`, `splitRightId`, `splitLeftBounds`, `splitRightBounds` state fields.
+- `showSplit(leftId, rightId)`: enters split mode, promotes both views, applies visibility.
+- `setSplitBounds(leftBounds, rightBounds)`: updates bounds for both panes, triggers relayout.
+- `exitSplit()`: exits split mode, keeps left as active single view.
+- `isSplit()` / `getSplitIds()`: query methods.
+- Modified `applyVisibility()`: in split mode, both left and right views are visible with separate bounds. All other views hidden.
+- Modified `relayout()`: in split mode, applies stored split bounds to both views.
+- Modified `destroy()`: auto-exits split when either split pane is destroyed.
+
+**`apps/desktop/src/main/browser/AppBrowserShell.ts`** — Split view passthrough methods:
+- `enterSplitView(leftId, rightId)`, `exitSplitView()`, `setSplitBounds(leftBounds, rightBounds)`, `isSplitView()`.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — 3 new IPC handlers:
+- `browser:split-view:enter`: calls `browserShell.enterSplitView(leftId, rightId)`.
+- `browser:split-view:exit`: calls `browserShell.exitSplitView()`.
+- `browser:split-view:set-bounds`: calls `browserShell.setSplitBounds(leftBounds, rightBounds)`.
+
+**`apps/desktop/src/preload/index.ts`** — 3 new preload APIs:
+- `enterSplitView(leftId, rightId)`, `exitSplitView()`, `setSplitViewBounds(leftBounds, rightBounds)`.
+
+**`apps/desktop/src/renderer/components/BrowserPanel.tsx`** — Split view rendering:
+- New props: `splitTab`, `splitRatio`, `onSplitRatioChange`.
+- When `splitTab` is set, renders two side-by-side viewport divs (`leftViewportRef`, `rightViewportRef`) with a draggable 4px divider.
+- Divider drag: mousedown sets `draggingSplit`, mousemove calculates ratio (clamped 0.2–0.8), mouseup releases.
+- Split view effect: calls `enterSplitView()` on mount, sends initial bounds, `exitSplitView()` on cleanup.
+- ResizeObserver effect: keeps both pane bounds in sync during window resize.
+- Single view effect: skips when `splitTab` is active (split handles its own show/hide).
+
+**`apps/desktop/src/renderer/components/App.tsx`** — State management + wiring:
+- Added `splitViewTabId` state (secondary tab ID in split pane, null when not split).
+- Added `splitRatio` state (0.5 default, clamped 0.2–0.8).
+- Added `splitTab` derived from `splitViewTabId` + `shellTabs`.
+- Auto-exits split when: split tab closed, leaving browser panel.
+- `handleEnterSplitView(tabId)`: sets split tab, resets ratio, ensures browser panel.
+- `handleExitSplitView()`: clears `splitViewTabId`.
+- `handleCloseTab`: exits split when closing either split pane.
+- Hamburger menu: "Split View" item (enabled when 2+ tabs, not already split), "Exit Split View" item (when split active).
+- Window type: added `enterSplitView`, `exitSplitView`, `setSplitViewBounds` declarations.
+- Passed `splitTab`, `splitRatio`, `onSplitRatioChange` to BrowserPanel.
+- Passed `splitViewTabId`, `onOpenInSplitView`, `onExitSplitView` to TabBar.
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Context menu + visual indicator:
+- New props: `splitViewTabId`, `onOpenInSplitView`, `onExitSplitView`.
+- Tab context menu: "Open in Split View" item (only when right-clicking a non-active tab, not already in split).
+- Tab context menu: "Exit Split View" item (when split is active).
+- Split tab visual: subtle emerald tint background + emerald border on the tab that's in the right split pane.
+
+**Behavior:**
+- Right-click a tab → "Open in Split View" → shows current active tab on left, clicked tab on right.
+- Hamburger menu → "Split View" → splits with the first non-active tab on the right.
+- Drag the divider between panes to resize (20%-80% range).
+- Right-click → "Exit Split View" or hamburger → "Exit Split View" → returns to single view (left pane stays active).
+- Closing either split tab exits split mode.
+- Switching away from browser panel exits split mode.
+- Split tab has a subtle emerald highlight in the tab bar.
+- Both panes are independent native WebContentsView instances with correct viewport bounds.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1170/1170 pass (no regressions, no new tests needed — Electron main process + renderer UI wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM guidance: self-directed features should remain browser-visible or capability work.
+- Remaining candidates: print-to-PDF improvements (minor).
+- Tab group persistence (like T40 did for pin state) could be a follow-up.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 161)*
