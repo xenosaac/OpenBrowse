@@ -153,7 +153,7 @@ const styles: Record<string, React.CSSProperties> = {
   clearBtnConfirm: {
     background: "rgba(239,68,68,0.15)",
     border: "1px solid rgba(239,68,68,0.3)",
-    color: "#ef4444",
+    color: colors.statusFailed,
     borderRadius: 8,
     padding: "7px 14px",
     cursor: "pointer",

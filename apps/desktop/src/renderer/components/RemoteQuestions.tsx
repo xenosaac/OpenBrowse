@@ -18,8 +18,8 @@ const RISK_CLASS_LABELS: Record<string, string> = {
 };
 
 const RISK_CLASS_COLORS: Record<string, string> = {
-  financial: "#ef4444",
-  credential: "#f59e0b",
+  financial: colors.statusFailed,
+  credential: colors.statusWaiting,
   destructive: "#dc2626",
   submission: colors.emerald,
   navigation: "#06b6d4",
@@ -31,7 +31,7 @@ export function RemoteQuestions({ runs, onResume, onDismiss }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
 
   if (runs.length === 0) {
-    return <p style={{ color: "#9090a8" }}>No pending questions.</p>;
+    return <p style={{ color: colors.textSecondary }}>No pending questions.</p>;
   }
 
   const getAnswer = (runId: string): string => answers[runId] ?? "";
@@ -217,12 +217,12 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid " + colors.borderDefault,
     borderRadius: 10,
     padding: "10px 12px",
-    color: "#f5f5ff",
+    color: colors.textBright,
     fontSize: "0.9rem"
   } as React.CSSProperties,
   button: {
     background: colors.emerald,
-    color: "#fffdf9",
+    color: colors.textWarm,
     border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 10,
     padding: "8px 10px",
@@ -243,7 +243,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   pendingNote: {
     margin: "8px 0 0",
-    color: "#9090a8",
+    color: colors.textSecondary,
     fontSize: "0.82rem"
   },
   dismissButton: {
@@ -255,7 +255,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 6,
     background: "rgba(239,68,68,0.12)",
     border: "1px solid rgba(239,68,68,0.25)",
-    color: "#ef4444",
+    color: colors.statusFailed,
     cursor: "pointer",
     fontSize: "0.72rem",
     display: "grid",

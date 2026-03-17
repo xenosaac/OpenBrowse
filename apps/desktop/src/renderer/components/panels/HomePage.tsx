@@ -167,7 +167,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   promptSubmit: {
     background: colors.emerald,
-    color: "#ffffff",
+    color: colors.textWhite,
     border: "none",
     borderRadius: 12,
     padding: "10px 22px",
