@@ -8054,4 +8054,61 @@ Key design decisions:
 - PM task ordering: T25 (planner anti-loop strategies) is next — #1 failure mode (8/35 failures). Prompt-only change.
 - After T25: T26 (graceful session cleanup on tab close).
 
+### Session 132 — 2026-03-16: T25 — Planner Anti-Loop Strategies
+
+#### Mode: framework
+
+Rationale: Worktree is clean, no unfinished task. PM guidance says T25 is next after T24. T25 is P1 — addresses the #1 failure mode (8/35 failures are planner loop/stuck). Framework mode because this changes the planner prompt system.
+
+#### Plan
+
+1. **`buildPlannerPrompt.ts`**: Expand the "Error Recovery" section with explicit anti-loop strategies:
+   - If stuck on page: use `read_text` before clicking
+   - If same element fails: re-examine with `read_text`/`screenshot`, pick different element
+   - If navigation keeps returning: try different URL, search engine
+   - If 3 attempts at same approach: `task_complete` with partial result
+   - NEVER screenshot more than once on same page
+2. **`buildPlannerPrompt.ts`**: When `urlVisitCounts` shows any URL at 4+ visits, include the last 5 action descriptions in the URL warning so planner sees what it already tried.
+3. **Tests**: At least 2 new tests — anti-loop prompt content, action history inclusion at 4+ URL visits.
+4. Run `pnpm run typecheck` and `node --test tests/planner-prompt.test.mjs`.
+5. Update this log and commit.
+
+#### Implementation
+
+**`buildPlannerPrompt.ts`** — Two changes:
+
+**Change 1 (Anti-loop strategies section)**: Added "Breaking Out of Loops (CRITICAL)" section to the system prompt after "Error Recovery". Contains six concrete strategies:
+- Stuck on page → use `read_text` before clicking
+- Same element fails → re-examine with `read_text`, pick different element
+- Navigation loops → try different URL, search Google instead
+- 3 failed attempts at same approach → `task_complete` with partial result
+- NEVER screenshot more than once on same page → use `read_text` instead
+- Interactive pages (games, wizards) → use `ask_user` after 2-3 failed tries
+
+**Change 2 (Action history in URL warning)**: When `urlVisitCounts` has any URL at 4+ visits, the warning now includes the last 5 actions with step number, type, description, and OK/FAILED status. Ends with explicit instruction: "Do NOT repeat any of the above actions. Choose a different URL, different search terms, or use task_complete with partial results."
+
+Key design decisions:
+- Added to system prompt (not user prompt) because these are behavioral rules, not task-specific context.
+- The action recap in the URL warning is in the user prompt alongside other dynamic context — this is correct because it changes per step.
+- No runtime or tool changes. Purely prompt-level.
+
+#### Files Changed
+
+- `packages/planner/src/buildPlannerPrompt.ts` — Anti-loop strategies section + enhanced URL warning with action recap
+- `tests/planner-prompt.test.mjs` — 3 new T25 tests
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1110/1110 pass (+3 new T25 tests)
+- All 186 planner-prompt tests pass
+
+#### Status: DONE
+
+#### Next Steps
+
+- T25 is complete. Planner now has explicit anti-loop strategies and sees what it already tried when stuck.
+- PM task ordering: T26 (graceful session cleanup on tab close) is next — fixes 3/35 "Session not found" failures.
+- After T26: re-test multi-step tasks (Wordle, flight search, Facebook Marketplace) to measure T24+T25 impact.
+
 *Session log entry written: 2026-03-16 (Session 131)*
