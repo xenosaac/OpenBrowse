@@ -7,6 +7,7 @@ export type ChatMessage = {
   tone?: "normal" | "success" | "warning" | "error" | "action" | "action-error";
   timestamp: string;
   extractedData?: Array<{ label: string; value: string }>;
+  goalText?: string;
 };
 
 export interface ChatSession {
