@@ -8578,4 +8578,51 @@ Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29
 
 *Session log entry written: 2026-03-16 (Session 139)*
 
-*Session log entry written: 2026-03-16 (Session 138)*
+---
+
+### Session 140 — 2026-03-16: Fix URL Visit Counter — Only Count Navigate Actions
+
+#### Mode: framework
+
+Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T29, Programs A-J) complete. Database failure evidence shows `run_task_1773682600733` (Wordle) killed at "visited URL 13 times" — but the agent was interacting with a single-page app, not navigating in circles. Root cause: `TaskOrchestrator.recordBrowserResult()` increments `urlVisitCounts` for ALL action types, not just `navigate`. With `MAX_URL_VISITS_BEFORE_FAIL = 12`, any single-page task (Wordle, Google Flights, etc.) is capped at ~12 interactions regardless of whether the planner is actually stuck. This is a correctness issue — the URL visit counter should count navigation visits, not all interactions on a page.
+
+#### Plan
+
+1. In `packages/orchestrator/src/TaskOrchestrator.ts`, change `visitedUrl` computation in `recordBrowserResult` to only count `navigate` actions (set `visitedUrl = undefined` for non-navigate actions).
+2. Update affected tests in `tests/orchestrator.test.mjs` for the new counting behavior.
+3. Run typecheck + tests.
+4. Update this log and commit.
+
+#### Implementation
+
+**`packages/orchestrator/src/TaskOrchestrator.ts`** — Changed `visitedUrl` computation in `recordBrowserResult`:
+- Old: `const visitedUrl = result.action.type === "navigate" ? result.action.value : run.checkpoint.lastKnownUrl;`
+- New: `const visitedUrl = result.action.type === "navigate" ? result.action.value : undefined;`
+- Only `navigate` actions now increment `urlVisitCounts`. Click, type, scroll, and other non-navigate actions on the same URL are productive work, not revisitation.
+- This prevents single-page apps (Wordle, Google Flights, form wizards) from hitting MAX_URL_VISITS_BEFORE_FAIL (12) prematurely.
+- The visit limit still catches the real stuck pattern: navigating to the same URL 12+ times.
+
+**`tests/task-orchestrator.test.mjs`** — Updated 1 test:
+- Renamed "tracks urlVisitCounts using lastKnownUrl for non-navigate" → "does NOT increment urlVisitCounts for non-navigate actions"
+- Now asserts `urlVisitCounts["https://current.com"]` is `undefined` (was `1`).
+- RunExecutor URL-visit-limit test unchanged — still passes because pre-populated count of 12 triggers the limit.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/task-orchestrator.test.mjs` — 55/55 pass
+- `node --test tests/runExecutor.test.mjs` — 44/44 pass
+- `node --test tests/planner-prompt.test.mjs` — 191/191 pass (URL warning tests unaffected)
+- `node --test tests/*.test.mjs` — 1119/1119 pass (no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The URL visit counter now only counts navigations. Single-page apps can have many interactions without hitting the 12-visit limit.
+- Cycle detection, consecutive-identical-action detection, and soft failure limits still provide safety against stuck patterns.
+- The planner prompt's URL warning (at 5 visits) now means "navigated here 5 times" — a much more meaningful signal.
+- All PM-directed tasks (T23-T29, Programs A-J) remain complete.
+- PM should re-validate with user re-testing. This fix should improve multi-step single-page task completion (e.g., Wordle, flight search).
+
+*Session log entry written: 2026-03-16 (Session 140)*
