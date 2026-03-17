@@ -79,6 +79,7 @@ function makeServices(options = {}) {
     sentClarifications,
     sentMessages,
     services: {
+      pendingCancellations: new Set(),
       browserKernel: {
         capturePageModel: async () => {
           const pm = capturePageModels[captureIndex] ?? makePageModel();

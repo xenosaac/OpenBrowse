@@ -41,6 +41,7 @@ function makeServices(overrides = {}) {
     clearedRunStates,
     sentMessages,
     services: {
+      pendingCancellations: new Set(),
       runCheckpointStore: {
         load: overrides.load ?? (async () => null),
         save: async (run) => { savedRuns.push(run); },
@@ -138,6 +139,33 @@ test("acknowledge: no-op for unknown runId", () => {
   // Should not throw
   ctrl.acknowledge("run_unknown");
   assert.equal(ctrl.isCancelled("run_unknown"), false);
+});
+
+test("isCancelled: returns true when runId is in services.pendingCancellations", () => {
+  const { services } = makeServices();
+  const { sessions } = makeSessionManager();
+  const { handoff } = makeHandoffManager();
+  const ctrl = new CancellationController(services, sessions, handoff);
+
+  // Not cancelled by either mechanism
+  assert.equal(ctrl.isCancelled("run_ext"), false);
+
+  // Add to shared pendingCancellations (simulates cancelTrackedRun)
+  services.pendingCancellations.add("run_ext");
+  assert.equal(ctrl.isCancelled("run_ext"), true);
+});
+
+test("acknowledge: clears pendingCancellations entry too", () => {
+  const { services } = makeServices();
+  const { sessions } = makeSessionManager();
+  const { handoff } = makeHandoffManager();
+  const ctrl = new CancellationController(services, sessions, handoff);
+
+  services.pendingCancellations.add("run_ext");
+  assert.equal(ctrl.isCancelled("run_ext"), true);
+  ctrl.acknowledge("run_ext");
+  assert.equal(ctrl.isCancelled("run_ext"), false);
+  assert.equal(services.pendingCancellations.has("run_ext"), false);
 });
 
 // --- cancel: non-existent run ---

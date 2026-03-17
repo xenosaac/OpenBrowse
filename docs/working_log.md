@@ -10366,3 +10366,72 @@ Reason: Worktree clean, no unfinished task. PM ordering: T48 is next after T49. 
 - Potential next capability work: recurring/scheduled tasks, page monitoring, improved stuck detection.
 
 *Session log entry written: 2026-03-16 (Session 166)*
+
+---
+
+### Session 167 — 2026-03-16: Wire cancelTrackedRun to CancellationController (Cooperative Cancellation Gap)
+
+#### Mode: framework
+
+Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) and Programs (A-P) complete. Feature backlog exhausted. Session 162 fixed the cancel-vs-fail race condition but documented a remaining gap: "`cancelTrackedRun` does not set the CancellationController's `pending` flag (it's a standalone function without access to it). This means the planner loop's synchronous `isCancelled()` check at the top of each iteration won't detect it." This is a small, targeted framework fix that closes the last cooperative cancellation gap. Framework mode because it changes runtime lifecycle correctness.
+
+#### Plan
+
+1. **`types.ts`**: Add `pendingCancellations: Set<string>` to `RuntimeServices`.
+2. **`compose.ts`**: Initialize `pendingCancellations: new Set()` in `assembleRuntimeServices`.
+3. **`CancellationController.ts`**: Modify `isCancelled()` to also check `services.pendingCancellations`. Modify `acknowledge()` to clean up from shared set.
+4. **`OpenBrowseRuntime.ts`**: In `cancelTrackedRun`, add to `services.pendingCancellations` before any async work.
+5. **Tests**: Add test verifying cancelTrackedRun signals cooperative cancellation.
+6. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/types.ts`** — Added `pendingCancellations: Set<string>` to `RuntimeServices`:
+- Shared set for cooperative cancellation. `cancelTrackedRun` adds runIds here; `CancellationController.isCancelled()` checks here.
+- Non-optional — always initialized.
+
+**`packages/runtime-core/src/compose.ts`** — Initialized in `assembleRuntimeServices`:
+- `pendingCancellations: new Set<string>()` added to the assembled services object.
+
+**`packages/runtime-core/src/CancellationController.ts`** — Two methods updated:
+- `isCancelled()`: Now checks both the instance-local `pending` set AND the shared `services.pendingCancellations` set. This means `cancelTrackedRun` cancellations are visible to the planner loop's synchronous check.
+- `acknowledge()`: Now also deletes from `services.pendingCancellations` to prevent unbounded growth.
+
+**`packages/runtime-core/src/OpenBrowseRuntime.ts`** — `cancelTrackedRun` updated:
+- Adds `runId` to `services.pendingCancellations` as the FIRST operation, before any async I/O. This ensures the signal is immediately visible to any concurrent planner loop.
+
+**Test updates:**
+- `tests/cancellationController.test.mjs` — 2 new tests:
+  - "isCancelled: returns true when runId is in services.pendingCancellations" — verifies shared set is checked.
+  - "acknowledge: clears pendingCancellations entry too" — verifies cleanup.
+- `tests/compose.test.mjs` — 1 new test:
+  - "assembleRuntimeServices — pendingCancellations is an empty Set" — verifies initialization.
+- `tests/compose.test.mjs` — Updated required keys list to include `pendingCancellations`.
+- 7 test files updated to add `pendingCancellations: new Set()` to mock services:
+  - `cancellationController.test.mjs`, `runExecutor.test.mjs`, `handoffManager.test.mjs`, `recoveryManager.test.mjs`, `queries.test.mjs`, `botCommands.test.mjs`, `demo-e2e.test.mjs`
+
+**Behavior:**
+- When a browser group/tab is closed mid-run, the IPC handler calls `cancelTrackedRun` which now immediately sets `services.pendingCancellations.add(runId)`.
+- The planner loop's `isCancelled()` check at the top of each iteration will see this signal on its next synchronous check — no I/O required.
+- This eliminates the timing gap where the planner loop could continue executing steps between the group close event and the checkpoint save in `cancelTrackedRun`.
+- Previously, cancellation was only detectable via checkpoint store reads (async). Now there are two layers: fast synchronous check (via `pendingCancellations`) and fallback async checkpoint freshness check (existing code from Session 162).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/cancellationController.test.mjs` — 15/15 pass (was 13, +2 new)
+- `node --test tests/compose.test.mjs` — 20/20 pass (was 19, +1 new)
+- `node --test tests/runExecutor.test.mjs` — 52/52 pass (no regressions)
+- `node --test tests/*.test.mjs` — 1195/1195 pass (was 1192, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The cooperative cancellation gap from Session 162 is now fully closed. Both `CancellationController.cancel()` and `cancelTrackedRun()` now signal the planner loop via the same synchronous `isCancelled()` check.
+- All PM Programs (A-P) are still complete. All PM tasks (T1-T49) still done.
+- Re-testing remains the #1 PM priority (user action) — 72+ sessions of fixes sitting unvalidated.
+- Potential next capability work: recurring/scheduled tasks, page monitoring, improved stuck detection.
+- The database failures are all from old builds predating T26/Session 162 fixes. The cancel-vs-fail race condition should no longer reproduce after rebuilding.
+
+*Session log entry written: 2026-03-16 (Session 167)*
