@@ -8,23 +8,26 @@ interface Props {
 }
 
 export function ChatMessageItem({ message }: Props) {
+  const isAction = message.tone === "action" || message.tone === "action-error";
   return (
     <div style={{
       ...styles.chatRow,
       ...(message.role === "user" ? styles.chatRowUser : {}),
-      ...(message.tone === "action" ? styles.chatRowAction : {})
+      ...(isAction ? styles.chatRowAction : {})
     }}>
-      {message.role === "agent" && message.tone !== "action" && (
+      {message.role === "agent" && !isAction && (
         <div style={styles.chatAvatar}>✦</div>
       )}
       {message.tone === "action" && <div style={styles.chatActionIcon}>⚡</div>}
+      {message.tone === "action-error" && <div style={styles.chatActionErrorIcon}>✗</div>}
       <div style={{
         ...styles.chatBubble,
         ...(message.role === "user" ? styles.chatBubbleUser : {}),
         ...(message.tone === "success" ? styles.chatBubbleSuccess : {}),
         ...(message.tone === "warning" ? styles.chatBubbleWarning : {}),
         ...(message.tone === "error" ? styles.chatBubbleError : {}),
-        ...(message.tone === "action" ? styles.chatBubbleAction : {})
+        ...(message.tone === "action" ? styles.chatBubbleAction : {}),
+        ...(message.tone === "action-error" ? styles.chatBubbleActionError : {})
       }}>
         {message.id.startsWith("outcome:") ? (
           <div dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(message.content) }} />
@@ -60,6 +63,10 @@ const styles: Record<string, React.CSSProperties> = {
     width: 18, height: 18, display: "grid", placeItems: "center",
     color: colors.emerald, flexShrink: 0, fontSize: "0.65rem"
   },
+  chatActionErrorIcon: {
+    width: 18, height: 18, display: "grid", placeItems: "center",
+    color: colors.statusFailed, flexShrink: 0, fontSize: "0.65rem"
+  },
   chatBubble: {
     maxWidth: "82%",
     ...glass.card,
@@ -77,6 +84,11 @@ const styles: Record<string, React.CSSProperties> = {
   chatBubbleAction: {
     background: "transparent", border: "none",
     borderLeft: "2px solid " + colors.emerald, borderRadius: 6,
+    padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
+  } as React.CSSProperties,
+  chatBubbleActionError: {
+    background: "transparent", border: "none",
+    borderLeft: "2px solid " + colors.statusFailed, borderRadius: 6,
     padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
   } as React.CSSProperties,
   chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" }
