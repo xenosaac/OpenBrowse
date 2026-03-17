@@ -202,6 +202,54 @@ export class RunExecutor {
           continue;
         }
 
+        // Handle upload_file — suspend with clarification asking for file path
+        if (action.type === "upload_file") {
+          const targetId = action.targetId;
+          if (!targetId) {
+            current = this.services.orchestrator.failRun(current, "upload_file action missing targetId");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
+          const label = action.description ?? "file input";
+          const clarifyId = `clarify_file_${current.id}_${Date.now()}`;
+          const question = `This form has a file upload field: "${label}". Please provide the full path to the file you'd like to upload.`;
+
+          current = {
+            ...current,
+            status: "suspended_for_clarification" as const,
+            updatedAt: new Date().toISOString(),
+            checkpoint: {
+              ...current.checkpoint,
+              summary: `Waiting for file path: ${label}`,
+              pendingClarificationId: clarifyId,
+              pendingBrowserAction: action,
+              stopReason: `Waiting for file path: ${label}`,
+            },
+            suspension: {
+              type: "clarification" as const,
+              requestId: clarifyId,
+              question,
+              createdAt: new Date().toISOString(),
+            }
+          };
+          await this.services.runCheckpointStore.save(current);
+          await this.services.chatBridge.sendClarification({
+            id: clarifyId,
+            runId: current.id,
+            question,
+            contextSummary: `File upload needed for: ${label}`,
+            options: [],
+            createdAt: new Date().toISOString()
+          });
+          await this.logEvent(current.id, "clarification_requested", question, {
+            requestId: clarifyId
+          });
+          await this.handoff.writeHandoff(current);
+          return current;
+        }
+
         if (this.services.securityPolicy.requiresApproval(current, action)) {
           const approvalRequest = this.services.securityPolicy.buildApprovalRequest(current, action);
           const approvalDecision = { ...decision, type: "approval_request" as const, approvalRequest };

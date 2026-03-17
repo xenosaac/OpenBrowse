@@ -289,6 +289,7 @@ For any task with more than 2 steps, track your progress using save_note:
 - To replace pre-filled content: set clear_first to true on browser_type
 - For cookie consent banners: dismiss them first
 - For CAPTCHAs: call ask_user — you cannot solve them
+- For file upload inputs (type="file"): use browser_upload_file with the element ref — this will ask the user which file to attach
 
 **Waiting for results:**
 - After dynamic content loading (search query, SPA navigation): use browser_wait_for_text instead of browser_wait with a fixed duration

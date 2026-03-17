@@ -17,7 +17,8 @@ export type BrowserActionType =
   | "read_text"
   | "wait_for_text"
   | "wait_for_navigation"
-  | "save_note";
+  | "save_note"
+  | "upload_file";
 
 export type BrowserActionFailureClass =
   | "element_not_found"

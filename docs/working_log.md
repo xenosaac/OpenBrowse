@@ -9512,3 +9512,86 @@ The tab context menu currently has only two items: "Pin/Unpin Tab" and "Close Ta
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 155)*
+
+---
+
+### Session 156 — 2026-03-16: T43 — File Upload Support for Agent Tasks (Program O)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Programs A-N all complete. PM doc says "Program O (T43-T45) — task capability expansion" is next. Task ordering: T43 → T44 → T45. T43 (file upload) is P2, unlocks an entire task class (form submission with attachments). Framework maturity checklist satisfied — bias toward feature/capability work.
+
+#### Context
+
+Many real tasks involve uploading a file (resume, document, form attachment). Currently, when a `<input type="file">` is on the page, the planner has no tool to interact with it. T43 adds:
+1. New planner tool `browser_upload_file` — takes element ref and description.
+2. When called, RunExecutor suspends the run with a clarification asking the user for the file path.
+3. When the user responds, the runtime uses CDP `DOM.setFileInputFiles` to set the file on the input element.
+4. Planner prompt guidance for recognizing file inputs and using the tool.
+
+#### Plan
+
+1. **`packages/contracts/src/browser.ts`**: Add `"upload_file"` to `BrowserActionType`.
+2. **`packages/planner/src/toolMapping.ts`**: Add `browser_upload_file` tool definition + mapping to `browser_action` with type `upload_file`.
+3. **`packages/runtime-core/src/RunExecutor.ts`**: Intercept `upload_file` action (like `save_note`) — suspend with clarification asking for file path, store pending action.
+4. **`packages/runtime-core/src/OpenBrowseRuntime.ts`**: On clarification resume, detect pending `upload_file` action and pass it with user's file path to `doResume`.
+5. **`packages/browser-runtime/src/ElectronBrowserKernel.ts`**: Add `upload_file` case using CDP `DOM.setFileInputFiles`.
+6. **`packages/planner/src/buildPlannerPrompt.ts`**: Add file upload guidance.
+7. Tests: tool mapping + clarification flow.
+8. Run typecheck + tests.
+9. Update this log and commit.
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `"upload_file"` to `BrowserActionType` union.
+
+**`packages/planner/src/toolMapping.ts`** — New tool + mapping:
+- Added `browser_upload_file` tool definition (17th tool). Takes `ref` (element ID of file input) and `description` (what file is being requested).
+- Added `browser_upload_file` case in `mapToolCallToDecision`: maps to `browser_action` with type `upload_file`, `targetId` from ref.
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Upload interception:
+- Added `upload_file` intercept in the `browser_action` handling (before security/approval check, after `save_note`).
+- When `upload_file` action is encountered: suspends the run with a clarification request asking the user for the file path. Stores `pendingBrowserAction` in checkpoint so the upload target element ref survives the suspension.
+
+**`packages/runtime-core/src/OpenBrowseRuntime.ts`** — Resume with file path:
+- Modified `handleSuspensionMessage` clarification path: before calling `resumeFromClarification`, checks if the pending browser action is `upload_file`.
+- If so, after resume creates an `upload_file` action with `value` = user's file path (from the clarification answer) and passes it as `pendingAction` to `doResume`. This causes `continueResume` to execute the file upload before restarting the planner loop.
+
+**`packages/browser-runtime/src/ElectronBrowserKernel.ts`** — CDP file upload:
+- Added `upload_file` case in `executeAction`: uses `DOM.getDocument` + `DOM.querySelector` to find the file input by `data-openbrowse-target-id`, then calls `DOM.setFileInputFiles` with the user-provided file path and the resolved node ID.
+- Dispatches `change` and `input` events for framework compatibility.
+- Post-action settle + invalidateContext. Returns page model after upload.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added guidance:
+- Added file upload hint in Forms section: "For file upload inputs (type='file'): use browser_upload_file with the element ref"
+
+**`tests/toolMapping.test.mjs`** — Updated + new tests:
+- Updated tool count assertion: 16 → 17.
+- Updated expected tool names list: added `browser_upload_file`.
+- Added `browser_upload_file` describe block (3 tests): maps to upload_file action, default description, fails without ref.
+- Added `browser_upload_file without ref` to missing-required-fields section.
+- Added `browser_upload_file` to cross-cutting reasoning preservation test.
+
+**Behavior:**
+- Planner sees file input elements on the page (already exposed as `type="file"` in the element list).
+- Planner calls `browser_upload_file(ref, description)`.
+- Runtime suspends the run with a clarification: "This form has a file upload field: '[description]'. Please provide the full path to the file you'd like to upload."
+- User responds with a file path (via chat or Telegram).
+- Runtime resumes and uses CDP `DOM.setFileInputFiles` to set the file on the input element.
+- Planner loop continues (the form field now shows the file).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 75/75 pass (was 71, +4 new)
+- `node --test tests/*.test.mjs` — 1137/1137 pass (was 1133, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program O continues: T44 (multi-tab agent coordination) is next per PM ordering.
+- T44 adds `open_in_new_tab` and `switch_tab` tools. P3.
+- T45 (keyboard shortcut customization) after T44.
+
+*Session log entry written: 2026-03-16 (Session 156)*
