@@ -950,6 +950,8 @@ export function App() {
             pinnedTabs={browserTabs.pinnedTabs}
             sidebarVisible={layout.sidebarVisible}
             mainPanel={selection.mainPanel}
+            tabGroups={browserTabs.tabGroups}
+            groupAssignments={browserTabs.groupAssignments}
             onSelectTab={handleSelectTab}
             onCloseTab={handleCloseTab}
             onNewTab={() => void handleNewTab()}
@@ -958,6 +960,13 @@ export function App() {
             onUnpinTab={browserTabs.unpinTab}
             onDuplicateTab={(groupId: string) => void handleDuplicateTab(groupId)}
             onMoveTab={browserTabs.moveTab}
+            onCreateTabGroup={browserTabs.createTabGroup}
+            onAddTabToGroup={browserTabs.addTabToGroup}
+            onRemoveTabFromGroup={browserTabs.removeTabFromGroup}
+            onRenameTabGroup={browserTabs.renameTabGroup}
+            onSetTabGroupColor={browserTabs.setTabGroupColor}
+            onToggleCollapseTabGroup={browserTabs.toggleCollapseTabGroup}
+            onDeleteTabGroup={browserTabs.deleteTabGroup}
           />
           <div style={styles.chromeSeparator} />
           <NavBar

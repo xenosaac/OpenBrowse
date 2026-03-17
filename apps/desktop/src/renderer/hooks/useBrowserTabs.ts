@@ -10,6 +10,26 @@ interface ClosedTabEntry {
 
 const MAX_CLOSED_TAB_STACK = 20;
 
+export const TAB_GROUP_COLORS = [
+  { id: "grey", label: "Grey", value: "#6b7280" },
+  { id: "blue", label: "Blue", value: "#3b82f6" },
+  { id: "red", label: "Red", value: "#ef4444" },
+  { id: "yellow", label: "Yellow", value: "#eab308" },
+  { id: "green", label: "Green", value: "#22c55e" },
+  { id: "pink", label: "Pink", value: "#ec4899" },
+  { id: "purple", label: "Purple", value: "#a855f7" },
+  { id: "cyan", label: "Cyan", value: "#06b6d4" },
+] as const;
+
+export interface TabGroupDef {
+  id: string;
+  name: string;
+  colorId: string;
+  collapsed: boolean;
+}
+
+let groupIdCounter = 0;
+
 export function useBrowserTabs() {
   const [shellTabs, setShellTabs] = useState<BrowserShellTabDescriptor[]>([]);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
@@ -166,16 +186,106 @@ export function useBrowserTabs() {
     return window.openbrowse.browserNewTab(entry.url);
   }, []);
 
-  // Sorted tabs: pinned first (preserving relative order), then unpinned
+  // ---- Tab Groups ----
+  const [tabGroups, setTabGroups] = useState<TabGroupDef[]>([]);
+  const [groupAssignments, setGroupAssignments] = useState<Record<string, string>>({}); // tabGroupId -> tabGroup.id
+
+  const createTabGroup = useCallback((tabGroupId: string, name?: string): string => {
+    const id = `tg_${++groupIdCounter}_${Date.now()}`;
+    const colorIdx = tabGroups.length % TAB_GROUP_COLORS.length;
+    const newGroup: TabGroupDef = {
+      id,
+      name: name || "",
+      colorId: TAB_GROUP_COLORS[colorIdx].id,
+      collapsed: false,
+    };
+    setTabGroups(prev => [...prev, newGroup]);
+    setGroupAssignments(prev => ({ ...prev, [tabGroupId]: id }));
+    return id;
+  }, [tabGroups.length]);
+
+  const addTabToGroup = useCallback((tabGroupId: string, tgId: string) => {
+    setGroupAssignments(prev => ({ ...prev, [tabGroupId]: tgId }));
+  }, []);
+
+  const removeTabFromGroup = useCallback((tabGroupId: string) => {
+    setGroupAssignments(prev => {
+      const next = { ...prev };
+      delete next[tabGroupId];
+      return next;
+    });
+  }, []);
+
+  const renameTabGroup = useCallback((tgId: string, name: string) => {
+    setTabGroups(prev => prev.map(g => g.id === tgId ? { ...g, name } : g));
+  }, []);
+
+  const setTabGroupColor = useCallback((tgId: string, colorId: string) => {
+    setTabGroups(prev => prev.map(g => g.id === tgId ? { ...g, colorId } : g));
+  }, []);
+
+  const toggleCollapseTabGroup = useCallback((tgId: string) => {
+    setTabGroups(prev => prev.map(g => g.id === tgId ? { ...g, collapsed: !g.collapsed } : g));
+  }, []);
+
+  const deleteTabGroup = useCallback((tgId: string) => {
+    setTabGroups(prev => prev.filter(g => g.id !== tgId));
+    setGroupAssignments(prev => {
+      const next = { ...prev };
+      for (const key of Object.keys(next)) {
+        if (next[key] === tgId) delete next[key];
+      }
+      return next;
+    });
+  }, []);
+
+  // Clean up group assignments when tabs are closed
+  useEffect(() => {
+    const tabIds = new Set(shellTabs.map(t => t.groupId));
+    setGroupAssignments(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const key of Object.keys(next)) {
+        if (!tabIds.has(key)) {
+          delete next[key];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+    // Delete empty groups
+    setTabGroups(prev => {
+      const usedGroups = new Set(Object.values(groupAssignments));
+      const next = prev.filter(g => usedGroups.has(g.id));
+      return next.length !== prev.length ? next : prev;
+    });
+  }, [shellTabs, groupAssignments]);
+
+  // Sorted tabs: pinned first, then grouped tabs (grouped together by group), then ungrouped
   const sortedTabs = [...shellTabs].sort((a, b) => {
     const ap = pinnedTabs.has(a.groupId) ? 0 : 1;
     const bp = pinnedTabs.has(b.groupId) ? 0 : 1;
-    return ap - bp;
+    if (ap !== bp) return ap - bp;
+    // Both unpinned: group membership
+    const aGroup = groupAssignments[a.groupId];
+    const bGroup = groupAssignments[b.groupId];
+    if (aGroup && bGroup && aGroup !== bGroup) {
+      // Sort by group creation order
+      const aIdx = tabGroups.findIndex(g => g.id === aGroup);
+      const bIdx = tabGroups.findIndex(g => g.id === bGroup);
+      return aIdx - bIdx;
+    }
+    if (aGroup && !bGroup) return -1;
+    if (!aGroup && bGroup) return 1;
+    return 0;
   });
 
   return {
     shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs, closedTabStack,
+    tabGroups, groupAssignments,
     refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload,
-    pinTab, unpinTab, togglePinTab, moveTab, duplicateTab, reopenClosedTab
+    pinTab, unpinTab, togglePinTab, moveTab, duplicateTab, reopenClosedTab,
+    createTabGroup, addTabToGroup, removeTabFromGroup, renameTabGroup,
+    setTabGroupColor, toggleCollapseTabGroup, deleteTabGroup
   };
 }
