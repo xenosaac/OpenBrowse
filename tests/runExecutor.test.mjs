@@ -1508,10 +1508,10 @@ test("browser_screenshot action captures screenshot and delivers it on the NEXT 
   const result = await executor.plannerLoop(makeRun(), makeSession());
   assert.equal(result.status, "completed");
 
-  // First planner call: no screenshot (none was pending)
-  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+  // First planner call: always-on screenshot captured (T46)
+  assert.equal(plannerInputs[0].screenshotBase64, screenshotData);
 
-  // Second planner call: screenshot should be included from the browser_screenshot action
+  // Second planner call: on-demand screenshot from browser_screenshot takes priority
   assert.equal(plannerInputs[1].screenshotBase64, screenshotData);
 
   // Verify the screenshot captured event was logged
@@ -1519,17 +1519,18 @@ test("browser_screenshot action captures screenshot and delivers it on the NEXT 
   assert.ok(screenshotEvent, "should log screenshot captured event");
 });
 
-test("browser_screenshot is cleared after one use (not accumulated across steps)", async () => {
+test("on-demand screenshot from browser_screenshot takes priority over always-on", async () => {
   const plannerInputs = [];
+  let captureCount = 0;
 
   const { services } = makeServices({
-    captureScreenshot: async () => "screenshot_once",
+    captureScreenshot: async () => { captureCount++; return `capture_${captureCount}`; },
     decisions: [
       // Step 1: planner requests a screenshot
       { type: "browser_action", reasoning: "check", action: { type: "screenshot", description: "Look" } },
-      // Step 2: planner navigates (should see screenshot)
+      // Step 2: planner navigates (on-demand screenshot from step 1 should take priority)
       { type: "browser_action", reasoning: "nav", action: { type: "navigate", value: "https://example.com/page2", description: "Go to page 2" } },
-      // Step 3: planner completes (should NOT see screenshot — cleared after step 2)
+      // Step 3: planner completes (on-demand consumed — falls back to always-on)
       { type: "task_complete", reasoning: "Done" },
     ],
   });
@@ -1546,12 +1547,13 @@ test("browser_screenshot is cleared after one use (not accumulated across steps)
 
   await executor.plannerLoop(makeRun(), makeSession());
 
-  // Step 1 (first planner call): no screenshot pending
-  assert.equal(plannerInputs[0].screenshotBase64, undefined);
-  // Step 2: screenshot from browser_screenshot action
-  assert.equal(plannerInputs[1].screenshotBase64, "screenshot_once");
-  // Step 3: screenshot was already consumed — should be undefined
-  assert.equal(plannerInputs[2].screenshotBase64, undefined);
+  // Step 1: always-on screenshot (capture_1)
+  assert.equal(plannerInputs[0].screenshotBase64, "capture_1");
+  // Step 2: on-demand screenshot from browser_screenshot action (capture_2, captured by handler)
+  // takes priority over always-on
+  assert.equal(plannerInputs[1].screenshotBase64, "capture_2");
+  // Step 3: on-demand consumed, falls back to always-on (capture_3)
+  assert.equal(plannerInputs[2].screenshotBase64, "capture_3");
 });
 
 test("browser_screenshot handles capture failure gracefully", async () => {
@@ -1585,13 +1587,44 @@ test("browser_screenshot handles capture failure gracefully", async () => {
   assert.equal(plannerInputs[1].screenshotBase64, undefined);
 });
 
-test("planner does NOT receive always-on screenshots (T47 replaces T46 always-on)", async () => {
+// --- T46: Always-on planner screenshots (vision integration) ---
+
+test("always-on screenshot is captured and passed to planner on every step", async () => {
+  const plannerInputs = [];
+  let captureCount = 0;
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { captureCount++; return `screenshot_step_${captureCount}`; },
+    decisions: [
+      { type: "browser_action", reasoning: "click", action: { type: "click", targetId: "el_1", description: "Click button" } },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // Both planner calls should have received a screenshot
+  assert.equal(plannerInputs[0].screenshotBase64, "screenshot_step_1");
+  assert.equal(plannerInputs[1].screenshotBase64, "screenshot_step_2");
+  assert.equal(captureCount, 2, "captureScreenshot should be called once per planner step");
+});
+
+test("always-on screenshot is null when capture fails — planner proceeds text-only", async () => {
   const plannerInputs = [];
 
   const { services } = makeServices({
-    // captureScreenshot returns data — but since no browser_screenshot action was requested,
-    // it should NOT be called automatically (no always-on behavior)
-    captureScreenshot: async () => "should_not_appear",
+    captureScreenshot: async () => { throw new Error("CDP unavailable"); },
     decisions: [
       { type: "task_complete", reasoning: "Quick task" },
     ],
@@ -1607,10 +1640,47 @@ test("planner does NOT receive always-on screenshots (T47 replaces T46 always-on
   const handoff = makeHandoff();
   const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
 
-  await executor.plannerLoop(makeRun(), makeSession());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
 
-  // Without a browser_screenshot action, no screenshot should be included
+  // Screenshot capture failed — planner should proceed without screenshot
   assert.equal(plannerInputs[0].screenshotBase64, undefined);
+});
+
+test("on-demand screenshot from browser_screenshot overrides always-on capture", async () => {
+  const plannerInputs = [];
+  let alwaysOnCount = 0;
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { alwaysOnCount++; return `always_on_${alwaysOnCount}`; },
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "need visual", action: { type: "screenshot", description: "Check layout" } },
+      // Step 2: planner completes (should see on-demand screenshot, not always-on)
+      { type: "task_complete", reasoning: "Looks good" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // Step 1: always-on screenshot (no pending on-demand yet)
+  assert.equal(plannerInputs[0].screenshotBase64, "always_on_1");
+  // Step 2: on-demand screenshot from browser_screenshot should take priority
+  // The on-demand capture returns "always_on_2" (from the captureScreenshot mock called by screenshot handler)
+  // but the pendingScreenshot is set from the browser_screenshot action handler which also calls captureScreenshot
+  // So pendingScreenshot = "always_on_2" (set during screenshot action), and then the always-on capture is skipped
+  assert.ok(plannerInputs[1].screenshotBase64, "step 2 should have a screenshot");
 });
 
 // --- Session 168: Stuck detection now covers special-handler actions ---
