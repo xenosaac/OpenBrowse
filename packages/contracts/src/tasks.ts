@@ -128,6 +128,10 @@ export interface RunCheckpoint {
     formValues?: Record<string, string>;
     scrollY?: number;
   };
+  /** Tabs opened by the agent during this run. Index 0 = primary tab. */
+  openedTabs?: Array<{ index: number; sessionId: string; url?: string; title?: string }>;
+  /** Which tab the agent is currently operating on (index into openedTabs). Defaults to 0. */
+  activeTabIndex?: number;
   /** Injected when a run resumes after crash/restart. Cleared after the first planner step post-recovery. */
   recoveryContext?: {
     recoveredAt: string;

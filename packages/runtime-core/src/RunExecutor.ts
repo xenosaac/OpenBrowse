@@ -66,8 +66,26 @@ export class RunExecutor {
 
   async plannerLoop(run: TaskRun, session: BrowserSession): Promise<TaskRun> {
     let current = run;
+    let activeSession = session;
     let consecutiveIdenticalActions = 0;
     let lastActionKey = "";
+
+    // Initialize openedTabs with primary session if not yet tracked
+    if (!current.checkpoint.openedTabs || current.checkpoint.openedTabs.length === 0) {
+      current = {
+        ...current,
+        checkpoint: {
+          ...current.checkpoint,
+          openedTabs: [{ index: 0, sessionId: session.id, url: session.pageUrl, title: "" }],
+          activeTabIndex: 0
+        }
+      };
+    }
+
+    // Session lookup map for tab switching
+    const tabSessions = new Map<number, BrowserSession>();
+    tabSessions.set(0, session);
+
     for (let step = 0; step < MAX_PLANNER_STEPS; step++) {
       // Cooperative cancellation check at top of loop
       if (this.cancellation.isCancelled(current.id)) {
@@ -78,12 +96,12 @@ export class RunExecutor {
 
       let pageModel: PageModel;
       try {
-        pageModel = await this.services.browserKernel.capturePageModel(session);
+        pageModel = await this.services.browserKernel.capturePageModel(activeSession);
       } catch (firstErr) {
         // Retry once after a brief settle
         await new Promise(r => setTimeout(r, 500));
         try {
-          pageModel = await this.services.browserKernel.capturePageModel(session);
+          pageModel = await this.services.browserKernel.capturePageModel(activeSession);
         } catch (secondErr) {
           const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
           // Session destroyed (tab closed) — cancel cleanly instead of failing
@@ -114,7 +132,20 @@ export class RunExecutor {
           };
         }
       }
-      current = this.services.orchestrator.observePage(current, pageModel, session.id);
+      current = this.services.orchestrator.observePage(current, pageModel, activeSession.id);
+
+      // Keep openedTabs URL/title in sync with latest page model
+      const activeIdx = current.checkpoint.activeTabIndex ?? 0;
+      const tabs = current.checkpoint.openedTabs;
+      if (tabs) {
+        const tab = tabs.find(t => t.index === activeIdx);
+        if (tab && (tab.url !== pageModel.url || tab.title !== pageModel.title)) {
+          tab.url = pageModel.url;
+          tab.title = pageModel.title;
+          current = { ...current, checkpoint: { ...current.checkpoint, openedTabs: [...tabs] } };
+        }
+      }
+
       await this.services.runCheckpointStore.save(current);
 
       await this.logEvent(current.id, "page_modeled", `Captured page: ${pageModel.title}`, {
@@ -250,6 +281,97 @@ export class RunExecutor {
           return current;
         }
 
+        // Handle open_in_new_tab — create new session and navigate
+        if (action.type === "open_in_new_tab") {
+          const url = action.value;
+          if (!url) {
+            current = this.services.orchestrator.failRun(current, "open_in_new_tab action missing url");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
+          const { session: newSession } = await this.sessions.openAdditionalTab(current);
+          const navResult = await this.services.browserKernel.executeAction(newSession, {
+            type: "navigate",
+            value: url,
+            description: `Navigate new tab to ${url}`
+          });
+          const tabs = current.checkpoint.openedTabs ?? [];
+          const newIndex = tabs.length;
+          tabSessions.set(newIndex, newSession);
+          const updatedTabs = [...tabs, { index: newIndex, sessionId: newSession.id, url, title: "" }];
+          const syntheticResult = {
+            ok: navResult.ok,
+            action,
+            summary: `Opened tab ${newIndex}: ${url}`,
+            failureClass: navResult.failureClass,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = { ...current, checkpoint: { ...current.checkpoint, openedTabs: updatedTabs } };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: String(navResult.ok),
+            description: action.description,
+            tabIndex: String(newIndex)
+          });
+          continue;
+        }
+
+        // Handle switch_tab — swap active session
+        if (action.type === "switch_tab") {
+          const targetIndex = parseInt(action.value ?? "", 10);
+          const tabs = current.checkpoint.openedTabs ?? [];
+          const targetTab = tabs.find(t => t.index === targetIndex);
+          if (!targetTab) {
+            const syntheticResult = {
+              ok: false as const,
+              action,
+              summary: `Tab ${targetIndex} not found. Available tabs: ${tabs.map(t => t.index).join(", ")}`,
+              failureClass: "validation_error" as const,
+            };
+            current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+              actionType: action.type, ok: "false", description: action.description
+            });
+            continue;
+          }
+          let targetSession = tabSessions.get(targetIndex);
+          if (!targetSession) {
+            const fetched = await this.sessions.getSession(targetTab.sessionId);
+            if (fetched) {
+              targetSession = fetched;
+              tabSessions.set(targetIndex, fetched);
+            }
+          }
+          if (!targetSession) {
+            const syntheticResult = {
+              ok: false as const,
+              action,
+              summary: `Session for tab ${targetIndex} is no longer available.`,
+              failureClass: "interaction_failed" as const,
+            };
+            current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+            await this.services.runCheckpointStore.save(current);
+            continue;
+          }
+          activeSession = targetSession;
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Switched to tab ${targetIndex}${targetTab.url ? ` (${targetTab.url})` : ""}`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = { ...current, checkpoint: { ...current.checkpoint, activeTabIndex: targetIndex } };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type, ok: "true", description: action.description, tabIndex: String(targetIndex)
+          });
+          continue;
+        }
+
         if (this.services.securityPolicy.requiresApproval(current, action)) {
           const approvalRequest = this.services.securityPolicy.buildApprovalRequest(current, action);
           const approvalDecision = { ...decision, type: "approval_request" as const, approvalRequest };
@@ -275,7 +397,7 @@ export class RunExecutor {
 
         let result;
         try {
-          result = await this.services.browserKernel.executeAction(session, action);
+          result = await this.services.browserKernel.executeAction(activeSession, action);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("Session not found")) {

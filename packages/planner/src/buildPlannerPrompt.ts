@@ -295,6 +295,13 @@ For any task with more than 2 steps, track your progress using save_note:
 - After dynamic content loading (search query, SPA navigation): use browser_wait_for_text instead of browser_wait with a fixed duration
 - After form submission or any redirect action: use browser_wait_for_navigation to wait for the URL to change
 
+**Multi-tab browsing:**
+- Use browser_open_in_new_tab when you need to check a second source without losing your current page
+- After opening a new tab, use browser_switch_tab to switch to it
+- Use browser_switch_tab(0) to return to the original tab
+- Save data from each tab using browser_save_note before switching — the page context changes on switch
+- Good for: price comparison, reading multiple sources, keeping a form open while looking up info
+
 **Data capture:**
 - Use browser_read_text for detailed element text (up to 2000 chars vs 40-char truncation in the element list)
 - For multi-page tasks, use browser_save_note to record findings before navigating — notes persist across pages
@@ -377,9 +384,18 @@ If you need user input, call ask_user. Otherwise, continue with your next action
     ? `\n** BUDGET LOW: ${remaining} step${remaining !== 1 ? "s" : ""} remaining. Complete the task now using task_complete — include any partial results in extractedData. Do not start new multi-step sequences.`
     : "";
 
+  // --- Open tabs context ---
+  const openedTabs = run.checkpoint.openedTabs ?? [];
+  const activeTabIdx = run.checkpoint.activeTabIndex ?? 0;
+  const openTabsSection = openedTabs.length > 1
+    ? `\nOpen tabs (${openedTabs.length}):\n${openedTabs.map(t =>
+        `  [Tab ${t.index}]${t.index === activeTabIdx ? " (ACTIVE)" : ""} ${t.title || "(untitled)"} — ${t.url || "about:blank"}`
+      ).join("\n")}\nUse browser_switch_tab(tab_index) to switch between tabs.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${openTabsSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
 
 Current page:
 URL: ${pageModel.url}

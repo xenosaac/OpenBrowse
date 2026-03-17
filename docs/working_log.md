@@ -9595,3 +9595,90 @@ Many real tasks involve uploading a file (resume, document, form attachment). Cu
 - T45 (keyboard shortcut customization) after T44.
 
 *Session log entry written: 2026-03-16 (Session 156)*
+
+---
+
+### Session 157 — 2026-03-16: T44 — Multi-Tab Agent Coordination (Program O)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. T43 (file upload) completed in Session 156. PM doc says T44 is next in Program O ordering. T44 adds `open_in_new_tab` and `switch_tab` planner tools to enable multi-source data collection tasks. P3 but unlocks an entire task class (comparison, multi-source research). Framework maturity checklist satisfied.
+
+#### Context
+
+Currently the agent operates in a single browser tab. Many real tasks require visiting multiple pages for comparison ("compare prices across 3 stores", "read these 5 articles and summarize"). T44 adds:
+1. New planner tools `browser_open_in_new_tab(url)` and `browser_switch_tab(tab_index)`.
+2. Runtime multi-tab tracking in RunCheckpoint (openedTabs, activeTabIndex).
+3. SessionManager method for creating additional sessions without destroying existing ones.
+4. RunExecutor handling: create new sessions on open, swap active session on switch.
+5. Planner prompt shows available tabs so the planner knows what's open.
+
+#### Plan
+
+1. **`packages/contracts/src/browser.ts`**: Add `"open_in_new_tab"` and `"switch_tab"` to `BrowserActionType`.
+2. **`packages/contracts/src/tasks.ts`**: Add `openedTabs` and `activeTabIndex` to `RunCheckpoint`.
+3. **`packages/planner/src/toolMapping.ts`**: Add tool definitions + mapping for both tools. Tool count 17→19.
+4. **`packages/runtime-core/src/SessionManager.ts`**: Add `openAdditionalTab(run)` method.
+5. **`packages/runtime-core/src/RunExecutor.ts`**: Handle `open_in_new_tab` and `switch_tab` locally. Make session variable mutable in plannerLoop.
+6. **`packages/planner/src/buildPlannerPrompt.ts`**: Show open tabs list + multi-tab guidance.
+7. **Tests**: tool mapping tests for both new tools.
+8. Run typecheck + tests.
+9. Update this log and commit.
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added `"open_in_new_tab"` and `"switch_tab"` to `BrowserActionType` union.
+
+**`packages/contracts/src/tasks.ts`** — Added to `RunCheckpoint`:
+- `openedTabs?: Array<{ index: number; sessionId: string; url?: string; title?: string }>` — tracks tabs opened by the agent during a run. Index 0 = primary tab.
+- `activeTabIndex?: number` — which tab the agent is currently operating on.
+
+**`packages/planner/src/toolMapping.ts`** — New tools + mappings:
+- Added `browser_open_in_new_tab` tool definition (18th tool). Takes `url` and `description`. Maps to `browser_action` with type `open_in_new_tab`, `value` = url.
+- Added `browser_switch_tab` tool definition (19th tool). Takes `tab_index` (number) and `description`. Maps to `browser_action` with type `switch_tab`, `value` = stringified index.
+- Added `tab_index` to `ToolInput` interface.
+
+**`packages/runtime-core/src/SessionManager.ts`** — New method:
+- `openAdditionalTab(run)`: Creates a new browser session (tab) for a run without destroying existing sessions. Uses same profile as primary session. Returns session + profileId.
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Multi-tab support in planner loop:
+- Changed `session` to `let activeSession` — mutable reference for tab switching.
+- Initialized `openedTabs` in checkpoint on first loop entry (tab 0 = primary session).
+- Added `tabSessions` map for in-memory session lookup during the loop.
+- `open_in_new_tab` handler: calls `sessions.openAdditionalTab(run)`, navigates new session to URL, appends to `checkpoint.openedTabs`, records synthetic result.
+- `switch_tab` handler: looks up target tab from `openedTabs`, resolves session (from local map or SessionManager), swaps `activeSession`, updates `checkpoint.activeTabIndex`, records synthetic result. Returns validation_error if tab index not found.
+- All `capturePageModel` and `executeAction` calls now use `activeSession` instead of fixed `session`.
+- After each page model capture, syncs the active tab's URL/title in `openedTabs`.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Multi-tab context:
+- Added multi-tab browsing guidance in Browser Guidelines: when to use, how to switch, save data before switching.
+- Added `openTabsSection` in user prompt: when 2+ tabs are open, shows indexed list with ACTIVE marker, URL, and title. Instructs planner to use `browser_switch_tab(tab_index)`.
+
+**`tests/toolMapping.test.mjs`** — Updated + new tests:
+- Updated tool count assertion: 17 → 19.
+- Updated expected tool names list: added `browser_open_in_new_tab`, `browser_switch_tab`.
+- Added `browser_open_in_new_tab` describe block (3 tests): maps with url, default description, fails without url.
+- Added `browser_switch_tab` describe block (4 tests): maps with tab_index, handles index 0, default description, fails without tab_index.
+- Added missing-required-fields tests for both new tools.
+- Added both tools to cross-cutting reasoning preservation test.
+
+**Behavior:**
+- Planner calls `browser_open_in_new_tab(url, description)` → runtime creates a new visible tab, navigates to URL, tracks it.
+- Planner calls `browser_switch_tab(tab_index, description)` → runtime swaps active session to that tab. Next page model comes from the new tab.
+- Tab list is shown to planner when 2+ tabs are open, with active tab marked.
+- Tabs opened by the agent are visible in the tab bar for the user to review after task completion.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 84/84 pass (was 75, +9 new)
+- `node --test tests/*.test.mjs` — 1146/1146 pass (was 1137, +9 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program O continues: T45 (keyboard shortcut customization) is next per PM ordering.
+- T45 adds a settings panel for rebinding keyboard shortcuts + PreferenceStore persistence.
+
+*Session log entry written: 2026-03-16 (Session 157)*

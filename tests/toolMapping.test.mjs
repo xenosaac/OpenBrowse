@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 17 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 17);
+  it("defines exactly 19 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 19);
   });
 
   it("has unique tool names", () => {
@@ -39,6 +39,7 @@ describe("BROWSER_TOOLS", () => {
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
       "browser_go_back", "browser_read_text", "browser_wait_for_text",
       "browser_wait_for_navigation", "browser_save_note", "browser_upload_file",
+      "browser_open_in_new_tab", "browser_switch_tab",
       "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
@@ -511,6 +512,99 @@ describe("mapToolCallToDecision — browser_upload_file", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_open_in_new_tab
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_open_in_new_tab", () => {
+  it("maps to open_in_new_tab action with url and description", () => {
+    const result = mapToolCallToDecision(
+      "browser_open_in_new_tab",
+      { url: "https://store2.com/product", description: "Check competitor price" },
+      "comparing prices",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "open_in_new_tab");
+    assert.equal(result.action.value, "https://store2.com/product");
+    assert.equal(result.action.description, "Check competitor price");
+    assert.equal(result.reasoning, "comparing prices");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_open_in_new_tab",
+      { url: "https://example.com" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.description, "Open in new tab");
+  });
+
+  it("fails when url is missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_open_in_new_tab",
+      { description: "Open tab" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without url"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_switch_tab
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_switch_tab", () => {
+  it("maps to switch_tab action with tab_index as value", () => {
+    const result = mapToolCallToDecision(
+      "browser_switch_tab",
+      { tab_index: 1, description: "Switch to competitor site" },
+      "need to check tab 1",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "switch_tab");
+    assert.equal(result.action.value, "1");
+    assert.equal(result.action.description, "Switch to competitor site");
+    assert.equal(result.reasoning, "need to check tab 1");
+  });
+
+  it("handles tab_index 0 (original tab)", () => {
+    const result = mapToolCallToDecision(
+      "browser_switch_tab",
+      { tab_index: 0, description: "Return to original tab" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.type, "switch_tab");
+    assert.equal(result.action.value, "0");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_switch_tab",
+      { tab_index: 2 },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.description, "Switch tab");
+  });
+
+  it("fails when tab_index is missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_switch_tab",
+      { description: "Switch" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without tab_index"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -748,6 +842,18 @@ describe("mapToolCallToDecision — missing required fields", () => {
     assert.equal(result.failureSummary, "browser_upload_file called without ref");
   });
 
+  it("browser_open_in_new_tab without url returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_open_in_new_tab", { description: "Open" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_open_in_new_tab called without url");
+  });
+
+  it("browser_switch_tab without tab_index returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_switch_tab", { description: "Switch" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_switch_tab called without tab_index");
+  });
+
   it("browser_navigate with empty string url returns task_failed", () => {
     const result = mapToolCallToDecision("browser_navigate", { url: "" }, "r", "run_1");
     assert.equal(result.type, "task_failed");
@@ -796,6 +902,8 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_wait_for_navigation", {}],
       ["browser_save_note", { key: "k", value: "v" }],
       ["browser_upload_file", { ref: "r" }],
+      ["browser_open_in_new_tab", { url: "https://example.com" }],
+      ["browser_switch_tab", { tab_index: 0 }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

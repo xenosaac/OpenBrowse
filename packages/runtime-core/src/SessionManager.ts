@@ -10,6 +10,26 @@ export class SessionManager {
 
   constructor(private readonly browserKernel: BrowserKernel) {}
 
+  /**
+   * Create an additional browser session (tab) for a run without
+   * cleaning up existing sessions. Used for multi-tab agent work.
+   */
+  async openAdditionalTab(
+    run: TaskRun
+  ): Promise<{ session: BrowserSession; profileId: string }> {
+    const profile = await this.browserKernel.ensureProfile(run.profileId);
+    const session = await this.browserKernel.attachSession(profile, {
+      runId: run.id,
+      groupId: run.id,
+      taskLabel: run.goal,
+      source: run.source,
+      status: run.status,
+      isBackground: run.source !== "desktop"
+    });
+    this.track(run.id, session.id);
+    return { session, profileId: profile.id };
+  }
+
   async attachForRun(
     run: TaskRun,
     options: { reuse?: boolean } = {}
