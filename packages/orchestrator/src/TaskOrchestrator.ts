@@ -260,7 +260,8 @@ export class TaskOrchestrator {
       result.failureClass === "element_not_found" ||
       result.failureClass === "network_error" ||
       result.failureClass === "interaction_failed" ||
-      result.failureClass === "navigation_timeout"
+      result.failureClass === "navigation_timeout" ||
+      result.failureClass === "validation_error"
     );
     const consecutiveSoftFailures = isSoftFailure
       ? (run.checkpoint.consecutiveSoftFailures ?? 0) + 1
