@@ -14,7 +14,7 @@ export interface ClaudePlannerConfig {
   maxTokens?: number;
 }
 
-const PLANNER_TIMEOUT_MS = 60_000;
+const PLANNER_TIMEOUT_MS = 120_000;
 
 export class ClaudePlannerGateway implements PlannerGateway {
   private readonly client: Anthropic;
@@ -22,7 +22,7 @@ export class ClaudePlannerGateway implements PlannerGateway {
   private readonly maxTokens: number;
 
   constructor(config: ClaudePlannerConfig = {}) {
-    this.client = new Anthropic({ apiKey: config.apiKey });
+    this.client = new Anthropic({ apiKey: config.apiKey, maxRetries: 5 });
     this.model = config.model ?? "claude-opus-4-6";
     this.maxTokens = config.maxTokens ?? 4096;
   }

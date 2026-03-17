@@ -219,20 +219,45 @@ export class RunExecutor {
         });
       }
 
-      let decision;
-      try {
-        decision = await this.services.planner.decide({
-          run: current,
-          pageModel,
-          ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
-        });
-      } catch (error) {
+      const decision = await (async () => {
+        const MAX_PLANNER_RETRIES = 2;
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= MAX_PLANNER_RETRIES; attempt++) {
+          try {
+            return await this.services.planner.decide({
+              run: current,
+              pageModel,
+              ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
+            });
+          } catch (error) {
+            lastError = error;
+            const message = error instanceof Error ? error.message : String(error);
+            const isRetryable = /429|rate.limit|500|502|503|internal server error/i.test(message);
+            if (isRetryable && attempt < MAX_PLANNER_RETRIES) {
+              const delayMs = Math.min(5000 * 2 ** attempt, 30_000);
+              await this.logEvent(current.id, "planner_request_failed", `Planner request failed (attempt ${attempt + 1}/${MAX_PLANNER_RETRIES + 1}, retrying in ${delayMs / 1000}s): ${message}`, {
+                url: pageModel.url,
+                plannerMode: this.services.descriptor.planner.mode
+              });
+              await new Promise((r) => setTimeout(r, delayMs));
+              continue;
+            }
+            throw error;
+          }
+        }
+        throw lastError;
+      })().catch(async (error) => {
         const message = error instanceof Error ? error.message : String(error);
         await this.logEvent(current.id, "planner_request_failed", `Planner request failed: ${message}`, {
           url: pageModel.url,
           plannerMode: this.services.descriptor.planner.mode
         });
-        current = this.services.orchestrator.failRun(current, `Planner request failed: ${message}`);
+        return null;
+      });
+
+      if (decision === null) {
+        const lastEvent = "Planner request failed after retries";
+        current = this.services.orchestrator.failRun(current, lastEvent);
         await this.services.runCheckpointStore.save(current);
         await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
         await this.handoff.writeHandoff(current);

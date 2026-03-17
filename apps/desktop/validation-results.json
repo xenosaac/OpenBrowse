@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-17T18:12:19.245Z",
+  "timestamp": "2026-03-17T18:49:13.541Z",
   "tasks": [
     {
       "goal": "What is the current weather in San Francisco?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 17193,
+      "duration_ms": 15201,
       "extractedData": [
         {
           "label": "Location",
@@ -13,11 +13,15 @@
         },
         {
           "label": "Temperature",
-          "value": "67°F"
+          "value": "69°F (21°C)"
         },
         {
           "label": "Condition",
-          "value": "Sunny"
+          "value": "Mostly sunny"
+        },
+        {
+          "label": "Time",
+          "value": "Tuesday 11:00 AM"
         },
         {
           "label": "Precipitation",
@@ -25,15 +29,11 @@
         },
         {
           "label": "Humidity",
-          "value": "58%"
+          "value": "55%"
         },
         {
           "label": "Wind",
           "value": "6 mph"
-        },
-        {
-          "label": "Time",
-          "value": "Tuesday 11:00 AM"
         },
         {
           "label": "Today's High/Low",
@@ -49,19 +49,19 @@
       "goal": "What is the population of Tokyo?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 17927,
+      "duration_ms": 16193,
       "extractedData": [
         {
-          "label": "Tokyo Metropolis (City Proper/Prefecture)",
+          "label": "Tokyo Metropolis (Prefecture/City Proper)",
           "value": "~14.25 million (as of May 2025)"
         },
         {
           "label": "Tokyo Metropolitan Area (Greater Tokyo)",
-          "value": "~37 million (often cited as the world's largest metro area)"
+          "value": "~37 million+ (often cited as the world's largest urban area)"
         },
         {
-          "label": "UN Ranking (2025)",
-          "value": "33.4 million — ranked 3rd globally among megacities"
+          "label": "UN Ranking Figure",
+          "value": "33.4 million (ranked 3rd globally per UN 2025 report)"
         },
         {
           "label": "Future Projection",
@@ -70,17 +70,51 @@
       ]
     },
     {
-      "goal": "Find the cheapest flight from LAX to JFK next month",
+      "goal": "Compare the price of AirPods Pro on Amazon and Best Buy. Open each site in a separate tab and report both prices.",
       "status": "failed",
-      "steps": 6,
-      "duration_ms": 140644,
-      "failure_reason": "Planner request failed: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"},\"request_id\":\"req_011CZ96rwp4vLHmMTpe5kqoG\"}"
+      "steps": 3,
+      "duration_ms": 83762,
+      "failure_reason": "Planner request failed after retries",
+      "extractedData": [
+        {
+          "label": "Amazon price",
+          "value": "Apple AirPods Pro 3: $209.99 (List: $249.00) on Amazon"
+        }
+      ]
+    },
+    {
+      "goal": "Go to news.ycombinator.com and extract the titles of the top 5 stories",
+      "status": "completed",
+      "steps": 2,
+      "duration_ms": 46455,
+      "extractedData": [
+        {
+          "label": "Story #1",
+          "value": "Illinois Introducing Operating System Account Age Bill (ilga.gov)"
+        },
+        {
+          "label": "Story #2",
+          "value": "Microsoft's 'unhackable' Xbox One has been hacked by 'Bliss' (tomshardware.com)"
+        },
+        {
+          "label": "Story #3",
+          "value": "Kagi Small Web (kagi.com)"
+        },
+        {
+          "label": "Story #4",
+          "value": "Node.js needs a virtual file system (platformatic.dev)"
+        },
+        {
+          "label": "Story #5",
+          "value": "If you thought the code writing speed was your problem; you have bigger problems (andrewmurphy.io)"
+        }
+      ]
     },
     {
       "goal": "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
       "status": "completed",
       "steps": 3,
-      "duration_ms": 48982,
+      "duration_ms": 44839,
       "extractedData": [
         {
           "label": "Featured Article Title",
@@ -93,51 +127,58 @@
       ]
     },
     {
-      "goal": "Go to news.ycombinator.com and extract the titles of the top 5 stories",
+      "goal": "Find the cheapest flight from LAX to JFK next month",
       "status": "completed",
-      "steps": 2,
-      "duration_ms": 30218,
+      "steps": 5,
+      "duration_ms": 96730,
       "extractedData": [
         {
-          "label": "Story #1",
-          "value": "Microsoft's 'unhackable' Xbox One has been hacked by 'Bliss'"
+          "label": "Cheapest Flight Price",
+          "value": "$289 round trip"
         },
         {
-          "label": "Story #2",
-          "value": "Kagi Small Web"
+          "label": "Airline",
+          "value": "Frontier Airlines"
         },
         {
-          "label": "Story #3",
-          "value": "Node.js needs a virtual file system"
+          "label": "Departure",
+          "value": "11:00 PM on Fri, Apr 24"
         },
         {
-          "label": "Story #4",
-          "value": "Toward automated verification of unreviewed AI-generated code"
+          "label": "Arrival",
+          "value": "11:50 AM on Sat, Apr 25"
         },
         {
-          "label": "Story #5",
-          "value": "Finding a CPU Design Bug in the Xbox 360 (2018)"
-        }
-      ]
-    },
-    {
-      "goal": "Compare the price of AirPods Pro on Amazon and Best Buy. Open each site in a separate tab and report both prices.",
-      "status": "failed",
-      "steps": 3,
-      "duration_ms": 38252,
-      "failure_reason": "Planner request failed: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your organization's rate limit of 30,000 input tokens per minute (org: 4c1ccc2c-fb40-4a6d-a66d-aea551b93f76, model: claude-opus-4-6). For details, refer to: https://docs.claude.com/en/api/rate-limits. You can see the response headers for current usage. Please reduce the prompt length or the maximum tokens requested, or try again later. You may also contact sales at https://claude.com/contact-sales to discuss your options for a rate limit increase.\"},\"request_id\":\"req_011CZ971zcz2yT7xDiWajMMj\"}",
-      "extractedData": [
+          "label": "Duration",
+          "value": "9 hr 50 min"
+        },
         {
-          "label": "Amazon Price",
-          "value": "Apple AirPods Pro 3 on Amazon: $209.99 (List: $249.00)"
+          "label": "Stops",
+          "value": "1 stop (ATL - Hartsfield-Jackson Atlanta International Airport), 2 hr 39 min layover"
+        },
+        {
+          "label": "Route",
+          "value": "LAX → JFK"
+        },
+        {
+          "label": "Carbon Emissions",
+          "value": "290 kg CO2, -15% below average"
+        },
+        {
+          "label": "Return Date",
+          "value": "Thu, Apr 30"
+        },
+        {
+          "label": "Next Cheapest Options",
+          "value": "Multiple airlines at $337 round trip (American, JetBlue, Delta) - all nonstop, ~5 hr 23-27 min"
         }
       ]
     }
   ],
   "summary": {
     "total": 6,
-    "passed": 4,
-    "failed": 2,
-    "rate": "67%"
+    "passed": 5,
+    "failed": 1,
+    "rate": "83%"
   }
 }

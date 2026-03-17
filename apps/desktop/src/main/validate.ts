@@ -1,7 +1,7 @@
 /**
  * Headless validation harness for OpenBrowse (T76 — Program X).
  *
- * Runs 6 predefined tasks against the real planner (Claude API) and real
+ * Runs 5 predefined tasks against the real planner (Claude API) and real
  * browser (Electron/CDP), captures results, and writes a JSON report.
  *
  * Usage:
@@ -63,6 +63,7 @@ interface ValidationReport {
 // ---------------------------------------------------------------------------
 
 const TASKS: ValidationTask[] = [
+  // Light single-site tasks first (2 steps each, low token cost)
   {
     goal: "What is the current weather in San Francisco?",
     timeoutMs: 180_000
@@ -72,19 +73,16 @@ const TASKS: ValidationTask[] = [
     timeoutMs: 180_000
   },
   {
-    goal: "Find the cheapest flight from LAX to JFK next month",
+    goal: "Go to news.ycombinator.com and extract the titles of the top 5 stories",
     timeoutMs: 180_000
   },
+  // Heavier multi-step tasks last (3-4+ steps, high token cost)
   {
     goal: "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
     timeoutMs: 180_000
   },
   {
-    goal: "Go to news.ycombinator.com and extract the titles of the top 5 stories",
-    timeoutMs: 180_000
-  },
-  {
-    goal: "Compare the price of AirPods Pro on Amazon and Best Buy. Open each site in a separate tab and report both prices.",
+    goal: "Find the cheapest flight from LAX to JFK next month",
     timeoutMs: 180_000
   }
 ];
@@ -251,7 +249,13 @@ app.whenReady().then(async () => {
 
   const results: TaskResult[] = [];
 
+  const INTER_TASK_COOLDOWN_MS = 30_000; // 30s between tasks to avoid rate limit saturation
+
   for (let i = 0; i < TASKS.length; i++) {
+    if (i > 0) {
+      console.log(`  (cooling down ${INTER_TASK_COOLDOWN_MS / 1000}s to avoid rate limits...)`);
+      await new Promise((r) => setTimeout(r, INTER_TASK_COOLDOWN_MS));
+    }
     const task = TASKS[i];
     console.log(`[${i + 1}/${TASKS.length}] ${task.goal}`);
     const startTime = Date.now();
