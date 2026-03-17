@@ -10634,4 +10634,73 @@ What remains:
 
 *Session log entry written: 2026-03-16 (Session 170)*
 
+---
+
+### Session 171 — 2026-03-17: Expose Watch Scheduler to Users via IPC + WatchesPanel
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM tasks T1-T49 done. All Programs A-P complete. Vision integration (T46-T49) shipped. Framework maturity checklist satisfied (1206 tests passing). PM says "bias toward capability work, not chrome polish." PM's Program E capability mapping lists "Page monitoring" and "Recurring/scheduled tasks" as unimplemented capabilities. The `IntervalWatchScheduler` infrastructure exists but is only accessible via demo IPC. Feature mode: this exposes existing scheduler infrastructure to users as a real product capability.
+
+#### Plan
+
+1. Add `scheduler:list`, `scheduler:register`, `scheduler:unregister` IPC handlers in `registerIpcHandlers.ts`.
+2. Add preload API methods for the new handlers.
+3. Update `Window` type declaration in `App.tsx`.
+4. Add `scheduler` section to `ipc.ts` typed wrapper.
+5. Create `WatchesPanel.tsx` component — lists active watches with create/delete controls.
+6. Add "Watches" tab to `ManagementPanel.tsx`.
+7. Run `pnpm run typecheck`. Update log, commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — 3 new IPC handlers:
+- `scheduler:list` — returns all active watches via `services.scheduler.listWatches()`.
+- `scheduler:register` — creates a `TaskIntent` with goal, metadata (startUrl), and registers a watch with `services.scheduler.registerWatch()`. Returns `{ watchId }`.
+- `scheduler:unregister` — removes a watch via `services.scheduler.unregisterWatch()`.
+
+**`apps/desktop/src/preload/index.ts`** — 3 new preload API methods:
+- `listWatches()`, `registerWatch(params)`, `unregisterWatch(watchId)`.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Window type declaration updated:
+- Added `listWatches`, `registerWatch`, `unregisterWatch` to the `window.openbrowse` interface.
+- Added "Watches" entry to hamburger dropdown menu.
+
+**`apps/desktop/src/renderer/lib/ipc.ts`** — New `scheduler` section:
+- `list()`, `register(params)`, `unregister(watchId)` typed wrappers.
+
+**`apps/desktop/src/renderer/components/WatchesPanel.tsx`** — New component:
+- Create form: goal input, optional start URL, interval presets (5m/15m/30m/1h/4h/24h), Create button.
+- Active watches list: shows goal, start URL (from metadata), interval badge, next run time, last completed time, consecutive failure count with error display.
+- Remove button per watch. Auto-refresh after create/delete.
+- Follows existing design system (glass.card, colors tokens, same layout as TaskHistoryPanel).
+
+**`apps/desktop/src/renderer/components/ManagementPanel.tsx`** — Updated:
+- Added `"watches"` to `ManagementTab` union type.
+- Added `{ key: "watches", label: "Watches" }` to TABS array.
+- Added `{activeTab === "watches" && <WatchesPanel />}` rendering branch.
+
+**Behavior:**
+- Before: The `IntervalWatchScheduler` was only accessible via the demo IPC handler (`demo:watch`). Users could not create or manage their own recurring tasks.
+- After: Users can create recurring tasks from the Watches panel in ManagementPanel (also accessible from hamburger menu). Each watch periodically dispatches a task run via `bootstrapRun`. Users can view active watches with status/timing info and remove them. The scheduler's exponential backoff on failure is visible (consecutiveFailures + lastError).
+- When a watch fires, it creates a new `TaskIntent` with `source: "scheduler"` and dispatches it through the same pipeline as any other task. The agent runs the task normally with the full planner/kernel/vision stack.
+- Watches are in-memory (not persisted across app restart). Persistence can be added later as a follow-up.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1206/1206 pass (no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are still complete. All PM tasks (T1-T49) still done.
+- Watch persistence across app restart is the natural follow-up — currently watches are in-memory only. Follow T40/T48 JSON persistence pattern.
+- Consider adding a planner tool `schedule_recurring` so the agent can create watches as part of task completion (e.g., user says "check this price every hour" and the agent sets up the watch).
+- Consider page content diff notifications — when a watched page changes, send a Telegram notification with the diff.
+- Re-testing remains the #1 PM priority (user action) — now with vision + watches capabilities available.
+
+*Session log entry written: 2026-03-17 (Session 171)*
+
 *Session log entry written: 2026-03-16 (Session 167)*

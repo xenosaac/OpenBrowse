@@ -150,6 +150,23 @@ declare global {
       enterSplitView: (leftId: string, rightId: string) => Promise<{ ok: boolean }>;
       exitSplitView: () => Promise<{ ok: boolean }>;
       setSplitViewBounds: (leftBounds: { x: number; y: number; width: number; height: number }, rightBounds: { x: number; y: number; width: number; height: number }) => Promise<{ ok: boolean }>;
+
+      // Watch scheduler
+      listWatches: () => Promise<Array<{
+        id: string;
+        intent: { id: string; goal: string; metadata?: Record<string, string> };
+        intervalMinutes: number;
+        active: boolean;
+        createdAt: string;
+        nextRunAt: string;
+        lastTriggeredAt?: string;
+        lastCompletedAt?: string;
+        consecutiveFailures: number;
+        lastError?: string;
+        backoffUntil?: string;
+      }>>;
+      registerWatch: (params: { goal: string; startUrl?: string; intervalMinutes: number }) => Promise<{ watchId: string }>;
+      unregisterWatch: (watchId: string) => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -891,6 +908,9 @@ export function App() {
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("taskHistory")}>
         Task History
+      </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("watches")}>
+        Watches
       </button>
       <div style={styles.dropdownSeparator} />
       <button
