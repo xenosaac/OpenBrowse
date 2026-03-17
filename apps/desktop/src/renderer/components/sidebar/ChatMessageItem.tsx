@@ -1,6 +1,8 @@
 import React, { useState, useCallback } from "react";
 import type { ChatMessage } from "../../types/chat";
 import { renderMarkdownHtml } from "../../lib/markdown";
+import { extractedDataToJson, extractedDataToCsv } from "../../lib/exportData";
+import { ipc } from "../../lib/ipc";
 import { colors, glass } from "../../styles/tokens";
 
 interface Props {
@@ -26,6 +28,15 @@ export function ChatMessageItem({ message, onRetry }: Props) {
       setTimeout(() => setCopied(false), 1500);
     });
   }, [message.extractedData, copied]);
+
+  const handleExport = useCallback((format: "json" | "csv") => {
+    if (!message.extractedData) return;
+    const data = format === "json"
+      ? extractedDataToJson(message.extractedData)
+      : extractedDataToCsv(message.extractedData);
+    const defaultName = "extracted-data";
+    ipc.file.saveExtracted({ data, defaultName, format });
+  }, [message.extractedData]);
 
   const handleRetry = useCallback(() => {
     if (message.goalText && onRetry) onRetry(message.goalText);
@@ -57,12 +68,20 @@ export function ChatMessageItem({ message, onRetry }: Props) {
           <div>{message.content}</div>
         )}
         {hasExtracted && (
-          <button
-            onClick={handleCopy}
-            style={copied ? { ...styles.copyButton, ...styles.copyButtonCopied } : styles.copyButton}
-          >
-            {copied ? "Copied \u2713" : "Copy"}
-          </button>
+          <div style={styles.extractedActions}>
+            <button
+              onClick={handleCopy}
+              style={copied ? { ...styles.actionButton, ...styles.actionButtonCopied } : styles.actionButton}
+            >
+              {copied ? "Copied \u2713" : "Copy"}
+            </button>
+            <button onClick={() => handleExport("json")} style={styles.actionButton}>
+              JSON
+            </button>
+            <button onClick={() => handleExport("csv")} style={styles.actionButton}>
+              CSV
+            </button>
+          </div>
         )}
         {canRetry && (
           <button onClick={handleRetry} style={styles.retryButton}>
@@ -127,18 +146,23 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
   } as React.CSSProperties,
   chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" },
-  copyButton: {
+  extractedActions: {
+    display: "flex",
+    gap: 4,
+    marginTop: 6,
+    flexWrap: "wrap" as const,
+  },
+  actionButton: {
     ...glass.control,
     border: "1px solid " + colors.borderControl,
     borderRadius: 6,
     padding: "3px 10px",
-    marginTop: 6,
     fontSize: "0.72rem",
     color: colors.textSecondary,
     cursor: "pointer",
     transition: "all 150ms ease",
   } as React.CSSProperties,
-  copyButtonCopied: {
+  actionButtonCopied: {
     color: colors.emerald,
     borderColor: colors.emeraldBorder,
   },

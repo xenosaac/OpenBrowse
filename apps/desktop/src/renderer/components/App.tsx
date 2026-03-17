@@ -151,6 +151,9 @@ declare global {
       exitSplitView: () => Promise<{ ok: boolean }>;
       setSplitViewBounds: (leftBounds: { x: number; y: number; width: number; height: number }, rightBounds: { x: number; y: number; width: number; height: number }) => Promise<{ ok: boolean }>;
 
+      // File export
+      saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }) => Promise<{ ok: boolean }>;
+
       // Watch scheduler
       listWatches: () => Promise<Array<{
         id: string;

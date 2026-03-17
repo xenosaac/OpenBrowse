@@ -11137,3 +11137,72 @@ Reason: Worktree clean, no unfinished task. PM directs T57 → T58 → T56 (Prog
 *Session log entry written: 2026-03-17 (Session 177)*
 
 *Session log entry written: 2026-03-17 (Session 176)*
+
+---
+
+### Session 178 — 2026-03-17: T59 — Export extractedData as JSON/CSV File (Program S)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All Programs A-R complete (T1-T58 done). PM Active Task Backlog directs T59 (export extractedData as JSON/CSV) as P1 — "highest leverage improvement to proven product strength." The product's proven strength is search+extract tasks (6/6 completions in the 54-run database), and giving users a downloadable file makes those results immediately actionable.
+
+#### Plan
+
+1. **Pure serialization module** (`apps/desktop/src/renderer/lib/exportData.ts`): Two functions — `extractedDataToJson` and `extractedDataToCsv`. These are testable without Electron.
+2. **IPC handler** (`registerIpcHandlers.ts`): `file:save-extracted` handler using `dialog.showSaveDialog` + `fs.promises.writeFile`. Accepts `{ data: string; defaultName: string; format: "json" | "csv" }`.
+3. **Preload API**: Add `saveExtractedData` method.
+4. **IPC wrapper** (`ipc.ts`): Add `file.saveExtracted` convenience method.
+5. **Renderer** (`ChatMessageItem.tsx`): Add "JSON" and "CSV" download buttons alongside the existing "Copy" button when `extractedData` is present.
+6. **Tests**: Unit tests for `extractedDataToJson` and `extractedDataToCsv` covering normal data, commas/quotes in values, empty data, single item.
+7. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/exportData.ts`** — New pure serialization module:
+- `extractedDataToJson(data)`: Pretty-printed JSON.stringify with 2-space indent.
+- `extractedDataToCsv(data)`: RFC 4180-compliant CSV with `Label,Value` header. Escapes commas, double-quotes, and newlines in values/labels via double-quoting.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — New `file:save-extracted` IPC handler:
+- Accepts `{ data: string; defaultName: string; format: "json" | "csv" }`.
+- Uses `dialog.showSaveDialog` with appropriate file filter.
+- Default save path: user's Downloads folder.
+- Writes UTF-8 content via `fs.promises.writeFile`.
+- Added `dialog` and `fs` imports from Electron/Node.
+
+**`apps/desktop/src/preload/index.ts`** — Added `saveExtractedData` method.
+
+**`apps/desktop/src/renderer/lib/ipc.ts`** — Added `file.saveExtracted` convenience method.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Added `saveExtractedData` to Window interface declaration.
+
+**`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — Updated extractedData UI:
+- Replaced single "Copy" button with a row of three buttons: "Copy" (existing TSV clipboard), "JSON" (save dialog), "CSV" (save dialog).
+- Buttons laid out in a flex row with 4px gap.
+- Imports `extractedDataToJson`/`extractedDataToCsv` from exportData module and `ipc` from ipc module.
+- Renamed styles `copyButton`→`actionButton`, `copyButtonCopied`→`actionButtonCopied`, added `extractedActions` container style.
+
+**`tests/exportData.test.mjs`** — 10 new tests:
+- extractedDataToJson: normal data (pretty-printed, round-trips), empty array, special characters in values (3 tests).
+- extractedDataToCsv: header + data rows, comma escaping, double-quote escaping, newline escaping, empty array, single item, comma in labels (7 tests).
+
+**Behavior:**
+- Before: Completed tasks with extractedData had only a "Copy" button (TSV to clipboard). Users who wanted to save results as a file had to paste from clipboard into a text editor.
+- After: Three buttons appear: "Copy" (unchanged TSV clipboard), "JSON" (opens save dialog, produces formatted JSON), "CSV" (opens save dialog, produces RFC 4180-compliant CSV openable in Excel). Default save location is Downloads folder.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/exportData.test.mjs` — 10/10 pass
+- `node --test tests/*.test.mjs` — 1269/1269 pass (was 1259, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program S continues: T60 (saved task templates), T61 (partial results on failure).
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-R complete. All PM tasks T1-T59 done (T50/T53 blocked on rebuild).
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 178)*

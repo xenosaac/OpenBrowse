@@ -85,6 +85,10 @@ export const ipc = {
     unregister: (watchId: string) =>
       window.openbrowse.unregisterWatch(watchId) as Promise<{ ok: boolean }>,
   },
+  file: {
+    saveExtracted: (params: { data: string; defaultName: string; format: "json" | "csv" }) =>
+      window.openbrowse.saveExtractedData(params) as Promise<{ ok: boolean }>,
+  },
   events: {
     subscribe: (callback: (event: unknown) => void) => window.openbrowse.onRuntimeEvent(callback),
   },
