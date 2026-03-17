@@ -10570,4 +10570,68 @@ Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) done, all Prog
 
 *Session log entry written: 2026-03-16 (Session 169)*
 
+---
+
+### Session 170 — 2026-03-16: T46 — Always-On Planner Screenshots (Vision Integration)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Last 3 sessions (167-169) were framework fixes. PM explicitly declares T46 (vision integration) as "#1 engineer priority" and "largest remaining capability unlock." T46 is P1 in the active task backlog. Feature mode because this adds a major new capability to the planner. Framework maturity checklist satisfied — 1204/1204 tests passing.
+
+#### Plan
+
+Most infrastructure already exists: `captureScreenshot` in kernel (with T49 annotation overlay), `screenshotBase64` in PlannerInput, image block inclusion in ClaudePlannerGateway, "Visual Context" section in system prompt.
+
+What remains:
+1. **`RunExecutor.ts`**: Capture a screenshot via `browserKernel.captureScreenshot(activeSession)` after every page model capture. Pass it as `screenshotBase64` to the planner. On-demand `pendingScreenshot` from `browser_screenshot` tool takes priority when set. Handle null gracefully (text-only fallback).
+2. **`buildPlannerPrompt.ts`**: Update "Visual Context" section from "on demand" to "with each step" to reflect always-on behavior.
+3. **Tests**: Update "planner does NOT receive always-on screenshots" to expect always-on. Add tests for: always-on passed to planner, null capture = text-only, on-demand overrides always-on.
+4. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Always-on screenshot capture:
+- After page model capture and before each planner call, captures a screenshot via `browserKernel.captureScreenshot(activeSession)`.
+- On-demand `pendingScreenshot` from `browser_screenshot` tool takes priority when set. If no on-demand screenshot is pending, always-on capture fires.
+- Screenshot capture failures are caught and silently ignored — planner proceeds text-only.
+- This completes the runtime wiring: kernel `captureScreenshot` (with T49 annotation overlay) → base64 JPEG → planner's `screenshotBase64` input → Claude Messages API `image` content block.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Updated "Visual Context" section:
+- Changed from "Screenshots are provided **on demand**. Use `browser_screenshot` when you need visual context..." to "A screenshot of the current page is included with each step when available."
+- Added mention of numbered [el_N] badges overlaid on interactive elements (from T49 annotation overlay).
+- Removed `browser_screenshot` tool reference from always-on guidance (tool still exists for T47 on-demand mode).
+
+**`tests/runExecutor.test.mjs`** — 3 new tests, 1 replaced:
+- "always-on screenshot is captured and passed to planner on every step" — verifies captureScreenshot called once per step, screenshot data in planner input.
+- "always-on screenshot is null when capture fails — planner proceeds text-only" — verifies graceful degradation.
+- "on-demand screenshot from browser_screenshot overrides always-on capture" — verifies on-demand priority with counter-based mock.
+- Replaced "planner does NOT receive always-on screenshots" with "on-demand screenshot from browser_screenshot takes priority over always-on" — old test asserted the opposite of T46 behavior.
+- Updated "browser_screenshot action captures screenshot..." — step 1 now gets always-on screenshot instead of undefined.
+
+**Behavior:**
+- Before T46: The planner was text-only. Screenshots were only included when the planner explicitly called `browser_screenshot` (on-demand, T47-style). The planner had no visual understanding of pages.
+- After T46: Every planner call receives a JPEG screenshot (60% quality) of the current page with numbered element annotation badges overlaid on interactive elements. The planner can now "see" pages and correlate visual position with [el_N] IDs. If screenshot capture fails (CDP error, session destroyed), the planner falls back to text-only seamlessly.
+- The always-on screenshot uses the existing `captureScreenshot` pipeline from the kernel (T49 Session 165), which injects and removes annotation overlays around capture.
+- On-demand screenshots from `browser_screenshot` tool still work and take priority — this preserves the T47 optimization path.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 60/60 pass (was 58, +2 net)
+- `node --test tests/planner-prompt.test.mjs` — 197/197 pass (no regressions)
+- `node --test tests/*.test.mjs` — 1206/1206 pass (was 1204, +2 net)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T46 is complete. The planner now has vision on every step.
+- T47 (on-demand screenshot tool) is the natural follow-up: optimize token cost by switching from always-on to on-demand screenshots. The on-demand `browser_screenshot` mechanism already works.
+- PM should measure token cost after T46 — each screenshot is ~1000-2000 tokens. If too expensive, T47 becomes the primary vision mode.
+- Re-testing remains the #1 PM priority (user action) — vision integration needs real-world validation.
+- All PM Programs (A-P) are still complete (T46 was the core of Program P). T47 is the companion optimization.
+
+*Session log entry written: 2026-03-16 (Session 170)*
+
 *Session log entry written: 2026-03-16 (Session 167)*

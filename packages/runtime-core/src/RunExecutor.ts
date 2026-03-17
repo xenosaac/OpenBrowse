@@ -189,9 +189,17 @@ export class RunExecutor {
         plannerMode: this.services.descriptor.planner.mode
       });
 
-      // Include on-demand screenshot from previous step's browser_screenshot call
-      const screenshotForThisStep = pendingScreenshot;
-      pendingScreenshot = null; // Clear after one use
+      // Always-on screenshot capture (T46): capture before every planner call.
+      // On-demand screenshot from browser_screenshot takes priority when set.
+      let screenshotForThisStep = pendingScreenshot;
+      pendingScreenshot = null; // Clear on-demand screenshot after one use
+      if (!screenshotForThisStep) {
+        try {
+          screenshotForThisStep = await this.services.browserKernel.captureScreenshot(activeSession);
+        } catch {
+          // Screenshot capture failed — proceed text-only
+        }
+      }
 
       let decision;
       try {
