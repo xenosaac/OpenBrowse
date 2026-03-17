@@ -11,13 +11,13 @@ export function RunContextCard({ run, recentActions }: Props) {
   const statusColor = run.status === "running" || run.status === "completed"
     ? colors.statusRunning
     : run.status === "suspended_for_clarification" || run.status === "suspended_for_approval"
-    ? "#f59e0b"
-    : "#ef4444";
+    ? colors.statusWaiting
+    : colors.statusFailed;
   const statusBg = run.status === "running" || run.status === "completed"
-    ? "rgba(34,197,94,0.15)"
+    ? colors.statusRunningTint
     : run.status === "suspended_for_clarification" || run.status === "suspended_for_approval"
-    ? "rgba(245,158,11,0.15)"
-    : "rgba(239,68,68,0.15)";
+    ? colors.statusWaitingTint
+    : colors.statusFailedTint;
 
   const isRunning = run.status === "running";
 
@@ -59,7 +59,7 @@ export function RunContextCard({ run, recentActions }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   card: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 12, padding: "10px 12px", marginBottom: 4
   } as React.CSSProperties,
   header: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
@@ -67,11 +67,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.68rem", fontWeight: 600, borderRadius: 999,
     padding: "2px 8px", textTransform: "capitalize"
   },
-  step: { fontSize: "0.68rem", color: "#6b6b82" },
-  goal: { fontSize: "0.82rem", color: "#e5e7eb", lineHeight: 1.4, marginBottom: 6 },
+  step: { fontSize: "0.68rem", color: colors.textMuted },
+  goal: { fontSize: "0.82rem", color: colors.textPrimary, lineHeight: 1.4, marginBottom: 6 },
   actions: { display: "flex", flexDirection: "column", gap: 3 },
   actionItem: {
-    fontSize: "0.72rem", color: "#9090a8",
+    fontSize: "0.72rem", color: colors.textSecondary,
     paddingLeft: 8, borderLeft: "2px solid rgba(16,185,129,0.3)"
   }
 };

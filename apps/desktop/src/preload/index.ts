@@ -18,6 +18,7 @@ const api = {
 
   // Query operations
   listRuns: () => ipcRenderer.invoke("runs:list"),
+  listRecentRuns: (limit?: number): Promise<TaskRun[]> => ipcRenderer.invoke("runs:listRecent", limit),
   getRun: (runId: string) => ipcRenderer.invoke("runs:get", runId),
   listProfiles: () => ipcRenderer.invoke("profiles:list"),
   listLogs: (runId: string) => ipcRenderer.invoke("logs:list", runId),
@@ -46,9 +47,30 @@ const api = {
   clearBrowserViewport: () => ipcRenderer.invoke("browser:viewport:clear"),
   closeBrowserGroup: (groupId: string): Promise<TaskRun | null> => ipcRenderer.invoke("browser:close-group", groupId),
 
+  // Split view
+  enterSplitView: (leftId: string, rightId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:enter", { leftId, rightId }),
+  exitSplitView: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:exit"),
+  setSplitViewBounds: (leftBounds: BrowserViewportBounds, rightBounds: BrowserViewportBounds): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:set-bounds", { leftBounds, rightBounds }),
+
   // Browser navigation
   browserNewTab: (url?: string): Promise<BrowserShellTabDescriptor> =>
     ipcRenderer.invoke("browser:new-tab", url),
+  setTabPinned: (tabId: string, pinned: boolean): Promise<void> =>
+    ipcRenderer.invoke("browser:set-tab-pinned", { tabId, pinned }),
+  setTabOrder: (orderedIds: string[]): Promise<void> =>
+    ipcRenderer.invoke("browser:set-tab-order", orderedIds),
+  saveTabGroups: (
+    groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>,
+    assignments: Record<string, string>
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:save-tab-groups", { groups, assignments }),
+  getTabGroups: (): Promise<{
+    tabGroups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+    groupAssignments: Record<string, string>;
+  }> => ipcRenderer.invoke("browser:get-tab-groups"),
   browserNavigate: (sessionId: string, url: string): Promise<void> =>
     ipcRenderer.invoke("browser:navigate", { sessionId, url }),
   browserBack: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:back", sessionId),
@@ -58,7 +80,15 @@ const api = {
     sessionId: string
   ): Promise<{ canGoBack: boolean; canGoForward: boolean; url: string; title: string } | null> =>
     ipcRenderer.invoke("browser:nav-state", sessionId),
+  browserZoomIn: (sessionId: string) => ipcRenderer.invoke("browser:zoom-in", sessionId),
+  browserZoomOut: (sessionId: string) => ipcRenderer.invoke("browser:zoom-out", sessionId),
+  browserZoomReset: (sessionId: string) => ipcRenderer.invoke("browser:zoom-reset", sessionId),
+  findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) =>
+    ipcRenderer.invoke("browser:find-in-page", { sessionId, text, ...options }),
+  stopFindInPage: (sessionId: string) => ipcRenderer.invoke("browser:stop-find-in-page", sessionId),
   openDevTools: (sessionId: string) => ipcRenderer.invoke("browser:devtools", sessionId),
+  toggleReaderMode: (sessionId: string): Promise<{ active: boolean; success: boolean }> =>
+    ipcRenderer.invoke("browser:toggle-reader-mode", sessionId),
   printPage: (sessionId: string) => ipcRenderer.invoke("browser:print", sessionId),
   saveAsPdf: (sessionId: string): Promise<boolean> => ipcRenderer.invoke("browser:save-pdf", sessionId),
 
@@ -98,6 +128,12 @@ const api = {
   removeCookie: (sessionId: string, url: string, name: string) =>
     ipcRenderer.invoke("cookies:remove", { sessionId, url, name }),
   removeAllCookies: (sessionId: string) => ipcRenderer.invoke("cookies:remove-all", sessionId),
+
+  // Keybinding preferences
+  getKeybindings: (): Promise<Array<{ key: string; value: string }>> =>
+    ipcRenderer.invoke("keybindings:get"),
+  saveKeybindings: (entries: Array<{ key: string; value: string }>): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("keybindings:save", entries),
 
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {

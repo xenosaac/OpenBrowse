@@ -14,7 +14,10 @@ export type RuntimeEvent =
   | { type: "standalone_tab_created"; tab?: BrowserShellTabDescriptor }
   | { type: "standalone_tab_closed"; tabId?: string }
   | { type: "tab_loading"; sessionId?: string; isLoading?: boolean }
-  | { type: "tab_favicon"; sessionId?: string; faviconUrl?: string };
+  | { type: "tab_favicon"; sessionId?: string; faviconUrl?: string }
+  | { type: "find_in_page_result"; sessionId?: string; activeMatchOrdinal?: number; matches?: number; finalUpdate?: boolean }
+  | { type: "tab_load_error"; sessionId?: string; errorCode?: number; errorDescription?: string; url?: string }
+  | { type: "download_updated"; id?: string; filename?: string; url?: string; savePath?: string; totalBytes?: number; receivedBytes?: number; state?: "progressing" | "completed" | "cancelled" | "interrupted" };
 
 type Subscriber = (event: RuntimeEvent) => void;
 

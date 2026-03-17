@@ -180,6 +180,7 @@ export class TaskOrchestrator {
         outcome: {
           status: "completed",
           summary: completionSummary,
+          extractedData: decision.extractedData,
           finishedAt: updatedAt
         },
         suspension: undefined
@@ -248,6 +249,7 @@ export class TaskOrchestrator {
       targetUrl: result.action.type === "navigate" ? result.action.value : undefined,
       targetId: result.action.targetId,
       typedText: result.action.type === "type" ? result.action.value : undefined,
+      extractedText: result.action.type === "read_text" ? result.extractedText : undefined,
       createdAt: new Date().toISOString()
     };
 
@@ -256,7 +258,10 @@ export class TaskOrchestrator {
 
     const isSoftFailure = !result.ok && (
       result.failureClass === "element_not_found" ||
-      result.failureClass === "network_error"
+      result.failureClass === "network_error" ||
+      result.failureClass === "interaction_failed" ||
+      result.failureClass === "navigation_timeout" ||
+      result.failureClass === "validation_error"
     );
     const consecutiveSoftFailures = isSoftFailure
       ? (run.checkpoint.consecutiveSoftFailures ?? 0) + 1
@@ -265,10 +270,13 @@ export class TaskOrchestrator {
       ? (run.checkpoint.totalSoftFailures ?? 0) + 1
       : (run.checkpoint.totalSoftFailures ?? 0);
 
-    // Track URL visit counts
+    // Track URL visit counts — only navigate actions count as "visits".
+    // Non-navigate interactions (click, type, scroll, etc.) on the same URL
+    // are productive work, not revisitation. This prevents single-page apps
+    // (Wordle, Google Flights, etc.) from hitting the visit limit prematurely.
     const visitedUrl = result.action.type === "navigate"
       ? result.action.value
-      : run.checkpoint.lastKnownUrl;
+      : undefined;
     const urlVisitCounts = { ...(run.checkpoint.urlVisitCounts ?? {}) };
     if (visitedUrl) {
       urlVisitCounts[visitedUrl] = (urlVisitCounts[visitedUrl] ?? 0) + 1;

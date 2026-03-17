@@ -65,6 +65,7 @@ function makeServices(overrides = {}) {
     descriptor: { phase: 1, browser: "stub", chat: "stub", planner: "stub" },
     telegramStatePath: "/tmp/test-state.json",
     hasDemos: false,
+    pendingCancellations: new Set(),
     ...overrides
   };
 }

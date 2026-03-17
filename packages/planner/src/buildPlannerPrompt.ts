@@ -5,7 +5,7 @@ export interface PlannerPrompt {
   user: string;
 }
 
-export const MAX_PLANNER_STEPS = 35;
+export const MAX_PLANNER_STEPS = 50;
 
 export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerPrompt {
   // --- Harness context ---
@@ -20,6 +20,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
         if (r.targetId) detail += `\n    → Element: [${r.targetId}]`;
         if (r.targetUrl) detail += `\n    → URL: ${r.targetUrl}`;
         if (r.typedText) detail += `\n    → Typed: "${r.typedText}"`;
+        if (r.extractedText) detail += `\n    → Text: "${r.extractedText}"`;
         return detail;
       }).join("\n")}`
     : "";
@@ -55,6 +56,12 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     && new Set(lastActions.map(a => a.url)).size === 1;
   const repeatedNavWarning = repeatedNavs
     ? `\n** WARNING: You have navigated to the same URL ${lastActions.length} times in a row. The page may be redirecting. Try a completely different approach: use a search engine, try a different URL, or consider that this specific page may not be accessible.`
+    : "";
+
+  // --- Planner scratchpad notes ---
+  const plannerNotes = run.checkpoint.plannerNotes ?? [];
+  const plannerNotesSection = plannerNotes.length > 0
+    ? `\nYour saved notes (${plannerNotes.length}/20 — same key overwrites, oldest evicted if full):\n${plannerNotes.map((n) => `  "${n.key}": ${n.value}`).join("\n")}`
     : "";
 
   const recoveryContext = run.checkpoint.recoveryContext;
@@ -128,15 +135,23 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
         line += ` options=[${el.options.map(o => `"${o.value}"${o.label !== o.value ? ` (${o.label})` : ""}`).join(", ")}]`;
       }
       if (el.inShadowDom) line += " (shadow)";
+      if (el.iframeIndex !== undefined) line += ` (iframe[${el.iframeIndex}])`;
       if (!el.boundingVisible && el.isActionable) line += " (off-screen)";
       if (el.isActionable) line += " *";
       return line;
     })
     .join("\n");
 
-  // --- Page type context ---
+  // --- Page type context with strategy hints (T29) ---
+  const pageTypeHints: Record<string, string> = {
+    search_results: "Page type: search_results — You are on a search results page. Scan results for relevant information. Use `browser_read_text` to extract details. Only click through to a result if you need deeper content not visible in the snippet.",
+    form: "Page type: form — You are on a form page. Fill fields systematically top-to-bottom. Check for required fields before submitting. Use the Forms section below for field refs and current values.",
+    login: "Page type: login — You are on a login page. See Authentication Flows guidance above. NEVER guess credentials — use `ask_user`.",
+    checkout: "Page type: checkout — You are on a checkout/payment page. This is a HIGH-RISK page. Double-check all entries before submitting. Use `ask_user` to confirm before any final purchase/submit action.",
+    article: "Page type: article — You are on a content/article page. Use `browser_read_text` for extraction. Avoid clicking elements unless navigating to a linked section or page.",
+  };
   const pageTypeStr = pageModel.pageType && pageModel.pageType !== "unknown"
-    ? `Page type: ${pageModel.pageType}`
+    ? (pageTypeHints[pageModel.pageType] ?? `Page type: ${pageModel.pageType}`)
     : "";
 
   // --- Alerts ---
@@ -155,13 +170,14 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     : "";
 
   // --- Iframes ---
+  const hasIframeElements = pageModel.elements.some(el => el.iframeIndex !== undefined);
   const iframeHint = pageModel.iframeCount && pageModel.iframeCount > 0
-    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page. Content inside iframes is NOT visible in the element list below.${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Sources: ${pageModel.iframeSources.join(", ")}` : ""} If the information you need is not visible, it may be inside an iframe — try navigating directly to the iframe source URL.`
+    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page.${hasIframeElements ? " Same-origin iframe elements are included below — their IDs start with \"frame0_\", \"frame1_\", etc. You can interact with them normally (click, type, read_text)." : ""}${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Cross-origin iframe sources: ${pageModel.iframeSources.join(", ")}.` : ""}${!hasIframeElements ? " Content inside iframes is NOT visible in the element list. If the information you need is not visible, try navigating directly to the iframe source URL." : " For cross-origin iframe content not listed below, navigate directly to the iframe source URL."}`
     : "";
 
   // --- Active dialog ---
   const dialogHint = pageModel.activeDialog
-    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements.`
+    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A dialog/modal is currently open. You MUST address it (dismiss, fill, or interact with it) before attempting to interact with background page elements.`
     : "";
 
   // --- Forms (enriched with field details) ---
@@ -217,12 +233,25 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
   // --- URL visit warnings ---
   const urlCounts = run.checkpoint.urlVisitCounts ?? {};
   const frequentUrls = Object.entries(urlCounts).filter(([, count]) => count >= 4);
-  const urlWarning = frequentUrls.length > 0
-    ? `\n** WARNING: You have visited these URLs too many times — try a completely different approach:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}`
-    : "";
+  let urlWarning = "";
+  if (frequentUrls.length > 0) {
+    const recentActions = actionHistory.slice(-5);
+    const recentActionsSummary = recentActions.length > 0
+      ? `\n  Your last ${recentActions.length} actions (what you already tried):\n${recentActions.map(a => `    Step ${a.step}: ${a.type} — "${a.description}" ${a.ok ? "OK" : "FAILED"}`).join("\n")}`
+      : "";
+    urlWarning = `\n** WARNING: You have visited these URLs too many times — you MUST try a completely different approach NOW:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}${recentActionsSummary}\n  REQUIRED: Do NOT repeat any of the above actions. Choose a different URL, different search terms, or use task_complete with partial results.`;
+  }
 
   // --- System prompt ---
   const system = `You are OpenBrowse, an agentic browser assistant that uses the ReAct (Reasoning + Acting) framework.
+
+## Visual Context
+A screenshot of the current page is included with each step when available. Use it to:
+- Understand the page layout and visual hierarchy
+- Identify elements that may not have descriptive text labels (numbered [el_N] badges are overlaid on interactive elements)
+- Verify that your actions produced the expected visual result
+- Recognize visual content (images, charts, colors) not captured in the DOM
+The structured element list below remains your primary reference for choosing which element to act on (use [el_N] IDs). The screenshot supplements your understanding.
 
 ## MANDATORY: Think Before You Act
 Before calling any tool, you MUST write your reasoning as a text block. Address:
@@ -240,6 +269,13 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
   Good: "hyrax exotic pet purchase price USD" then separately "hyrax annual care cost food vet"
 - Address sub-tasks one at a time with focused searches
 
+## Sub-goal Progress Tracking
+For any task with more than 2 steps, track your progress using save_note:
+- After completing each sub-goal: browser_save_note(key: "progress", value: "Step 2/4: Found flight options, comparing prices")
+- Before choosing your next action: check your saved notes for a "progress" entry to remind yourself where you are
+- Update the progress note after each sub-goal is complete — this prevents you from repeating work or losing track
+- If you collected partial data (prices, names, URLs), save it with a descriptive key: browser_save_note(key: "prices_found", value: "Site A: $500, Site B: $450")
+
 ## Anti-Loop Rules
 - NEVER navigate to a URL that already FAILED in the action history — it will fail again
 - NEVER type the same search query twice — reformulate with different keywords
@@ -248,16 +284,67 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
 - If the page shows "Not Found", "404", or an error, do NOT retry that URL
 
 ## Browser Guidelines
-- For links with href: prefer browser_navigate with the href over browser_click
-- After filling form fields: press Enter or click the submit button
+
+**Navigation:**
+- For links with href: prefer browser_navigate over browser_click
+- Use browser_go_back to return to previous pages instead of re-navigating
+- If the page is about:blank or empty: navigate to a relevant URL immediately
 - If an element is off-screen: scroll first to reveal it
+- Prefer elements marked with * (actionable)
+
+**Forms:**
+- After filling fields: press Enter or click the submit button
+- To replace pre-filled content: set clear_first to true on browser_type
 - For cookie consent banners: dismiss them first
 - For CAPTCHAs: call ask_user — you cannot solve them
-- Prefer elements marked with * (actionable)
-- If the current page is about:blank or empty: navigate to a relevant URL immediately
-- Ask for clarification only when genuinely ambiguous
+- For file upload inputs (type="file"): use browser_upload_file with the element ref — this will ask the user which file to attach
+
+**Waiting for results:**
+- After dynamic content loading (search query, SPA navigation): use browser_wait_for_text instead of browser_wait with a fixed duration
+- After form submission or any redirect action: use browser_wait_for_navigation to wait for the URL to change
+
+**Multi-tab browsing:**
+- Use browser_open_in_new_tab when you need to check a second source without losing your current page
+- After opening a new tab, use browser_switch_tab to switch to it
+- Use browser_switch_tab(0) to return to the original tab
+- Save data from each tab using browser_save_note before switching — the page context changes on switch
+- Good for: price comparison, reading multiple sources, keeping a form open while looking up info
+
+**Data capture:**
+- Use browser_read_text for detailed element text (up to 2000 chars vs 40-char truncation in the element list)
+- For multi-page tasks, use browser_save_note to record findings before navigating — notes persist across pages
+- Include results as extracted_data in task_complete ({label, value} pairs) for structured output
+
+**Completion:**
 - Complete the task when the goal is achieved
-- Fail the task only when truly impossible after trying alternatives
+- Fail only when truly impossible after trying alternatives
+
+## Authentication Flows
+- Recognize login/signin pages by password inputs, "Sign in" / "Log in" buttons, or URLs containing /login, /signin, /auth.
+- NEVER guess, auto-fill, or fabricate credentials. ALWAYS use ask_user to request username and password from the user.
+- After submitting login credentials, use browser_wait_for_navigation — most login forms redirect after success.
+- If the page shows a 2FA/MFA code entry, use ask_user to request the code from the user.
+- If an OAuth popup or redirect occurs (e.g., "Sign in with Google"), follow the redirect and continue — the session will carry the auth state.
+- If login fails (wrong password message), use ask_user to inform the user and request corrected credentials. Do not retry the same credentials.
+
+## Error Recovery
+When an action fails:
+- **Element not found:** Page may still be loading. Use browser_wait_for_text, then retry.
+- **Click intercepted or obscured:** An overlay may be blocking. Check for DIALOG OPEN or COOKIE BANNER hints. Dismiss it first, then retry.
+- **Navigation timeout:** Server may be slow. Use browser_wait, retry once. If it fails again, use ask_user.
+- **Type action failed:** Input may not be focused. Use browser_click on the field first, then browser_type.
+- **After 2 consecutive failures on the same action:** Stop retrying. Try a completely different approach or use ask_user for guidance.
+
+## Breaking Out of Loops (CRITICAL)
+If you notice you are repeating similar actions without making progress:
+- **Stuck on a page:** Use browser_read_text to examine what is actually on the page before clicking anything else. The visible text excerpt above is truncated — read_text gives you the full content.
+- **Same element fails repeatedly:** The page may have changed since the element list was captured. Use browser_read_text to re-examine the page content, then pick a DIFFERENT element or approach.
+- **Navigation keeps returning to the same page:** Stop navigating to that URL. Try a completely different URL — for example, search Google for the information instead of navigating directly to the site.
+- **Cannot make progress after 3 attempts at the same approach:** Use task_complete with a partial result explaining what you found and where you got stuck. A partial result is ALWAYS better than looping until the run is killed.
+- **If you are on an interactive page (game, form wizard, dynamic app):** These pages often require precise sequences. If your approach is not working after 2-3 tries, describe the situation to the user via ask_user rather than guessing repeatedly.
+
+## Partial Results
+If you have collected useful intermediate data (via save_note or read_text) and the task cannot be fully completed, prefer task_complete with partial extractedData over task_failed. Partial results are more valuable than failure.
 
 Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan efficiently.`;
 
@@ -284,7 +371,7 @@ Step budget: You are on step ${stepCount + 1} of ${MAX_PLANNER_STEPS}. Plan effi
       if (Object.values(typeCounts).some(c => c >= 3)) return true;
     }
     // Trigger 2: Step count >= 15 (halfway progress check)
-    if (stepCount >= 15) return true;
+    if (stepCount >= 25) return true;
     // Trigger 3: Any URL visited 4+ times
     const urlCounts = run.checkpoint.urlVisitCounts ?? {};
     if (Object.values(urlCounts).some(c => c >= 4)) return true;
@@ -300,9 +387,34 @@ If you are genuinely stuck and cannot make progress, call task_failed with a cle
 If you need user input, call ask_user. Otherwise, continue with your next action.`
     : "";
 
+  // --- Page content stagnation warning ---
+  const unchangedCount = run.checkpoint.unchangedPageActions ?? 0;
+  const contentStagnationWarning = unchangedCount >= 3
+    ? `\n** WARNING: The page content has NOT visibly changed after your last ${unchangedCount} actions. Your actions may not be having the intended effect. Try a COMPLETELY DIFFERENT approach:
+  - Use browser_read_text to examine what is actually on the page
+  - Try different elements — the ones you are clicking may not be interactive
+  - If the page requires keyboard input (games, editors), use browser_press_key
+  - Navigate to a different site or use a search engine
+  - If the task cannot be completed, call task_complete with partial results`
+    : "";
+
+  const remaining = MAX_PLANNER_STEPS - (stepCount + 1);
+  const lowBudgetWarning = remaining <= 10
+    ? `\n** BUDGET LOW: ${remaining} step${remaining !== 1 ? "s" : ""} remaining. Complete the task now using task_complete — include any partial results in extractedData. Do not start new multi-step sequences.`
+    : "";
+
+  // --- Open tabs context ---
+  const openedTabs = run.checkpoint.openedTabs ?? [];
+  const activeTabIdx = run.checkpoint.activeTabIndex ?? 0;
+  const openTabsSection = openedTabs.length > 1
+    ? `\nOpen tabs (${openedTabs.length}):\n${openedTabs.map(t =>
+        `  [Tab ${t.index}]${t.index === activeTabIdx ? " (ACTIVE)" : ""} ${t.title || "(untitled)"} — ${t.url || "about:blank"}`
+      ).join("\n")}\nUse browser_switch_tab(tab_index) to switch between tabs.`
+    : "";
+
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${activePageHint}${selfAssessmentSection}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${contentStagnationWarning}${recoverySection}${notesSection}${plannerNotesSection}${openTabsSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
 
 Current page:
 URL: ${pageModel.url}

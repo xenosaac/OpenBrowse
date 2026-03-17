@@ -21,7 +21,7 @@ const NON_TERMINAL = new Set(["running", "queued", "suspended_for_clarification"
 
 export function LiveTasks({ runs, onSelectRun, onCancelRun }: Props) {
   if (runs.length === 0) {
-    return <p style={{ color: "#9090a8" }}>No active runs. Start a task to begin.</p>;
+    return <p style={{ color: colors.textSecondary }}>No active runs. Start a task to begin.</p>;
   }
 
   return (
@@ -76,7 +76,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px 14px",
     marginBottom: 8,
     cursor: "pointer",
-    border: "1px solid " + colors.borderGlass
+    border: "1px solid " + colors.borderSubtle
   } as React.CSSProperties,
   row: {
     display: "flex",
@@ -111,12 +111,12 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 16,
     fontSize: "0.8rem",
-    color: "#8f90a6",
+    color: colors.textSecondary,
     marginTop: 4
   },
   summary: {
     fontSize: "0.85rem",
-    color: "#d7d7e4",
+    color: colors.textPrimary,
     marginTop: 6,
     marginBottom: 0
   }

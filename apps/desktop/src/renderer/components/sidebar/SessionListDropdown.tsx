@@ -1,6 +1,6 @@
 import React from "react";
 import type { ChatSession } from "../../types/chat";
-import { colors, glass, shadows } from "../../styles/tokens";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   sessions: ChatSession[];
@@ -46,15 +46,14 @@ export function SessionListDropdown({ sessions, activeSessionId, onSwitch, onDel
 
 const styles: Record<string, React.CSSProperties> = {
   sessionList: {
-    ...glass.panel,
-    border: `1px solid ${colors.borderGlass}`,
-    boxShadow: shadows.glassElevated,
-    borderBottom: "1px solid " + colors.borderGlass,
+    background: "rgba(255,255,255,0.02)",
+    border: `1px solid ${colors.borderSubtle}`,
+    borderBottom: "1px solid " + colors.borderSubtle,
     padding: "6px 8px", maxHeight: 220, overflowY: "auto" as const, flexShrink: 0
-  } as React.CSSProperties,
+  },
   sessionListHeader: { padding: "4px 6px 6px", display: "flex", alignItems: "center" },
   sessionListTitle: {
-    fontSize: "0.7rem", color: "#9090a8",
+    fontSize: "0.7rem", color: colors.textSecondary,
     textTransform: "uppercase" as const, letterSpacing: "0.06em", fontWeight: 600
   },
   sessionRow: {
@@ -62,9 +61,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sessionItem: {
     flex: 1, display: "block", background: "none",
-    border: `1px solid ${colors.borderGlass}`, borderRadius: 8,
+    border: `1px solid ${colors.borderDefault}`, borderRadius: 8,
     padding: "6px 8px", textAlign: "left" as const,
-    cursor: "pointer", color: "#e5e7eb", minWidth: 0
+    cursor: "pointer", color: colors.textPrimary, minWidth: 0
   },
   sessionItemActive: {
     ...glass.emerald
@@ -73,9 +72,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.82rem", fontWeight: 600,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const
   },
-  sessionItemMeta: { fontSize: "0.68rem", color: "#6b6b82", marginTop: 2 },
+  sessionItemMeta: { fontSize: "0.68rem", color: colors.textMuted, marginTop: 2 },
   deleteBtn: {
-    background: "none", border: "none", color: "#6b6b82",
+    background: "none", border: "none", color: colors.textMuted,
     cursor: "pointer", fontSize: "1rem", padding: "2px 6px",
     borderRadius: 6, flexShrink: 0, lineHeight: 1
   }

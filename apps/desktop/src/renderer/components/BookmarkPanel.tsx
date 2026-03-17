@@ -61,7 +61,7 @@ const styles: Record<string, React.CSSProperties> = {
   container: { display: "flex", flexDirection: "column", gap: 12 },
   search: {
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderDefault}`,
     borderRadius: 8,
     padding: "8px 12px",
     color: colors.textPrimary,
@@ -77,7 +77,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 10px",
     borderRadius: 10,
     ...glass.card,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderSubtle}`,
   } as React.CSSProperties,
   favicon: { fontSize: "0.7rem", color: colors.textMuted, flexShrink: 0, width: 16, textAlign: "center" },
   info: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 },

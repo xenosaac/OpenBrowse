@@ -12,8 +12,11 @@ import { WorkflowLog } from "./WorkflowLog";
 import { BookmarkPanel } from "./BookmarkPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { CookiePanel } from "./CookiePanel";
+import { TaskHistoryPanel } from "./TaskHistoryPanel";
+import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
+import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -31,6 +34,8 @@ interface Props {
   onCancelRun?: (runId: string) => void;
   onStartDemo: (run?: TaskRun | null) => Promise<void>;
   onClose: () => void;
+  keybindingOverrides: KeyBindingOverrides;
+  onKeybindingOverridesChanged: (overrides: KeyBindingOverrides) => void;
 }
 
 const TABS: { key: ManagementTab; label: string }[] = [
@@ -41,6 +46,8 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "bookmarks", label: "Bookmarks" },
   { key: "history", label: "History" },
   { key: "cookies", label: "Cookies" },
+  { key: "taskHistory", label: "Task History" },
+  { key: "shortcuts", label: "Shortcuts" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -58,7 +65,9 @@ export function ManagementPanel({
   onSelectRun,
   onCancelRun,
   onStartDemo,
-  onClose
+  onClose,
+  keybindingOverrides,
+  onKeybindingOverridesChanged
 }: Props) {
   const [activeTab, setActiveTab] = useState<ManagementTab>(initialTab);
   const [sessionsSubTab, setSessionsSubTab] = useState<SessionsSubTab>("tasks");
@@ -164,6 +173,15 @@ export function ManagementPanel({
 
           {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
 
+          {activeTab === "taskHistory" && <TaskHistoryPanel />}
+
+          {activeTab === "shortcuts" && (
+            <KeyboardShortcutsPanel
+              overrides={keybindingOverrides}
+              onOverridesChanged={onKeybindingOverridesChanged}
+            />
+          )}
+
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />
           )}
@@ -175,7 +193,7 @@ export function ManagementPanel({
 
 function RuntimeStatus({ runtime }: { runtime: RuntimeDescriptor | null }) {
   if (!runtime) {
-    return <p style={{ color: "#9090a8" }}>Runtime loading…</p>;
+    return <p style={{ color: colors.textSecondary }}>Runtime loading…</p>;
   }
 
   const sections: Array<{ title: string; rows: Array<[string, string]> }> = [
@@ -248,7 +266,7 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 16,
     padding: "14px 20px 0",
-    borderBottom: "1px solid " + colors.borderDefault,
+    borderBottom: "1px solid " + colors.borderSubtle,
     flexShrink: 0
   },
   headerLeft: {
@@ -259,7 +277,7 @@ const styles: Record<string, React.CSSProperties> = {
   headerTitle: {
     fontSize: "0.88rem",
     fontWeight: 700,
-    color: "#9090a8",
+    color: colors.textSecondary,
     textTransform: "uppercase",
     letterSpacing: "0.08em",
     flexShrink: 0
@@ -271,7 +289,7 @@ const styles: Record<string, React.CSSProperties> = {
   tabBtn: {
     background: "transparent",
     border: "none",
-    color: "#9090a8",
+    color: colors.textSecondary,
     padding: "10px 14px",
     cursor: "pointer",
     fontSize: "0.88rem",
@@ -279,13 +297,13 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: -1
   },
   tabBtnActive: {
-    color: "#ffffff",
+    color: colors.textWhite,
     borderBottomColor: colors.emerald
   },
   closeBtn: {
     background: "transparent",
     border: "none",
-    color: "#9090a8",
+    color: colors.textSecondary,
     cursor: "pointer",
     fontSize: "1rem",
     padding: "8px",
@@ -311,17 +329,17 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 4
   },
   subTabBtn: {
-    background: colors.buttonBg,
-    border: "1px solid " + colors.borderGlass,
+    ...glass.control,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "6px 14px",
     cursor: "pointer",
     fontSize: "0.84rem"
-  },
+  } as React.CSSProperties,
   subTabBtnActive: {
     ...glass.emerald,
-    color: "#ffffff"
+    color: colors.textWhite
   } as React.CSSProperties,
   sessionsContent: {
     minHeight: 0
@@ -333,7 +351,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   runtimeCard: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 14,
     padding: "14px 16px",
     display: "flex",
@@ -344,7 +362,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.8rem",
     textTransform: "uppercase",
     letterSpacing: "0.08em",
-    color: "#9090a8",
+    color: colors.textSecondary,
     marginBottom: 4
   },
   runtimeRow: {
@@ -354,11 +372,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   runtimeKey: {
     fontSize: "0.84rem",
-    color: "#9090a8"
+    color: colors.textSecondary
   },
   runtimeValue: {
     fontSize: "0.84rem",
-    color: "#e5e7eb",
-    fontWeight: 600
+    color: colors.textPrimary,
+    fontWeight: 600,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    minWidth: 0
   }
 };

@@ -1,5 +1,5 @@
 import React from "react";
-import { colors, glass, shadows } from "../../styles/tokens";
+import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   runningCount: number;
@@ -23,7 +23,7 @@ export function SidebarHeader({ runningCount, waitingCount, onToggleSessionList,
               </span>
             )}
             {waitingCount > 0 && (
-              <span style={{ ...styles.statusPip, color: "#f59e0b" }}>
+              <span style={{ ...styles.statusPip, color: colors.statusWaiting }}>
                 ◉ {waitingCount} waiting
               </span>
             )}
@@ -45,11 +45,10 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "flex-start",
     gap: 10,
-    ...glass.card,
-    border: "1px solid " + colors.borderGlass,
-    borderBottom: "1px solid " + colors.borderGlass,
+    background: "transparent",
+    borderBottom: "1px solid " + colors.borderSubtle,
     flexShrink: 0
-  } as React.CSSProperties,
+  },
   brandMark: {
     width: 32, height: 32, borderRadius: 10,
     display: "grid", placeItems: "center",
@@ -58,19 +57,19 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 0 12px rgba(16,185,129,0.2)"
   },
   brandInfo: { minWidth: 0 },
-  brandName: { fontSize: "0.9rem", fontWeight: 700, color: "#ffffff" },
+  brandName: { fontSize: "0.9rem", fontWeight: 700, color: colors.textWhite },
   statusRow: { display: "flex", gap: 10, marginTop: 4 },
   statusPip: { fontSize: "0.72rem" },
   newSessionButton: {
     width: 26, height: 26, borderRadius: 7,
-    background: colors.emeraldTint, border: "1px solid " + colors.borderGlass,
+    background: colors.emeraldTint, border: `1px solid ${colors.borderControl}`,
     color: colors.emerald, cursor: "pointer", fontSize: "1rem",
     display: "grid", placeItems: "center", flexShrink: 0
   },
   sessionListToggle: {
-    width: 26, height: 26, borderRadius: 7,
-    background: colors.buttonBg, border: "1px solid " + colors.borderGlass,
-    color: "#9090a8", cursor: "pointer", fontSize: "0.72rem",
+    ...glass.control, width: 26, height: 26, borderRadius: 7,
+    border: `1px solid ${colors.borderControl}`,
+    color: colors.textSecondary, cursor: "pointer", fontSize: "0.72rem",
     display: "grid", placeItems: "center", flexShrink: 0
-  }
+  } as React.CSSProperties
 };

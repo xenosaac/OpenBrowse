@@ -46,6 +46,7 @@ function makeSession(overrides = {}) {
 
 function makeServices(runs = [], sessions = []) {
   return {
+    pendingCancellations: new Set(),
     runCheckpointStore: {
       listAll: async () => [...runs],
     },

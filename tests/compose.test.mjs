@@ -112,7 +112,7 @@ test("assembleRuntimeServices — returns object with all RuntimeServices keys",
     "descriptor", "browserKernel", "chatBridge", "eventBus",
     "orchestrator", "planner", "preferenceStore", "runCheckpointStore",
     "runtimeConfig", "runtimeSettings", "scheduler", "securityPolicy",
-    "telegramStatePath", "workflowLogStore",
+    "telegramStatePath", "workflowLogStore", "pendingCancellations",
   ];
   for (const key of requiredKeys) {
     assert.ok(key in services, `missing key: ${key}`);
@@ -283,4 +283,11 @@ test("assembleRuntimeServices — riskClassPolicies from settings used in securi
   const action = { type: "click", targetId: "el_1", description: "Pay now with credit card" };
   const result = services.securityPolicy.requiresApproval(run, action);
   assert.equal(result, true);
+});
+
+test("assembleRuntimeServices — pendingCancellations is an empty Set", async () => {
+  const params = await makeAssembleParams();
+  const services = assembleRuntimeServices(params);
+  assert.ok(services.pendingCancellations instanceof Set);
+  assert.equal(services.pendingCancellations.size, 0);
 });

@@ -25,6 +25,7 @@ export interface BrowserKernel {
   ensureProfile(profileId?: string): Promise<BrowserProfile>;
   attachSession(profile: BrowserProfile, options?: AttachSessionOptions): Promise<BrowserSession>;
   capturePageModel(session: BrowserSession): Promise<PageModel>;
+  captureScreenshot(session: BrowserSession): Promise<string | null>;
   executeAction(session: BrowserSession, action: BrowserAction): Promise<BrowserActionResult>;
   destroySession(sessionId: string): Promise<void>;
   destroyAllSessions(): Promise<void>;
@@ -124,8 +125,15 @@ export class StubBrowserKernel implements BrowserKernel {
       ok: true,
       action,
       pageModelId: `page_${session.id}`,
-      summary: `Executed stub browser action: ${action.description}`
+      summary: `Executed stub browser action: ${action.description}`,
+      extractedText: action.type === "read_text" ? "(stub: no text available)" : undefined,
+      ...(action.type === "wait_for_text" ? { summary: `Stub: waited for text "${(action.value ?? "").slice(0, 60)}"` } : {}),
+      ...(action.type === "wait_for_navigation" ? { summary: "Stub: waited for navigation" } : {})
     };
+  }
+
+  async captureScreenshot(_session: BrowserSession): Promise<string | null> {
+    return null;
   }
 
   async destroySession(sessionId: string): Promise<void> {

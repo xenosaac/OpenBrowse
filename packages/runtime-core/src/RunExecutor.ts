@@ -1,4 +1,4 @@
-import type { BrowserAction, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
+import type { BrowserAction, BrowserActionFailureClass, BrowserSession, PageModel, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { MAX_PLANNER_STEPS } from "@openbrowse/planner";
 import type { RuntimeServices } from "./types.js";
 import type { SessionManager } from "./SessionManager.js";
@@ -10,6 +10,19 @@ const MAX_TOTAL_SOFT_FAILURES = 8;
 const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
 const MAX_URL_VISITS_BEFORE_FAIL = 12;
 const CYCLE_DETECTION_WINDOW = 20;
+
+/**
+ * Failure classes that are recoverable — the planner gets another iteration to
+ * try a different approach.  Safety nets (MAX_CONSECUTIVE_SOFT_FAILURES,
+ * MAX_TOTAL_SOFT_FAILURES) prevent infinite loops.
+ */
+const SOFT_FAILURE_CLASSES: ReadonlySet<BrowserActionFailureClass> = new Set([
+  "element_not_found",
+  "network_error",
+  "interaction_failed",
+  "navigation_timeout",
+  "validation_error",
+]);
 
 /**
  * Detect repeating cycles of length 2–5 in an array of action keys.
@@ -53,8 +66,33 @@ export class RunExecutor {
 
   async plannerLoop(run: TaskRun, session: BrowserSession): Promise<TaskRun> {
     let current = run;
-    let consecutiveIdenticalActions = 0;
-    let lastActionKey = "";
+    let activeSession = session;
+    const stuckState = { consecutiveIdenticalActions: 0, lastActionKey: "" };
+
+    // On-demand screenshot: stored when the planner calls browser_screenshot,
+    // included as screenshotBase64 in the *next* planner call, then cleared.
+    let pendingScreenshot: string | null = null;
+
+    // Page content change tracking: detect when actions have no visible effect.
+    let lastContentSlice = "";
+    let lastActionOk = false;
+
+    // Initialize openedTabs with primary session if not yet tracked
+    if (!current.checkpoint.openedTabs || current.checkpoint.openedTabs.length === 0) {
+      current = {
+        ...current,
+        checkpoint: {
+          ...current.checkpoint,
+          openedTabs: [{ index: 0, sessionId: session.id, url: session.pageUrl, title: "" }],
+          activeTabIndex: 0
+        }
+      };
+    }
+
+    // Session lookup map for tab switching
+    const tabSessions = new Map<number, BrowserSession>();
+    tabSessions.set(0, session);
+
     for (let step = 0; step < MAX_PLANNER_STEPS; step++) {
       // Cooperative cancellation check at top of loop
       if (this.cancellation.isCancelled(current.id)) {
@@ -65,14 +103,33 @@ export class RunExecutor {
 
       let pageModel: PageModel;
       try {
-        pageModel = await this.services.browserKernel.capturePageModel(session);
+        pageModel = await this.services.browserKernel.capturePageModel(activeSession);
       } catch (firstErr) {
         // Retry once after a brief settle
         await new Promise(r => setTimeout(r, 500));
         try {
-          pageModel = await this.services.browserKernel.capturePageModel(session);
+          pageModel = await this.services.browserKernel.capturePageModel(activeSession);
         } catch (secondErr) {
           const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+          // Session destroyed (tab closed) — cancel cleanly instead of failing
+          if (msg.includes("Session not found")) {
+            const latestRun = await this.services.runCheckpointStore.load(current.id);
+            if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
+              return latestRun;
+            }
+            current = this.services.orchestrator.cancelRun(current, "Task cancelled: browser tab was closed.");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_cancelled", current.outcome?.summary ?? "Cancelled", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
+          // Non-"Session not found" errors from destroyed sessions (e.g. "Object has
+          // been destroyed", "Debugger is not attached") should not continue the loop
+          // if the run was already cancelled externally (e.g. tab closed).
+          const maybeTerminal = await this.services.runCheckpointStore.load(current.id);
+          if (maybeTerminal && (maybeTerminal.status === "cancelled" || maybeTerminal.status === "failed")) {
+            return maybeTerminal;
+          }
           await this.logEvent(current.id, "planner_request_failed", `capturePageModel failed twice: ${msg}`, {});
           // Use minimal fallback so the loop can continue or fail gracefully
           pageModel = {
@@ -89,7 +146,38 @@ export class RunExecutor {
           };
         }
       }
-      current = this.services.orchestrator.observePage(current, pageModel, session.id);
+      current = this.services.orchestrator.observePage(current, pageModel, activeSession.id);
+
+      // Page content change detection: compare visible text to detect stagnation.
+      const currentSlice = (pageModel.visibleText ?? "").slice(0, 500);
+      if (lastContentSlice && lastActionOk) {
+        if (currentSlice === lastContentSlice) {
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, unchangedPageActions: (current.checkpoint.unchangedPageActions ?? 0) + 1 }
+          };
+        } else {
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, unchangedPageActions: 0 }
+          };
+        }
+      }
+      lastContentSlice = currentSlice;
+      lastActionOk = false; // Reset; will be set to true after a successful action
+
+      // Keep openedTabs URL/title in sync with latest page model
+      const activeIdx = current.checkpoint.activeTabIndex ?? 0;
+      const tabs = current.checkpoint.openedTabs;
+      if (tabs) {
+        const tab = tabs.find(t => t.index === activeIdx);
+        if (tab && (tab.url !== pageModel.url || tab.title !== pageModel.title)) {
+          tab.url = pageModel.url;
+          tab.title = pageModel.title;
+          current = { ...current, checkpoint: { ...current.checkpoint, openedTabs: [...tabs] } };
+        }
+      }
+
       await this.services.runCheckpointStore.save(current);
 
       await this.logEvent(current.id, "page_modeled", `Captured page: ${pageModel.title}`, {
@@ -101,9 +189,25 @@ export class RunExecutor {
         plannerMode: this.services.descriptor.planner.mode
       });
 
+      // Always-on screenshot capture (T46): capture before every planner call.
+      // On-demand screenshot from browser_screenshot takes priority when set.
+      let screenshotForThisStep = pendingScreenshot;
+      pendingScreenshot = null; // Clear on-demand screenshot after one use
+      if (!screenshotForThisStep) {
+        try {
+          screenshotForThisStep = await this.services.browserKernel.captureScreenshot(activeSession);
+        } catch {
+          // Screenshot capture failed — proceed text-only
+        }
+      }
+
       let decision;
       try {
-        decision = await this.services.planner.decide({ run: current, pageModel });
+        decision = await this.services.planner.decide({
+          run: current,
+          pageModel,
+          ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await this.logEvent(current.id, "planner_request_failed", `Planner request failed: ${message}`, {
@@ -142,6 +246,214 @@ export class RunExecutor {
 
       if (decision.type === "browser_action" && decision.action) {
         const action = decision.action as BrowserAction;
+
+        // Handle save_note locally — no browser kernel interaction needed
+        if (action.type === "save_note") {
+          const noteKey = action.interactionHint ?? "note";
+          const noteValue = action.value ?? "";
+          const existing = current.checkpoint.plannerNotes ?? [];
+          // Upsert: replace existing note with same key, or append
+          const idx = existing.findIndex(n => n.key === noteKey);
+          const updated = [...existing];
+          if (idx >= 0) {
+            updated[idx] = { key: noteKey, value: noteValue };
+          } else {
+            updated.push({ key: noteKey, value: noteValue });
+          }
+          // Cap at 20 notes to prevent unbounded growth
+          const plannerNotes = updated.slice(-20);
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Saved note: "${noteKey}"`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, plannerNotes }
+          };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true",
+            description: action.description
+          });
+          const noteStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (noteStuck) return noteStuck;
+          continue;
+        }
+
+        // Handle screenshot — capture and store for the next planner call
+        if (action.type === "screenshot") {
+          let screenshotData: string | null = null;
+          try {
+            screenshotData = await this.services.browserKernel.captureScreenshot(activeSession);
+          } catch {
+            // Capture failed — proceed without screenshot
+          }
+          pendingScreenshot = screenshotData;
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: screenshotData
+              ? "Screenshot captured — visual context will be available on your next step."
+              : "Screenshot capture failed — proceeding without visual context.",
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true",
+            description: action.description
+          });
+          const screenshotStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (screenshotStuck) return screenshotStuck;
+          continue;
+        }
+
+        // Handle upload_file — suspend with clarification asking for file path
+        if (action.type === "upload_file") {
+          const targetId = action.targetId;
+          if (!targetId) {
+            current = this.services.orchestrator.failRun(current, "upload_file action missing targetId");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
+          const label = action.description ?? "file input";
+          const clarifyId = `clarify_file_${current.id}_${Date.now()}`;
+          const question = `This form has a file upload field: "${label}". Please provide the full path to the file you'd like to upload.`;
+
+          current = {
+            ...current,
+            status: "suspended_for_clarification" as const,
+            updatedAt: new Date().toISOString(),
+            checkpoint: {
+              ...current.checkpoint,
+              summary: `Waiting for file path: ${label}`,
+              pendingClarificationId: clarifyId,
+              pendingBrowserAction: action,
+              stopReason: `Waiting for file path: ${label}`,
+            },
+            suspension: {
+              type: "clarification" as const,
+              requestId: clarifyId,
+              question,
+              createdAt: new Date().toISOString(),
+            }
+          };
+          await this.services.runCheckpointStore.save(current);
+          await this.services.chatBridge.sendClarification({
+            id: clarifyId,
+            runId: current.id,
+            question,
+            contextSummary: `File upload needed for: ${label}`,
+            options: [],
+            createdAt: new Date().toISOString()
+          });
+          await this.logEvent(current.id, "clarification_requested", question, {
+            requestId: clarifyId
+          });
+          await this.handoff.writeHandoff(current);
+          return current;
+        }
+
+        // Handle open_in_new_tab — create new session and navigate
+        if (action.type === "open_in_new_tab") {
+          const url = action.value;
+          if (!url) {
+            current = this.services.orchestrator.failRun(current, "open_in_new_tab action missing url");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
+          const { session: newSession } = await this.sessions.openAdditionalTab(current);
+          const navResult = await this.services.browserKernel.executeAction(newSession, {
+            type: "navigate",
+            value: url,
+            description: `Navigate new tab to ${url}`
+          });
+          const tabs = current.checkpoint.openedTabs ?? [];
+          const newIndex = tabs.length;
+          tabSessions.set(newIndex, newSession);
+          const updatedTabs = [...tabs, { index: newIndex, sessionId: newSession.id, url, title: "" }];
+          const syntheticResult = {
+            ok: navResult.ok,
+            action,
+            summary: `Opened tab ${newIndex}: ${url}`,
+            failureClass: navResult.failureClass,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = { ...current, checkpoint: { ...current.checkpoint, openedTabs: updatedTabs } };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: String(navResult.ok),
+            description: action.description,
+            tabIndex: String(newIndex)
+          });
+          const newTabStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (newTabStuck) return newTabStuck;
+          continue;
+        }
+
+        // Handle switch_tab — swap active session
+        if (action.type === "switch_tab") {
+          const targetIndex = parseInt(action.value ?? "", 10);
+          const tabs = current.checkpoint.openedTabs ?? [];
+          const targetTab = tabs.find(t => t.index === targetIndex);
+          if (!targetTab) {
+            const syntheticResult = {
+              ok: false as const,
+              action,
+              summary: `Tab ${targetIndex} not found. Available tabs: ${tabs.map(t => t.index).join(", ")}`,
+              failureClass: "validation_error" as const,
+            };
+            current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+              actionType: action.type, ok: "false", description: action.description
+            });
+            continue;
+          }
+          let targetSession = tabSessions.get(targetIndex);
+          if (!targetSession) {
+            const fetched = await this.sessions.getSession(targetTab.sessionId);
+            if (fetched) {
+              targetSession = fetched;
+              tabSessions.set(targetIndex, fetched);
+            }
+          }
+          if (!targetSession) {
+            const syntheticResult = {
+              ok: false as const,
+              action,
+              summary: `Session for tab ${targetIndex} is no longer available.`,
+              failureClass: "interaction_failed" as const,
+            };
+            current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+            await this.services.runCheckpointStore.save(current);
+            continue;
+          }
+          activeSession = targetSession;
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Switched to tab ${targetIndex}${targetTab.url ? ` (${targetTab.url})` : ""}`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          current = { ...current, checkpoint: { ...current.checkpoint, activeTabIndex: targetIndex } };
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type, ok: "true", description: action.description, tabIndex: String(targetIndex)
+          });
+          const switchStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (switchStuck) return switchStuck;
+          continue;
+        }
+
         if (this.services.securityPolicy.requiresApproval(current, action)) {
           const approvalRequest = this.services.securityPolicy.buildApprovalRequest(current, action);
           const approvalDecision = { ...decision, type: "approval_request" as const, approvalRequest };
@@ -167,7 +479,7 @@ export class RunExecutor {
 
         let result;
         try {
-          result = await this.services.browserKernel.executeAction(session, action);
+          result = await this.services.browserKernel.executeAction(activeSession, action);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("Session not found")) {
@@ -175,18 +487,25 @@ export class RunExecutor {
             if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
               return latestRun;
             }
-            current = this.services.orchestrator.failRun(current, `Browser session lost: ${msg}`);
+            current = this.services.orchestrator.cancelRun(current, "Task cancelled: browser tab was closed.");
             await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.logEvent(current.id, "run_cancelled", current.outcome?.summary ?? "Cancelled", {});
             await this.handoff.writeHandoff(current);
             return current;
+          }
+          // Non-"Session not found" errors from destroyed sessions should not
+          // propagate to failUnexpectedRun if the run was already cancelled.
+          const latestRun = await this.services.runCheckpointStore.load(current.id);
+          if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
+            return latestRun;
           }
           throw err;
         }
         current = this.services.orchestrator.recordBrowserResult(current, result);
         await this.logEvent(current.id, "browser_action_executed", result.summary, {
           actionType: action.type,
-          ok: String(result.ok)
+          ok: String(result.ok),
+          description: action.description
         });
         if (this.services.chatBridge.shouldSendStepProgress()) {
           const stepNum = current.checkpoint.stepCount ?? 0;
@@ -196,11 +515,12 @@ export class RunExecutor {
         }
 
         if (!result.ok) {
-          if (result.failureClass !== "element_not_found" && result.failureClass !== "network_error") {
+          const fc = result.failureClass ?? "unknown";
+          if (!SOFT_FAILURE_CLASSES.has(fc as BrowserActionFailureClass)) {
             current = this.services.orchestrator.failRun(current, result.summary);
             await this.services.runCheckpointStore.save(current);
             await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {
-              failureClass: result.failureClass ?? "unknown"
+              failureClass: fc
             });
             await this.handoff.writeHandoff(current);
             return current;
@@ -235,50 +555,9 @@ export class RunExecutor {
         }
 
         // --- Stuck detection (only on successful actions — prevents false positives) ---
-
-        // 1. Consecutive identical actions
-        const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
-        if (actionKey === lastActionKey) {
-          consecutiveIdenticalActions++;
-          if (consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
-            const msg = `Stuck: repeated "${action.type}" on ${pageModel.url} ${consecutiveIdenticalActions} times.`;
-            current = this.services.orchestrator.failRun(current, msg);
-            await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-            await this.handoff.writeHandoff(current);
-            return current;
-          }
-        } else {
-          consecutiveIdenticalActions = 0;
-          lastActionKey = actionKey;
-        }
-
-        // 2. URL visit count — detect excessive revisiting
-        const urlCounts = current.checkpoint.urlVisitCounts ?? {};
-        const currentUrlVisits = urlCounts[pageModel.url] ?? 0;
-        if (currentUrlVisits >= MAX_URL_VISITS_BEFORE_FAIL) {
-          const msg = `Stuck: visited ${pageModel.url} ${currentUrlVisits} times. Moving on is not working.`;
-          current = this.services.orchestrator.failRun(current, msg);
-          await this.services.runCheckpointStore.save(current);
-          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-          await this.handoff.writeHandoff(current);
-          return current;
-        }
-
-        // 3. Cycle detection: 2/3/4/5-step cycles over extended window
-        const recentKeys = (current.checkpoint.actionHistory ?? [])
-          .slice(-CYCLE_DETECTION_WINDOW)
-          .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
-
-        const cycleLength = detectCycle(recentKeys);
-        if (cycleLength > 0) {
-          const msg = `Stuck in ${cycleLength}-step cycle. The agent is repeating the same sequence of actions.`;
-          current = this.services.orchestrator.failRun(current, msg);
-          await this.services.runCheckpointStore.save(current);
-          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-          await this.handoff.writeHandoff(current);
-          return current;
-        }
+        lastActionOk = true;
+        const actionStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+        if (actionStuck) return actionStuck;
 
         await this.services.runCheckpointStore.save(current);
         continue;
@@ -355,15 +634,17 @@ export class RunExecutor {
       await this.logEvent(current.id, "browser_action_executed", result.summary, {
         actionType: pendingAction.type,
         ok: String(result.ok),
-        resumed: "true"
+        resumed: "true",
+        description: pendingAction.description ?? ""
       });
 
       if (!result.ok) {
-        // Soft failures (element_not_found, network_error) are recoverable on resume —
-        // the page DOM likely changed after re-navigation, so the planner should retry.
-        if (result.failureClass === "element_not_found" || result.failureClass === "network_error") {
+        // Soft failures are recoverable on resume — the page DOM likely changed
+        // after re-navigation, so the planner should retry with fresh context.
+        const fc = result.failureClass ?? "unknown";
+        if (SOFT_FAILURE_CLASSES.has(fc as BrowserActionFailureClass)) {
           current.checkpoint.notes.push(
-            `Pending action "${pendingAction.description}" failed after resume (${result.failureClass}). The page state may have changed. Trying a different approach.`
+            `Pending action "${pendingAction.description}" failed after resume (${fc}). The page state may have changed. Trying a different approach.`
           );
           await this.services.runCheckpointStore.save(current);
         } else {
@@ -377,6 +658,55 @@ export class RunExecutor {
     }
 
     return this.plannerLoop(current, session);
+  }
+
+  /**
+   * Run stuck detection checks after any action (normal or special-handler).
+   * Returns the failed TaskRun if stuck, or null to continue.
+   */
+  private async checkStuckAfterAction(
+    action: { type: string; targetId?: string; description: string },
+    pageModel: PageModel,
+    current: TaskRun,
+    stuckState: { consecutiveIdenticalActions: number; lastActionKey: string }
+  ): Promise<TaskRun | null> {
+    // 1. Consecutive identical actions
+    const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
+    if (actionKey === stuckState.lastActionKey) {
+      stuckState.consecutiveIdenticalActions++;
+      if (stuckState.consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
+        return this.failStuck(current, `Stuck: repeated "${action.type}" on ${pageModel.url} ${stuckState.consecutiveIdenticalActions} times.`);
+      }
+    } else {
+      stuckState.consecutiveIdenticalActions = 0;
+      stuckState.lastActionKey = actionKey;
+    }
+
+    // 2. URL visit count — detect excessive revisiting
+    const urlCounts = current.checkpoint.urlVisitCounts ?? {};
+    const visits = urlCounts[pageModel.url] ?? 0;
+    if (visits >= MAX_URL_VISITS_BEFORE_FAIL) {
+      return this.failStuck(current, `Stuck: visited ${pageModel.url} ${visits} times. Moving on is not working.`);
+    }
+
+    // 3. Cycle detection: 2/3/4/5-step cycles over extended window
+    const recentKeys = (current.checkpoint.actionHistory ?? [])
+      .slice(-CYCLE_DETECTION_WINDOW)
+      .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
+    const cycleLength = detectCycle(recentKeys);
+    if (cycleLength > 0) {
+      return this.failStuck(current, `Stuck in ${cycleLength}-step cycle. The agent is repeating the same sequence of actions.`);
+    }
+
+    return null;
+  }
+
+  private async failStuck(current: TaskRun, message: string): Promise<TaskRun> {
+    const failed = this.services.orchestrator.failRun(current, message);
+    await this.services.runCheckpointStore.save(failed);
+    await this.logEvent(failed.id, "run_failed", failed.outcome?.summary ?? "Failed", {});
+    await this.handoff.writeHandoff(failed);
+    return failed;
   }
 
   private async logEvent(

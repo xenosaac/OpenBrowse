@@ -11,7 +11,7 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
   if (!run || run.status !== "running") return null;
 
   return (
-    <div style={barStyles.bar}>
+    <div className="ob-glass-panel" style={barStyles.bar}>
       <span style={barStyles.dot} />
       <span style={barStyles.label}>Agent active</span>
       {recentAction && (
@@ -35,6 +35,7 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
 const barStyles: Record<string, React.CSSProperties> = {
   bar: {
     ...glass.panel,
+    position: "relative" as const,
     display: "flex",
     alignItems: "center",
     gap: 8,
@@ -60,24 +61,24 @@ const barStyles: Record<string, React.CSSProperties> = {
     flexShrink: 0
   },
   action: {
-    color: "#cbd5e1",
+    color: colors.textPrimary,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     minWidth: 0
   },
   step: {
-    color: "#6b6b82",
+    color: colors.textMuted,
     flexShrink: 0
   },
   spacer: {
     flex: 1
   },
   stopButton: {
-    background: "rgba(239,68,68,0.12)",
-    border: "1px solid rgba(239,68,68,0.3)",
+    background: colors.statusFailedTint,
+    border: "1px solid " + colors.statusFailedBorder,
     borderRadius: 6,
-    color: "#f87171",
+    color: colors.statusFailed,
     cursor: "pointer",
     fontSize: "0.72rem",
     fontWeight: 600,

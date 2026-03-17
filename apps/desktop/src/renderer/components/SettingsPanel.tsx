@@ -242,12 +242,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   subtitle: {
     margin: "6px 0 0",
-    color: "#8f90a6",
+    color: colors.textSecondary,
     fontSize: "0.9rem"
   },
   runtimeBadge: {
     background: colors.bgInput,
-    color: "#cbd5e1",
+    color: colors.textPrimary,
     border: "1px solid " + colors.borderDefault,
     borderRadius: 999,
     padding: "6px 12px",
@@ -261,7 +261,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   card: {
     ...glass.card,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     borderRadius: 18,
     padding: 16,
     display: "flex",
@@ -277,20 +277,20 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     gap: 6,
     fontSize: "0.85rem",
-    color: "#cbd5e1"
+    color: colors.textPrimary
   },
   input: {
     ...glass.input,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 12,
     padding: "10px 12px",
-    color: "#f5f5ff",
+    color: colors.textBright,
     fontSize: "0.9rem"
   } as React.CSSProperties,
   helpText: {
     margin: 0,
     fontSize: "0.8rem",
-    color: "#8f90a6",
+    color: colors.textSecondary,
     lineHeight: 1.5
   },
   presetRow: {
@@ -314,7 +314,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   button: {
     background: colors.emerald,
-    color: "#fffdf9",
+    color: colors.textWarm,
     border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 12,
     padding: "10px 16px",
@@ -339,7 +339,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.9rem"
   },
   dirtyHint: {
-    color: "#8f90a6",
+    color: colors.textSecondary,
     fontSize: "0.85rem"
   }
 };
