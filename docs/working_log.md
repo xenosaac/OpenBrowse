@@ -10434,4 +10434,70 @@ Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) and Programs (
 - Potential next capability work: recurring/scheduled tasks, page monitoring, improved stuck detection.
 - The database failures are all from old builds predating T26/Session 162 fixes. The cancel-vs-fail race condition should no longer reproduce after rebuilding.
 
+---
+
+### Session 168 — 2026-03-16: Fix Stuck Detection Bypass for Special-Handler Actions
+
+#### Mode: framework
+
+Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) done, all Programs (A-P) complete. Database failure evidence shows recurring "repeated screenshot" stuck pattern and planner loops that exhaust the 50-step budget without triggering stuck detection. Root cause: the `screenshot`, `save_note`, `open_in_new_tab`, and `switch_tab` special handlers in `RunExecutor.plannerLoop` all call `recordBrowserResult` and then `continue`, bypassing the stuck detection code entirely (consecutive identical actions, URL visit count, cycle detection). This is a reliability gap — the planner can loop on these actions indefinitely with no safety net except the 50-step budget. Framework mode because it fixes a core runtime safety net discovered from database failure evidence. "Stuck detection" is explicitly listed as valid framework work in the mode policy.
+
+#### Plan
+
+1. **Extract `checkStuckAfterAction` private method** in `RunExecutor.ts`: encapsulates the three stuck detection checks (consecutive identical actions, URL visit count, cycle detection) plus the fail/save/log/handoff dance.
+2. **Extract `failStuck` private helper** to reduce duplication of the fail dance.
+3. **Replace inline stuck detection** in the normal action path (lines 520-564) with a call to the new method.
+4. **Add `checkStuckAfterAction` calls** to all four special handlers: screenshot, save_note, open_in_new_tab, switch_tab — after they record their result and save.
+5. **Refactor mutable stuck state** into a `stuckState` object passed to the method.
+6. **Write tests**: screenshot loop detection (consecutive identical), save_note loop detection (consecutive identical).
+7. Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Refactored stuck detection into shared method:
+
+- **New `checkStuckAfterAction` private method**: Encapsulates all three stuck detection checks (consecutive identical actions, URL visit count, cycle detection). Takes the action, page model, current run, and mutable `stuckState` object. Returns the failed `TaskRun` if stuck, or `null` to continue. This is an exact behavioral equivalent of the inline code it replaces — no threshold changes.
+
+- **New `failStuck` private helper**: Encapsulates the fail/save/log/handoff dance that was duplicated in each stuck check. Reduces 4 lines to 1 call.
+
+- **Replaced inline stuck detection** in the normal action path (was lines 520-564) with a single `checkStuckAfterAction` call. Zero behavioral change for normal actions.
+
+- **Added `checkStuckAfterAction` calls to all 4 special handlers**:
+  - `screenshot` handler: After recording result and saving, checks for stuck loops.
+  - `save_note` handler: After recording result and saving, checks for stuck loops.
+  - `open_in_new_tab` handler: After recording result and saving, checks for stuck loops.
+  - `switch_tab` handler: After recording result and saving, checks for stuck loops.
+
+- **Refactored mutable state**: `consecutiveIdenticalActions` and `lastActionKey` local variables consolidated into a `stuckState` object passed to the method.
+
+**`tests/runExecutor.test.mjs`** — 3 new tests:
+
+- "plannerLoop detects stuck screenshot loop (consecutive identical)" — 9 identical screenshot decisions, verifies run fails with "repeated" + "screenshot" in summary.
+- "plannerLoop detects stuck save_note loop (consecutive identical)" — 9 identical save_note decisions, verifies run fails with "repeated" + "save_note" in summary.
+- "plannerLoop screenshot does NOT trigger stuck detection when actions vary" — Interleaved screenshot/click/screenshot/complete, verifies completion without false positive.
+
+**Behavior:**
+- Before this fix: `screenshot`, `save_note`, `open_in_new_tab`, and `switch_tab` actions bypassed all stuck detection (consecutive identical, URL visits, cycle detection). The planner could loop on these actions indefinitely with no safety net except the 50-step budget.
+- After this fix: All action types — including special handlers — go through the same stuck detection checks. The planner can no longer escape stuck detection by choosing non-kernel actions.
+- The database failure "Stuck: repeated 'screenshot' on ... 3 times" confirms this was a real production issue. While that specific error message came from an older build with a lower threshold, the underlying bypass still existed in the current code.
+- No threshold changes. No new detection mechanisms. This is purely closing a gap where existing detection didn't run for certain action types.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 55/55 pass (was 52, +3 new)
+- `node --test tests/*.test.mjs` — 1198/1198 pass (was 1195, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are still complete. All PM tasks (T1-T49) still done.
+- Re-testing remains the #1 PM priority (user action) — 72+ sessions of fixes sitting unvalidated.
+- Potential next capability work: recurring/scheduled tasks, page monitoring, improved planner anti-loop strategies.
+- Consider lowering MAX_URL_VISITS_BEFORE_FAIL from 12 to 8 — the Wordle 13-visit failure suggests 12 is too generous for most tasks.
+- Consider adding content-based progress detection — tracking page content hash to detect when the planner is taking actions that don't change the page state.
+
+*Session log entry written: 2026-03-16 (Session 168)*
+
 *Session log entry written: 2026-03-16 (Session 167)*

@@ -1612,3 +1612,127 @@ test("planner does NOT receive always-on screenshots (T47 replaces T46 always-on
   // Without a browser_screenshot action, no screenshot should be included
   assert.equal(plannerInputs[0].screenshotBase64, undefined);
 });
+
+// --- Session 168: Stuck detection now covers special-handler actions ---
+
+test("plannerLoop detects stuck screenshot loop (consecutive identical)", async () => {
+  // MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8. Create 9 identical screenshot decisions.
+  // Before Session 168, screenshot bypassed stuck detection entirely.
+  const count = 9;
+  const decisions = Array.from({ length: count }, () => ({
+    type: "browser_action",
+    reasoning: "Check visual",
+    action: { type: "screenshot", description: "Check page layout" },
+  }));
+
+  const { services } = makeServices({
+    decisions,
+    captureScreenshot: async () => "base64_data",
+  });
+
+  // Override recordBrowserResult to record screenshot type (default mock records "click")
+  let recordCount = 0;
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "screenshot",
+          targetId: "",
+          description: `Unique desc ${++recordCount}`,
+          url: "https://example.com",
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("repeated"), `Expected "repeated" in: "${result.outcome.summary}"`);
+  assert.ok(result.outcome.summary.includes("screenshot"), `Expected "screenshot" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1, "should write handoff on stuck failure");
+});
+
+test("plannerLoop detects stuck save_note loop (consecutive identical)", async () => {
+  // MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8. Create 9 identical save_note decisions.
+  // Before Session 168, save_note bypassed stuck detection entirely.
+  const count = 9;
+  const decisions = Array.from({ length: count }, () => ({
+    type: "browser_action",
+    reasoning: "Save data",
+    action: { type: "save_note", interactionHint: "price", value: "$100", description: "Save note" },
+  }));
+
+  const { services } = makeServices({ decisions });
+
+  // Override recordBrowserResult to record save_note type
+  let recordCount = 0;
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "save_note",
+          targetId: "",
+          description: `Unique desc ${++recordCount}`,
+          url: "https://example.com",
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("repeated"), `Expected "repeated" in: "${result.outcome.summary}"`);
+  assert.ok(result.outcome.summary.includes("save_note"), `Expected "save_note" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1, "should write handoff on stuck failure");
+});
+
+test("plannerLoop screenshot does NOT trigger stuck detection when actions vary", async () => {
+  // Interleave screenshot with a normal click — stuck detection should NOT fire
+  const decisions = [
+    { type: "browser_action", reasoning: "Check", action: { type: "screenshot", description: "Look" } },
+    { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn_1", description: "Click button" } },
+    { type: "browser_action", reasoning: "Check", action: { type: "screenshot", description: "Look again" } },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked" },
+  ];
+
+  const { services } = makeServices({
+    decisions,
+    executeResults,
+    captureScreenshot: async () => "base64_data",
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed", "Varied actions should complete without stuck detection");
+});
