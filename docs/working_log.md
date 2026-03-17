@@ -13222,3 +13222,62 @@ PM task ordering: T78 → T77 (DONE) → T79 → T80 → STOP.
 - Future validation runs (`pnpm run validate`) now work without env var if the user has entered their API key through the app
 
 *Session log entry written: 2026-03-17 (Session 241)*
+
+---
+
+### Session 242 — 2026-03-17: T79 — Navigation Double-Retry with Exponential Backoff (Program Y)
+
+#### Mode: feature (PM-directed — Program Y: T78 ✓ → T77 ✓ → T79 → T80 → STOP)
+
+T79 is PM P1: change `navigateWithRetry` from 1 retry to 2 retries with exponential backoff (2s, 4s). Navigation errors were the #1 failure class (31% of 35 failures). A second retry at 4s catches transient network issues that clear within 5 seconds.
+
+#### Plan
+
+1. Modify `packages/browser-runtime/src/navigateRetry.ts`:
+   - Change signature to accept `maxRetries` (default 2) and `baseDelayMs` (default 2000)
+   - Loop up to `maxRetries` times with exponential backoff: delay = baseDelayMs * 2^(attempt-1)
+   - On each retry, only retry if the failure class is retryable
+   - After all retries exhausted, throw the last error
+2. Update `tests/navigateRetry.test.mjs`:
+   - Update existing "both attempts fail" test to expect 3 calls (1 initial + 2 retries)
+   - Add test: succeeds on second retry (fails twice, succeeds on 3rd call)
+   - Add test: exponential backoff timing (verify 2nd retry waits longer than 1st)
+3. Run typecheck + tests
+4. Commit
+
+#### Implementation
+
+**`packages/browser-runtime/src/navigateRetry.ts`:**
+- Changed from single retry to configurable retry loop with exponential backoff
+- New signature: `navigateWithRetry(loadFn, classifyFn, baseDelayMs=2000, maxRetries=2)`
+- Backoff schedule: `baseDelayMs * 2^attempt` — 2s for first retry, 4s for second retry
+- On each retry, re-checks if the failure class is retryable — stops immediately for non-retryable errors even during retry attempts
+- After all retries exhausted, throws the last error (preserves most recent failure message)
+- Backward compatible: existing call sites pass no `maxRetries` and get the new default of 2
+
+**`tests/navigateRetry.test.mjs`:**
+- Updated "both attempts fail" test → now expects 3 calls (initial + 2 retries) with third error message
+- Added: "retries twice (double-retry) and succeeds on third attempt" — verifies the new capability
+- Added: "uses exponential backoff between retries" — timing test confirms 2nd delay > 1st delay
+- Added: "respects maxRetries=1 for single retry behavior" — confirms backward compat
+- Added: "stops retrying when a non-retryable error occurs on retry" — mixed error types
+
+**Files changed:**
+- `packages/browser-runtime/src/navigateRetry.ts` — double-retry with exponential backoff
+- `tests/navigateRetry.test.mjs` — 10 tests (was 7, +3 new, 1 updated)
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1392/1392 pass (was 1389, +3 new)
+- `navigateRetry` tests: 10/10 pass — covers success, single retry, double retry, all-fail, non-retryable, exponential backoff timing, maxRetries override, mixed error types
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T80: Failure category breakdown in RunAnalyticsPanel** — add failure classification to analytics
+- Then STOP per PM directive
+- Navigation now retries up to 2 times with 2s/4s exponential backoff (was 1 retry at 2s)
+
+*Session log entry written: 2026-03-17 (Session 242)*
