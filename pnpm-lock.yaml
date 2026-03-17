@@ -14,6 +14,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.78.0
+        version: 0.78.0
       '@openbrowse/browser-runtime':
         specifier: workspace:*
         version: link:../../packages/browser-runtime
@@ -50,6 +53,12 @@ importers:
       '@openbrowse/taskpacks':
         specifier: workspace:*
         version: link:../../packages/taskpacks
+      better-sqlite3:
+        specifier: 12.6.2
+        version: 12.6.2
+      grammy:
+        specifier: ^1.41.1
+        version: 1.41.1(encoding@0.1.13)
       react:
         specifier: ^19.2.4
         version: 19.2.4
