@@ -214,6 +214,30 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_open_in_new_tab",
+    description: "Open a URL in a new browser tab. Use when you need to check a second source without losing your current page (e.g. compare prices across sites, look up reference info while filling a form). The new tab is visible to the user. You must use browser_switch_tab to switch to it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "The URL to open in the new tab" },
+        description: { type: "string", description: "Why you are opening this in a new tab" }
+      },
+      required: ["url", "description"]
+    }
+  },
+  {
+    name: "browser_switch_tab",
+    description: "Switch to a different browser tab that you previously opened. After switching, your subsequent actions will operate on the new tab. Use the tab_index from the open tabs list shown in your context.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tab_index: { type: "number", description: "The index of the tab to switch to (0 = original tab, 1+ = tabs you opened)" },
+        description: { type: "string", description: "Why you are switching to this tab" }
+      },
+      required: ["tab_index", "description"]
+    }
+  },
+  {
     name: "ask_user",
     description: "Ask the user a question when you need clarification or cannot proceed without human input (e.g. CAPTCHA, ambiguous instructions).",
     input_schema: {
@@ -258,6 +282,7 @@ export interface ToolInput {
   question?: string;
   options?: Array<{ label: string; summary?: string }>;
   extracted_data?: Array<Record<string, unknown>>;
+  tab_index?: number;
   // Note: 'key' is used by both browser_press_key (keyboard key) and browser_save_note (note label).
   // The mapping function disambiguates by tool name.
 }
@@ -440,6 +465,30 @@ export function mapToolCallToDecision(
           type: "upload_file",
           targetId: input.ref,
           description: input.description ?? "Upload file"
+        }
+      };
+
+    case "browser_open_in_new_tab":
+      if (!input.url) return fail("browser_open_in_new_tab called without url");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "open_in_new_tab",
+          value: input.url,
+          description: input.description ?? "Open in new tab"
+        }
+      };
+
+    case "browser_switch_tab":
+      if (input.tab_index === undefined || input.tab_index === null) return fail("browser_switch_tab called without tab_index");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "switch_tab",
+          value: String(input.tab_index),
+          description: input.description ?? "Switch tab"
         }
       };
 
