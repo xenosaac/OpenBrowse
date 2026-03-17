@@ -4,20 +4,14 @@ export function Footer() {
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="text-muted-foreground">
-            © 2026 OpenBrowse. All rights reserved.
+            © 2026 OpenBrowse · MIT License
           </div>
-          
+
           <div className="flex gap-8 text-sm">
-            <a href="#" className="text-muted-foreground hover:text-emerald-400 transition-colors">
-              Documentation
+            <a href="https://github.com/xenosaac/OpenBrowse" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-emerald-400 transition-colors">
+              GitHub
             </a>
-            <a href="#" className="text-muted-foreground hover:text-emerald-400 transition-colors">
-              Privacy
-            </a>
-            <a href="#" className="text-muted-foreground hover:text-emerald-400 transition-colors">
-              Terms
-            </a>
-            <a href="#" className="text-muted-foreground hover:text-emerald-400 transition-colors">
+            <a href="https://github.com/xenosaac?tab=repositories" target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-emerald-400 transition-colors">
               Contact
             </a>
           </div>
