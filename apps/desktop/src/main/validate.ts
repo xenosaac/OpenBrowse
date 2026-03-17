@@ -1,7 +1,7 @@
 /**
  * Headless validation harness for OpenBrowse (T76 — Program X).
  *
- * Runs 5 predefined tasks against the real planner (Claude API) and real
+ * Runs 6 predefined tasks against the real planner (Claude API) and real
  * browser (Electron/CDP), captures results, and writes a JSON report.
  *
  * Usage:
@@ -81,6 +81,10 @@ const TASKS: ValidationTask[] = [
   },
   {
     goal: "Go to news.ycombinator.com and extract the titles of the top 5 stories",
+    timeoutMs: 180_000
+  },
+  {
+    goal: "Compare the price of AirPods Pro on Amazon and Best Buy. Open each site in a separate tab and report both prices.",
     timeoutMs: 180_000
   }
 ];
