@@ -8844,3 +8844,68 @@ Rationale: Worktree clean, no unfinished task. T32 and T33 done in Session 143. 
 - Only `unknown` remains as a hard failure class. All other failure types are recoverable.
 
 *Session log entry written: 2026-03-16 (Session 144)*
+
+---
+
+### Session 145 — 2026-03-16: T35 — Planner Action Summary in Chat Messages (Program L)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-K done. PM ordering says T35 next. Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+T35: Surface the planner's action description as a compact line in the chat sidebar during runs. Currently, `browser_action_executed` workflow events flow to the chat but use the raw browser `result.summary` (technical, e.g., "Navigated to https://google.com") instead of the planner's human-readable `action.description` (e.g., "Searching for cheap flights from SNA to SEA"). Also, failed actions are not visually distinct from successful ones.
+
+#### Plan
+
+1. **RunExecutor.ts**: Add `description` field to all `browser_action_executed` event payloads (3 logEvent call sites).
+2. **types/chat.ts**: Add `"action-error"` to the ChatMessage tone union.
+3. **App.tsx**: In the action event → chat mapping (lines 619-642), use `payload.description` for content and `payload.ok` for success/failure visual distinction.
+4. **ChatMessageItem.tsx**: Add `"action-error"` tone styling — red left border and red icon instead of emerald.
+5. Run typecheck.
+6. Run tests (RunExecutor tests should still pass).
+7. Update log and commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Added `description` field to all 3 `browser_action_executed` event payloads:
+- Line ~197 (save_note synthetic result): `description: action.description`
+- Line ~246 (normal action result): `description: action.description`
+- Line ~415 (resumed pending action): `description: pendingAction.description ?? ""`
+- Effect: The planner's human-readable action description (e.g., "Searching for cheap flights from SNA to SEA") now flows through the workflow event pipeline to the renderer, instead of only the technical browser result summary (e.g., "Navigated to https://google.com").
+
+**`apps/desktop/src/renderer/types/chat.ts`** — Added `"action-error"` to the ChatMessage tone union type:
+- Now: `"normal" | "success" | "warning" | "error" | "action" | "action-error"`
+- `"action-error"` is used for failed action steps in the chat sidebar.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Rewrote the action event → chat message mapping (lines 619-645):
+- Content now uses `evt.payload.description` (human-readable planner description) instead of `evt.summary` (technical browser result).
+- Falls back to `evt.summary` when description is absent (backward compatibility).
+- Failed actions (ok === "false") append " — failed" and use `tone: "action-error"`.
+- Successful actions use `tone: "action"` as before.
+
+**`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — Added `"action-error"` visual treatment:
+- New `chatActionErrorIcon` style: red ✗ icon (uses `colors.statusFailed`) instead of emerald ⚡.
+- New `chatBubbleActionError` style: red left border instead of emerald, same compact sizing.
+- `isAction` helper: both `"action"` and `"action-error"` share the compact row layout (no avatar, small gap).
+
+**`tests/runExecutor.test.mjs`** — 1 existing test updated + 1 new test:
+- Updated: "plannerLoop executes browser_action and continues" — now verifies `payload.description === "Click submit"` and `payload.ok === "true"`.
+- New: "plannerLoop browser_action_executed event includes description on failure (T35)" — verifies description flows through even for failed actions.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 45/45 pass (was 44, +1 new)
+- `node --test tests/*.test.mjs` — 1133/1133 pass (was 1132, +1 new, no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T36 (extractable result copy-to-clipboard) is the next PM-directed task (Program L).
+- T36 scope: add a "Copy" button on extractedData tables in chat, serialize to TSV, clipboard copy with brief feedback.
+- After Program L: self-directed features should focus on user-visible browser value per PM guidance.
+
+*Session log entry written: 2026-03-16 (Session 145)*

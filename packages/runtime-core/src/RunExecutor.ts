@@ -196,7 +196,8 @@ export class RunExecutor {
           await this.services.runCheckpointStore.save(current);
           await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
             actionType: action.type,
-            ok: "true"
+            ok: "true",
+            description: action.description
           });
           continue;
         }
@@ -245,7 +246,8 @@ export class RunExecutor {
         current = this.services.orchestrator.recordBrowserResult(current, result);
         await this.logEvent(current.id, "browser_action_executed", result.summary, {
           actionType: action.type,
-          ok: String(result.ok)
+          ok: String(result.ok),
+          description: action.description
         });
         if (this.services.chatBridge.shouldSendStepProgress()) {
           const stepNum = current.checkpoint.stepCount ?? 0;
@@ -415,7 +417,8 @@ export class RunExecutor {
       await this.logEvent(current.id, "browser_action_executed", result.summary, {
         actionType: pendingAction.type,
         ok: String(result.ok),
-        resumed: "true"
+        resumed: "true",
+        description: pendingAction.description ?? ""
       });
 
       if (!result.ok) {

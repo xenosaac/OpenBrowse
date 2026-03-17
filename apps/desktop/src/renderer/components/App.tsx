@@ -627,11 +627,14 @@ export function App() {
         const msgId = `action:${evt.id}`;
         if (!next.some(m => m.id === msgId)) {
           if (!changed) { next = [...next]; changed = true; }
+          const ok = evt.payload?.ok !== "false";
+          const description = evt.payload?.description || evt.summary;
+          const content = ok ? description : `${description} — failed`;
           next.push({
             id: msgId,
             role: "agent",
-            content: evt.summary,
-            tone: "action",
+            content,
+            tone: ok ? "action" : "action-error",
             timestamp: evt.createdAt
           });
         }

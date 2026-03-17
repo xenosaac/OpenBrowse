@@ -327,7 +327,32 @@ test("plannerLoop executes browser_action and continues", async () => {
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
   assert.equal(result.status, "completed");
-  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed"));
+  const actionEvt = appendedEvents.find(e => e.type === "browser_action_executed");
+  assert.ok(actionEvt, "browser_action_executed event should exist");
+  assert.equal(actionEvt.payload.description, "Click submit", "event payload should include action description");
+  assert.equal(actionEvt.payload.ok, "true");
+});
+
+// --- plannerLoop: browser_action_executed includes description for failed actions (T35) ---
+
+test("plannerLoop browser_action_executed event includes description on failure (T35)", async () => {
+  const { services, appendedEvents } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Click button", action: { type: "click", targetId: "btn_1", description: "Click the search button" } },
+    ],
+    executeResults: [{ ok: false, summary: "Target not found: btn_1", failureClass: "unknown" }],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  const actionEvt = appendedEvents.find(e => e.type === "browser_action_executed");
+  assert.ok(actionEvt, "browser_action_executed event should exist");
+  assert.equal(actionEvt.payload.description, "Click the search button");
+  assert.equal(actionEvt.payload.ok, "false");
 });
 
 // --- plannerLoop: cooperative cancellation ---

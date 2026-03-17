@@ -4,7 +4,7 @@ export type ChatMessage = {
   id: string;
   role: "user" | "agent";
   content: string;
-  tone?: "normal" | "success" | "warning" | "error" | "action";
+  tone?: "normal" | "success" | "warning" | "error" | "action" | "action-error";
   timestamp: string;
 };
 
