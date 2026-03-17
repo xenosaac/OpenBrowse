@@ -12743,3 +12743,65 @@ No change since Session 232. DB: 54 runs, no new user test runs. PM STOP directi
 No change since Session 233. DB: 54 runs, no new user test runs. PM STOP directive active. Phase 0.5 complete (T69/T68/T70). Phase 1 requires ≥7 user test tasks. **Disable this daemon — zero product value per session.**
 
 *Session log entry written: 2026-03-17 (Session 234)*
+
+---
+
+### Session 235 — 2026-03-17: T71 — Electron Packaging (Option D) — First Increment
+
+#### Mode: feature (PM-directed — Option D packaging)
+
+PM decision gate at strategic section line 451: "If no user action within 1 more iteration, activate Option D (packaging) as the next directed work — it's productive regardless of validation state." 10+ PAUSE sessions have passed since that recommendation. Database is now empty (0 bytes) — no user test data at all. Activating Option D.
+
+Option D scope (from PM): electron-builder packaging, `.dmg`, first-launch wizard (API key, Telegram bot, default homepage). This session focuses on the first increment: get electron-builder producing a working `.app` bundle.
+
+#### Plan
+
+1. Run `electron-builder --mac --dir` to identify packaging blockers
+2. Fix the most critical blocker (likely: native module `better-sqlite3` rebuilding, workspace dependency resolution, missing app icon)
+3. Verify the packaged app directory is valid
+4. Update this log and commit
+
+#### Implementation
+
+Three blockers discovered and fixed:
+
+**Blocker 1: iCloud codesigning failure.** The project lives in `~/Desktop` which is iCloud-synced. macOS File Provider re-adds `com.apple.FinderInfo` extended attributes to any file in the tree immediately after `xattr -cr` strips them. `codesign` fails with "resource fork, Finder information, or similar detritus not allowed." Fix: changed `directories.output` to `/tmp/openbrowse-release` (outside iCloud) and added `scripts/afterPack.cjs` hook that strips xattrs before signing.
+
+**Blocker 2: node_modules excluded from asar.** The `files` config had `!node_modules/**/*` which excluded ALL dependencies. The packaged app had zero runtime deps. Fix: removed the exclusion. electron-builder now bundles node_modules into the asar (minus devDependencies).
+
+**Blocker 3: Transitive dependencies missing.** pnpm strict hoisting means `@anthropic-ai/sdk` (dep of `@openbrowse/planner`), `grammy` (dep of `@openbrowse/chat-bridge`), and `better-sqlite3` (dep of `@openbrowse/memory-store`) were not available to electron-builder's dependency resolver. Fix: added all three as direct dependencies of `@openbrowse/desktop`. Also added `asarUnpack` for `better-sqlite3` since its `.node` native binary can't be loaded from inside an asar.
+
+**Files changed:**
+- `apps/desktop/package.json` — build config fixes, 3 new direct dependencies, 3 package scripts (package, package:dir, package:unsigned)
+- `apps/desktop/scripts/afterPack.cjs` — new: xattr stripping hook for electron-builder
+- `pnpm-lock.yaml` — updated with new dependencies
+
+**Resulting packaged app:**
+- Location: `/tmp/openbrowse-release/mac-arm64/OpenBrowse.app`
+- Size: 280 MB
+- Ad-hoc signed (no Apple Developer certificate required for local use)
+- All 10 workspace packages included in asar
+- `@anthropic-ai/sdk` (692 files), `grammy` (27 files) included
+- `better-sqlite3` native `.node` binary unpacked outside asar
+- Default Electron icon (custom icon is a future task)
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1366/1366 pass (unchanged)
+- `CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac --dir`: success, ad-hoc signed
+- `codesign --verify /tmp/openbrowse-release/mac-arm64/OpenBrowse.app`: valid
+- All workspace packages present in asar
+- `better-sqlite3` native binary correctly unpacked
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T72: DMG build** — run `pnpm run package:unsigned` to produce a distributable `.dmg`
+- **T73: App icon** — create `icon.icns` for resources/ (currently uses default Electron icon)
+- **T74: First-launch wizard** — API key, Telegram bot token, default homepage setup
+- **Signing note:** Full signing requires running from a non-iCloud directory or using the Apple Development certificate (`pnpm run package` uses identity auto-discovery). For local testing, `package:dir` or `package:unsigned` work fine.
+- Phase 1 user testing remains blocked — user has not tested beyond 3 simple searches
+
+*Session log entry written: 2026-03-17 (Session 235)*

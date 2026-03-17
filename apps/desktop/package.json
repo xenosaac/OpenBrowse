@@ -22,6 +22,9 @@
     "@openbrowse/security": "workspace:*",
     "@openbrowse/taskpacks": "workspace:*",
     "@openbrowse/demo-flows": "workspace:*",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "better-sqlite3": "12.6.2",
+    "grammy": "^1.41.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
@@ -32,14 +35,15 @@
     "native:rebuild": "electron-rebuild -f -w better-sqlite3 -m ../../packages/memory-store",
     "typecheck": "tsc --noEmit",
     "package": "electron-vite build && electron-builder --mac",
-    "package:dir": "electron-vite build && electron-builder --mac --dir"
+    "package:dir": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir",
+    "package:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
   },
   "build": {
     "appId": "com.openbrowse.desktop",
     "productName": "OpenBrowse",
     "directories": {
       "buildResources": "resources",
-      "output": "release"
+      "output": "/tmp/openbrowse-release"
     },
     "mac": {
       "target": [
@@ -52,12 +56,15 @@
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist"
     },
+    "afterPack": "./scripts/afterPack.cjs",
     "dmg": {
       "title": "OpenBrowse ${version}"
     },
     "files": [
-      "out/**/*",
-      "!node_modules/**/*"
+      "out/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*"
     ],
     "extraMetadata": {
       "main": "out/main/index.js"
