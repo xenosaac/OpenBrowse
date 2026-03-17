@@ -277,7 +277,17 @@ export class OpenBrowseRuntime {
   private async failUnexpectedRun(run: TaskRun, error: unknown): Promise<TaskRun> {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[runtime] Unexpected run failure for ${run.id}:`, message);
-    const failedRun = this.services.orchestrator.failRun(run, message);
+
+    // Load the latest checkpoint — the run may already have been cancelled by
+    // cancelTrackedRun (e.g. browser tab closed). Using the stale in-memory
+    // `run` would overwrite "cancelled" with "failed".
+    const latest = await this.services.runCheckpointStore.load(run.id);
+    if (latest && (latest.status === "completed" || latest.status === "cancelled" || latest.status === "failed")) {
+      return latest;
+    }
+
+    const base = latest ?? run;
+    const failedRun = this.services.orchestrator.failRun(base, message);
     await this.services.runCheckpointStore.save(failedRun);
     await this.logWorkflowEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {
       reason: message

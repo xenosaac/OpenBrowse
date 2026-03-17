@@ -116,6 +116,13 @@ export class RunExecutor {
             await this.handoff.writeHandoff(current);
             return current;
           }
+          // Non-"Session not found" errors from destroyed sessions (e.g. "Object has
+          // been destroyed", "Debugger is not attached") should not continue the loop
+          // if the run was already cancelled externally (e.g. tab closed).
+          const maybeTerminal = await this.services.runCheckpointStore.load(current.id);
+          if (maybeTerminal && (maybeTerminal.status === "cancelled" || maybeTerminal.status === "failed")) {
+            return maybeTerminal;
+          }
           await this.logEvent(current.id, "planner_request_failed", `capturePageModel failed twice: ${msg}`, {});
           // Use minimal fallback so the loop can continue or fail gracefully
           pageModel = {
@@ -410,6 +417,12 @@ export class RunExecutor {
             await this.logEvent(current.id, "run_cancelled", current.outcome?.summary ?? "Cancelled", {});
             await this.handoff.writeHandoff(current);
             return current;
+          }
+          // Non-"Session not found" errors from destroyed sessions should not
+          // propagate to failUnexpectedRun if the run was already cancelled.
+          const latestRun = await this.services.runCheckpointStore.load(current.id);
+          if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
+            return latestRun;
           }
           throw err;
         }
