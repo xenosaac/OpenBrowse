@@ -11489,3 +11489,65 @@ Reason: Worktree clean, no unfinished task. PM directs T62 → T63 → T64 (Prog
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 182)*
+
+---
+
+### Session 183 — 2026-03-17: T64 — Structured Error Classification in Chat (Program T)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T62 → T63 → T64 (Program T). T62 done (Session 181), T63 done (Session 182). T64 is next: classify failure messages in chat into user-actionable categories instead of showing raw error strings. Database evidence shows 6 distinct failure patterns: navigation errors (31%), stuck loops, session lost, element stale, API failures, content policy. Each should get a distinct human-friendly message with actionable guidance.
+
+#### Plan
+
+1. **`apps/desktop/src/renderer/lib/classifyFailure.ts`**: New pure function that takes a failure summary string and returns a `FailureClassification` with `category`, `userMessage`, and `suggestion`. Categories: navigation_failed, agent_stuck, session_lost, element_stale, api_error, content_policy, unknown. Pattern matching on the raw error string.
+2. **`apps/desktop/src/renderer/components/App.tsx`**: Import `classifyFailure` and use it when building the outcome message for failed runs. Prepend the user-friendly message before the raw error.
+3. **Tests**: Unit tests for all 7 classification categories with real failure strings from database evidence.
+4. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/classifyFailure.ts`** — New pure classification module:
+- `classifyFailure(summary)` → `FailureClassification` with `category`, `userMessage`, and `suggestion`.
+- 7 categories: `navigation_failed`, `agent_stuck`, `session_lost`, `element_stale`, `api_error`, `content_policy`, `unknown`.
+- Priority-ordered pattern matching: content_policy first (prevents false matches on "navigate" in policy text), then session_lost, navigation_failed, agent_stuck, element_stale, api_error, unknown fallback.
+- Patterns derived directly from real database failure strings (all 20 non-success runs from the failure evidence).
+- Each category has a user-friendly message (bold) and an actionable suggestion.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Updated outcome message building:
+- For error-tone messages, calls `classifyFailure(content)` and reformats as: `**{userMessage}** {suggestion}\n\n_{rawError}_`
+- The raw error string is preserved in italics below the friendly message for debugging.
+- Success messages are unchanged.
+
+**`tests/classifyFailure.test.mjs`** — 19 new tests:
+- navigation_failed (3): ERR_ABORTED, navigation timeout, ERR_NAME_NOT_RESOLVED.
+- agent_stuck (6): URL visit cap, 2-step cycle, repeated click, alternating cycle, repeated screenshot, repeated navigate.
+- session_lost (2): "Browser session lost" and bare "Session not found".
+- element_stale (1): "Target not found: el_65".
+- api_error (2): credit balance 400, rate limit 429.
+- content_policy (1): refusal message.
+- unknown (1): unrecognized string.
+- priority (2): content_policy beats navigation, session_lost beats navigation.
+- return shape (1): all 7 inputs return complete { category, userMessage, suggestion }.
+
+**Behavior:**
+- Before: Failed task messages showed a raw error string like "Failed to execute navigate: ERR_ABORTED (-3) loading 'https://...'" — technical, confusing, no guidance.
+- After: Failed tasks show a bold human-friendly message ("**Navigation failed — the site didn't respond.** Check your internet connection, or try again later.") followed by the raw error in italics. Users immediately understand what happened and what to try next. The Retry button still appears alongside the classified message.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/classifyFailure.test.mjs` — 19/19 pass
+- `node --test tests/*.test.mjs` — 1323/1323 pass (was 1304, +19 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program T is now complete. T62 (run step timeline), T63 (prompt snapshot test), T64 (structured error classification) are all done.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-T complete. All PM tasks T1-T64 done (T50/T53 blocked on rebuild).
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 183)*
