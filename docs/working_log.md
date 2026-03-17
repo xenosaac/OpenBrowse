@@ -11413,3 +11413,79 @@ Reason: Worktree clean, no unfinished task. PM directs T61 → T62 → T63 → T
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 181)*
+
+---
+
+### Session 182 — 2026-03-17: T63 — Planner Prompt Snapshot Test (Program T)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T62 → T63 → T64 (Program T). T62 done (Session 181). T63 is next: snapshot tests that capture the full planner prompt for 3 representative scenarios and assert character budget ceilings. This prevents prompt bloat regressions across future prompt changes.
+
+#### Plan
+
+1. **`tests/plannerPromptSnapshot.test.mjs`**: New test file with 3 scenarios:
+   - Scenario 1: Simple search — fresh run (step 0), minimal page model, no warnings. Measures baseline prompt size.
+   - Scenario 2: Multi-step with anti-loop warnings — run at step 20+, URL visit counts ≥ 4, action history with repeated actions, soft failures. Triggers: action history, URL warning, self-assessment, soft failure warning.
+   - Scenario 3: Low-budget — run at step 45+, triggers low-budget warning. Also includes planner notes and recovery context.
+2. Each scenario asserts:
+   - System prompt character count under ceiling (6000 chars — the stable part).
+   - Combined system + user under scenario-specific ceiling.
+   - Key sections are present/absent as expected for the scenario.
+3. Run `node --test tests/plannerPromptSnapshot.test.mjs` + full suite. No product code changes.
+4. Commit.
+
+#### Implementation
+
+**`tests/plannerPromptSnapshot.test.mjs`** — 11 new tests across 3 scenarios + 1 cross-scenario check:
+
+**Scenario 1: Simple search** (fresh run, step 0, minimal page model):
+- System prompt under 10,000-char ceiling (~7,915 actual).
+- Combined system + user under 10,000-char ceiling (~8,356 actual).
+- All 11 required system sections present (Visual Context, Think Before You Act, Task Decomposition, Sub-goal Progress, Anti-Loop Rules, Browser Guidelines, Auth Flows, Error Recovery, Breaking Out of Loops, Partial Results, Step budget).
+- No warnings, no budget alert, no recovery context on fresh run.
+
+**Scenario 2: Multi-step with anti-loop warnings** (step 15, 5 action history entries, URL visit count ≥ 5, soft failure, planner notes, user answers):
+- System prompt under 10,000-char ceiling.
+- Combined under 12,000-char ceiling (~10,000 actual).
+- URL visit warning fires for store-a.example.com (5 visits).
+- Soft failure warning present (1 consecutive).
+- Action history section present with all 5 steps.
+- Failed URLs section present.
+- Planner notes section present.
+- Page type hint for search_results.
+
+**Scenario 3: Low-budget with recovery context** (step 46, recovery from interruption, form page, planner notes):
+- System prompt under 10,000-char ceiling.
+- Combined under 12,000-char ceiling (~10,300 actual).
+- BUDGET LOW warning fires (3 steps remaining).
+- RECOVERY MODE section with pre-interruption page title, form values, scroll position.
+- System prompt shows correct step count (step 47 of 50).
+- Form section with POST action and required fields.
+- Page type hint for form.
+- Self-assessment (PROGRESS CHECK) triggers at stepCount ≥ 25.
+
+**Cross-scenario stability check**:
+- System prompt (minus step count line) is identical across all 3 scenarios — confirms no scenario-dependent system prompt variation.
+
+**Budget ceilings chosen:**
+- System prompt: 10,000 chars (currently ~7,900; catches ~25% bloat before ceiling).
+- Simple scenario combined: 10,000 chars.
+- Complex scenarios combined: 12,000 chars (action history, warnings, recovery context are expected variable growth).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/plannerPromptSnapshot.test.mjs` — 11/11 pass
+- `node --test tests/*.test.mjs` — 1304/1304 pass (was 1293, +11 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program T continues: T64 (structured error classification in chat).
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-S complete. Program T: T62 and T63 done, T64 remains.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 182)*
