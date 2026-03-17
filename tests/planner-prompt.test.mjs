@@ -2830,3 +2830,31 @@ test("T27: system prompt includes sub-goal progress tracking with save_note and 
   // Must instruct to update progress after each sub-goal
   assert.match(system, /Update the progress note/i);
 });
+
+// ---------------------------------------------------------------------------
+// T28: Authentication and login flow handling
+// ---------------------------------------------------------------------------
+
+test("T28: system prompt includes Authentication Flows section", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+
+  // Must have the section header
+  assert.match(system, /Authentication Flows/);
+  // Must reference login/signin page recognition
+  assert.match(system, /login.*signin|signin.*login/i);
+  // Must reference ask_user for credentials
+  assert.match(system, /ask_user.*username.*password/i);
+  // Must reference wait_for_navigation after login
+  assert.match(system, /wait_for_navigation/);
+  // Must reference 2FA/MFA handling
+  assert.match(system, /2FA|MFA/);
+  // Must reference OAuth redirect handling
+  assert.match(system, /OAuth/i);
+});
+
+test("T28: system prompt explicitly forbids guessing credentials", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+
+  // Must say NEVER guess/auto-fill/fabricate credentials
+  assert.match(system, /NEVER guess, auto-fill, or fabricate credentials/);
+});
