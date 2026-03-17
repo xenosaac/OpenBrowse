@@ -1,4 +1,4 @@
-import { Download } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
 
 export function DownloadCTA() {
@@ -18,19 +18,21 @@ export function DownloadCTA() {
         </h2>
 
         <p className="text-xl text-muted-foreground mb-10 max-w-2xl mx-auto">
-          Join developers and power users who are already delegating hours of browser work to their AI agent.
+          Open source. Clone the repo, configure your API key, and start automating.
         </p>
 
-        <Button
-          size="lg"
-          className="bg-emerald-500 hover:bg-emerald-600 text-white px-10 py-7 text-xl h-auto"
-        >
-          <Download className="mr-2 h-6 w-6" />
-          Download OpenBrowse
-        </Button>
-        
+        <a href="https://github.com/xenosaac/OpenBrowse" target="_blank" rel="noopener noreferrer">
+          <Button
+            size="lg"
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-10 py-7 text-xl h-auto"
+          >
+            <ExternalLink className="mr-2 h-6 w-6" />
+            Deploy OpenBrowse
+          </Button>
+        </a>
+
         <div className="mt-6 text-sm text-muted-foreground">
-          Free to download · No credit card required
+          MIT Licensed · Free &amp; open source
         </div>
       </div>
     </section>

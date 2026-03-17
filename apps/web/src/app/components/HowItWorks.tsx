@@ -43,7 +43,7 @@ export function HowItWorks() {
                   <step.icon className="w-8 h-8 text-emerald-400" />
                 </div>
 
-                <div className="absolute -top-2 -left-2 text-7xl font-bold text-emerald-500/10">
+                <div className="absolute -top-6 -left-6 text-7xl font-bold text-emerald-500/10 pointer-events-none select-none">
                   {index + 1}
                 </div>
                 
