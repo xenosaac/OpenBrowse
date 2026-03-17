@@ -13,6 +13,11 @@ export function useBrowserTabs() {
     try {
       const tabs = await window.openbrowse.listTabs();
       setShellTabs(tabs);
+      // Initialize pin state from restored tabs
+      const restoredPins = new Set(tabs.filter((t) => t.pinned).map((t) => t.groupId));
+      if (restoredPins.size > 0) {
+        setPinnedTabs(restoredPins);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -49,6 +54,9 @@ export function useBrowserTabs() {
       }
       if (event.type === "standalone_tab_created" && event.tab) {
         setShellTabs((current) => [...current, event.tab!]);
+        if (event.tab!.pinned) {
+          setPinnedTabs((prev) => { const next = new Set(prev); next.add(event.tab!.groupId); return next; });
+        }
       }
       if (event.type === "standalone_tab_closed" && event.tabId) {
         setShellTabs((current) => current.filter((tab) => tab.id !== event.tabId));
@@ -89,16 +97,20 @@ export function useBrowserTabs() {
 
   const pinTab = useCallback((groupId: string) => {
     setPinnedTabs(prev => { const next = new Set(prev); next.add(groupId); return next; });
+    window.openbrowse.setTabPinned(groupId, true).catch(() => {});
   }, []);
 
   const unpinTab = useCallback((groupId: string) => {
     setPinnedTabs(prev => { const next = new Set(prev); next.delete(groupId); return next; });
+    window.openbrowse.setTabPinned(groupId, false).catch(() => {});
   }, []);
 
   const togglePinTab = useCallback((groupId: string) => {
     setPinnedTabs(prev => {
       const next = new Set(prev);
-      if (next.has(groupId)) next.delete(groupId); else next.add(groupId);
+      const pinned = !next.has(groupId);
+      if (pinned) next.add(groupId); else next.delete(groupId);
+      window.openbrowse.setTabPinned(groupId, pinned).catch(() => {});
       return next;
     });
   }, []);
@@ -111,6 +123,9 @@ export function useBrowserTabs() {
       const next = [...prev];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
+      // Persist standalone tab order
+      const standaloneIds = next.filter(t => t.source === "desktop").map(t => t.groupId);
+      window.openbrowse.setTabOrder(standaloneIds).catch(() => {});
       return next;
     });
   }, []);

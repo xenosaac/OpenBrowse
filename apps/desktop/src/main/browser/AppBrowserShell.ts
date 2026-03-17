@@ -9,11 +9,14 @@ interface PersistedTab {
   id: string;
   url: string;
   profileId: string;
+  pinned?: boolean;
 }
 
 export class AppBrowserShell implements EmbeddedViewProvider {
   private viewManager: BrowserViewManager | null = null;
   private readonly standaloneTabIds = new Set<string>();
+  private readonly pinnedTabIds = new Set<string>();
+  private standaloneTabOrder: string[] = [];
   private standaloneTabCounter = 0;
 
   constructor(private readonly storagePath?: string) {}
@@ -224,6 +227,7 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     const tabId = `standalone_${Date.now()}_${this.standaloneTabCounter}`;
     const managed = this.viewManager.create(tabId, "standalone", "persist:standalone");
     this.standaloneTabIds.add(tabId);
+    this.standaloneTabOrder.push(tabId);
     void managed.view.webContents.loadURL(url);
     void this.saveStandaloneTabs();
     return {
@@ -242,10 +246,17 @@ export class AppBrowserShell implements EmbeddedViewProvider {
 
   listStandaloneTabs(): BrowserShellTabDescriptor[] {
     if (!this.viewManager) return [];
-    return this.viewManager
-      .list()
-      .filter((v) => this.standaloneTabIds.has(v.id))
-      .map((v) => ({
+    const viewMap = new Map(
+      this.viewManager.list().filter((v) => this.standaloneTabIds.has(v.id)).map((v) => [v.id, v])
+    );
+    // Return tabs in saved order, appending any that aren't in the order array
+    const ordered: string[] = [
+      ...this.standaloneTabOrder.filter((id) => viewMap.has(id)),
+      ...[...viewMap.keys()].filter((id) => !this.standaloneTabOrder.includes(id))
+    ];
+    return ordered.map((id) => {
+      const v = viewMap.get(id)!;
+      return {
         id: v.id,
         runId: v.id,
         groupId: v.id,
@@ -255,12 +266,16 @@ export class AppBrowserShell implements EmbeddedViewProvider {
         source: "desktop" as const,
         status: "running" as const,
         isBackground: false,
-        closable: true
-      }));
+        closable: true,
+        pinned: this.pinnedTabIds.has(v.id) || undefined
+      };
+    });
   }
 
   closeStandaloneTab(tabId: string): void {
     this.standaloneTabIds.delete(tabId);
+    this.pinnedTabIds.delete(tabId);
+    this.standaloneTabOrder = this.standaloneTabOrder.filter((id) => id !== tabId);
     this.viewManager?.destroy(tabId);
     void this.saveStandaloneTabs();
   }
@@ -273,8 +288,28 @@ export class AppBrowserShell implements EmbeddedViewProvider {
   releaseStandaloneTab(tabId: string): boolean {
     if (!this.standaloneTabIds.has(tabId)) return false;
     this.standaloneTabIds.delete(tabId);
+    this.pinnedTabIds.delete(tabId);
+    this.standaloneTabOrder = this.standaloneTabOrder.filter((id) => id !== tabId);
     void this.saveStandaloneTabs();
     return true;
+  }
+
+  // --- Pin and order management ---
+
+  setTabPinned(tabId: string, pinned: boolean): void {
+    if (!this.standaloneTabIds.has(tabId)) return;
+    if (pinned) {
+      this.pinnedTabIds.add(tabId);
+    } else {
+      this.pinnedTabIds.delete(tabId);
+    }
+    void this.saveStandaloneTabs();
+  }
+
+  reorderTabs(orderedIds: string[]): void {
+    // Only keep IDs that are actually standalone tabs
+    this.standaloneTabOrder = orderedIds.filter((id) => this.standaloneTabIds.has(id));
+    void this.saveStandaloneTabs();
   }
 
   // --- Standalone tab persistence ---
@@ -287,10 +322,23 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     const filePath = this.tabsFilePath;
     if (!filePath || !this.viewManager) return;
 
-    const tabs: PersistedTab[] = this.viewManager
-      .list()
-      .filter((v) => this.standaloneTabIds.has(v.id))
-      .map((v) => ({ id: v.id, url: v.url || "about:blank", profileId: "standalone" }));
+    const viewMap = new Map(
+      this.viewManager.list().filter((v) => this.standaloneTabIds.has(v.id)).map((v) => [v.id, v])
+    );
+    // Save in the tracked order
+    const ordered = [
+      ...this.standaloneTabOrder.filter((id) => viewMap.has(id)),
+      ...[...viewMap.keys()].filter((id) => !this.standaloneTabOrder.includes(id))
+    ];
+    const tabs: PersistedTab[] = ordered.map((id) => {
+      const v = viewMap.get(id)!;
+      return {
+        id: v.id,
+        url: v.url || "about:blank",
+        profileId: "standalone",
+        ...(this.pinnedTabIds.has(v.id) ? { pinned: true } : {})
+      };
+    });
 
     try {
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
@@ -344,6 +392,10 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     for (const entry of saved) {
       try {
         const tab = this.createStandaloneTab(entry.url);
+        if (entry.pinned) {
+          this.pinnedTabIds.add(tab.groupId);
+          tab.pinned = true;
+        }
         restored.push(tab);
       } catch (err) {
         console.error("[AppBrowserShell] Failed to restore standalone tab:", err);

@@ -324,6 +324,16 @@ export function registerIpcHandlers(
     return tab;
   });
 
+  register("browser:set-tab-pinned", async (_event, { tabId, pinned }: { tabId: string; pinned: boolean }) => {
+    browserShell.setTabPinned(tabId, pinned);
+    return { ok: true };
+  });
+
+  register("browser:set-tab-order", async (_event, orderedIds: string[]) => {
+    browserShell.reorderTabs(orderedIds);
+    return { ok: true };
+  });
+
   register("browser:navigate", async (_event, { sessionId, url }: { sessionId: string; url: string }) => {
     browserShell.navigateTo(sessionId, url);
     return { ok: true };

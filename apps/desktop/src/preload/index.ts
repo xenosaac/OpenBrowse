@@ -49,6 +49,10 @@ const api = {
   // Browser navigation
   browserNewTab: (url?: string): Promise<BrowserShellTabDescriptor> =>
     ipcRenderer.invoke("browser:new-tab", url),
+  setTabPinned: (tabId: string, pinned: boolean): Promise<void> =>
+    ipcRenderer.invoke("browser:set-tab-pinned", { tabId, pinned }),
+  setTabOrder: (orderedIds: string[]): Promise<void> =>
+    ipcRenderer.invoke("browser:set-tab-order", orderedIds),
   browserNavigate: (sessionId: string, url: string): Promise<void> =>
     ipcRenderer.invoke("browser:navigate", { sessionId, url }),
   browserBack: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:back", sessionId),
