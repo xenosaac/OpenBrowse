@@ -85,6 +85,18 @@ export class RunExecutor {
           pageModel = await this.services.browserKernel.capturePageModel(session);
         } catch (secondErr) {
           const msg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+          // Session destroyed (tab closed) — cancel cleanly instead of failing
+          if (msg.includes("Session not found")) {
+            const latestRun = await this.services.runCheckpointStore.load(current.id);
+            if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
+              return latestRun;
+            }
+            current = this.services.orchestrator.cancelRun(current, "Task cancelled: browser tab was closed.");
+            await this.services.runCheckpointStore.save(current);
+            await this.logEvent(current.id, "run_cancelled", current.outcome?.summary ?? "Cancelled", {});
+            await this.handoff.writeHandoff(current);
+            return current;
+          }
           await this.logEvent(current.id, "planner_request_failed", `capturePageModel failed twice: ${msg}`, {});
           // Use minimal fallback so the loop can continue or fail gracefully
           pageModel = {
@@ -221,9 +233,9 @@ export class RunExecutor {
             if (latestRun && (latestRun.status === "cancelled" || latestRun.status === "failed")) {
               return latestRun;
             }
-            current = this.services.orchestrator.failRun(current, `Browser session lost: ${msg}`);
+            current = this.services.orchestrator.cancelRun(current, "Task cancelled: browser tab was closed.");
             await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
+            await this.logEvent(current.id, "run_cancelled", current.outcome?.summary ?? "Cancelled", {});
             await this.handoff.writeHandoff(current);
             return current;
           }

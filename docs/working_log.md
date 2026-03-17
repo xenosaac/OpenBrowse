@@ -8111,4 +8111,64 @@ Key design decisions:
 - PM task ordering: T26 (graceful session cleanup on tab close) is next — fixes 3/35 "Session not found" failures.
 - After T26: re-test multi-step tasks (Wordle, flight search, Facebook Marketplace) to measure T24+T25 impact.
 
-*Session log entry written: 2026-03-16 (Session 131)*
+*Session log entry written: 2026-03-16 (Session 132)*
+
+---
+
+### Session 133 — 2026-03-16: T26 — Graceful Session Cleanup on Tab Close
+
+#### Mode: framework
+
+Rationale: Worktree is clean, no unfinished task. PM task ordering: T24 → T25 → T26 → T23. T24, T25, and T23 are all done. T26 is next: graceful session cleanup on tab close. Database evidence: 3/35 failures are "Session not found" after tab close. Framework mode because this changes the runtime error handling.
+
+#### Plan
+
+1. **`RunExecutor.ts` — capturePageModel**: When the double-retry fails and the error message contains "Session not found", cancel the run cleanly (status: `cancelled`, message: "Task cancelled: browser tab was closed") instead of using the fallback page model. The fallback page model path is wrong here because there's no session to recover — the planner would just fail on the next action anyway.
+2. **`RunExecutor.ts` — executeAction**: Change the existing "Session not found" handler from `failRun()` to `cancelRun()`. Update event type from `run_failed` to `run_cancelled`. Message: "Task cancelled: browser tab was closed".
+3. **Tests**: Add tests for both paths — capturePageModel session-lost cancellation and executeAction session-lost cancellation.
+4. Run `pnpm run typecheck` and `node --test tests/*.test.mjs`.
+5. Update this log and commit.
+
+#### Implementation
+
+**`RunExecutor.ts` — capturePageModel session-lost cancellation** (lines 87-97):
+- After double-retry failure, checks if error message contains "Session not found"
+- If session is lost: checks checkpoint for already-terminal status (returns it if so)
+- Otherwise: calls `orchestrator.cancelRun()` with "Task cancelled: browser tab was closed."
+- Logs `run_cancelled` event (not `run_failed`)
+- Writes handoff and returns the cancelled run
+- Non-session errors still fall through to the existing fallback page model path
+
+**`RunExecutor.ts` — executeAction session-lost cancellation** (lines 232-243):
+- Changed existing "Session not found" handler from `failRun()` to `cancelRun()`
+- Message changed from "Browser session lost: ..." to "Task cancelled: browser tab was closed."
+- Event type changed from `run_failed` to `run_cancelled`
+- Checkpoint and handoff handling unchanged
+
+Key design decisions:
+- Both paths now produce `status: "cancelled"` (not `failed`) — tab closure is not an agent failure
+- Human-readable message: "Task cancelled: browser tab was closed." — matches PM acceptance criteria
+- Already-terminal runs are returned as-is (prevents double-transition errors)
+- Non-session capturePageModel errors still use fallback page model (preserves existing recovery for transient CDP issues)
+
+#### Files Changed
+
+- `packages/runtime-core/src/RunExecutor.ts` — two changes: capturePageModel session-lost → cancel, executeAction session-lost → cancel
+- `tests/runExecutor.test.mjs` — 4 new T26 tests + 1 updated test (session-lost now expects "cancelled") + `cancelRun` added to mock orchestrator
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1114/1114 pass (+4 new T26 tests)
+- All 44 RunExecutor tests pass (40 existing + 4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T26 is complete. "Session not found" errors from tab close now produce clean cancellations instead of cryptic failures.
+- PM Program I (Task Completion Quality) is now fully complete: T24 (approval calibration), T25 (anti-loop), T26 (session cleanup), T23 (iframe content) — all done.
+- Remaining PM-directed work: D13 (management panel token sweep), D14 (borderControl + controlHoverBg tokens) as design polish.
+- Consider re-running failure audit after user tests to measure T24+T25+T26 impact on completion rate.
+
+*Session log entry written: 2026-03-16 (Session 133)*
