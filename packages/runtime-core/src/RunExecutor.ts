@@ -8,7 +8,8 @@ import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
 const MAX_TOTAL_SOFT_FAILURES = 8;
 const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
-const MAX_URL_VISITS_BEFORE_FAIL = 12;
+const MAX_URL_VISITS_BEFORE_FAIL = 8;
+const MAX_UNCHANGED_PAGE_ACTIONS = 8;
 const CYCLE_DETECTION_WINDOW = 20;
 
 /**
@@ -162,6 +163,11 @@ export class RunExecutor {
             checkpoint: { ...current.checkpoint, unchangedPageActions: 0 }
           };
         }
+      }
+      // Hard stagnation kill (T51): fail the run if the page hasn't changed for too long.
+      const stagnationCount = current.checkpoint.unchangedPageActions ?? 0;
+      if (stagnationCount >= MAX_UNCHANGED_PAGE_ACTIONS) {
+        return await this.failStuck(current, `Page not responding to actions: ${stagnationCount} consecutive actions had no visible effect on ${pageModel.url}. The task may not be achievable with the current approach.`);
       }
       lastContentSlice = currentSlice;
       lastActionOk = false; // Reset; will be set to true after a successful action
