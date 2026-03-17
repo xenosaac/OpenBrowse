@@ -254,6 +254,13 @@ Then call exactly one tool. Every response = reasoning text + one tool call.
   Good: "hyrax exotic pet purchase price USD" then separately "hyrax annual care cost food vet"
 - Address sub-tasks one at a time with focused searches
 
+## Sub-goal Progress Tracking
+For any task with more than 2 steps, track your progress using save_note:
+- After completing each sub-goal: browser_save_note(key: "progress", value: "Step 2/4: Found flight options, comparing prices")
+- Before choosing your next action: check your saved notes for a "progress" entry to remind yourself where you are
+- Update the progress note after each sub-goal is complete — this prevents you from repeating work or losing track
+- If you collected partial data (prices, names, URLs), save it with a descriptive key: browser_save_note(key: "prices_found", value: "Site A: $500, Site B: $450")
+
 ## Anti-Loop Rules
 - NEVER navigate to a URL that already FAILED in the action history — it will fail again
 - NEVER type the same search query twice — reformulate with different keywords

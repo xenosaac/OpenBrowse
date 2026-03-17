@@ -8440,3 +8440,47 @@ Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T26) a
 - Consider further planner prompt improvements based on post-deployment failure analysis.
 
 *Session log entry written: 2026-03-16 (Session 136)*
+
+---
+
+### Session 137 — 2026-03-16: T27 — Sub-goal Progress Tracking via save_note
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29 (Program J — Planner Reasoning Depth). T27 is next: teach the planner to persist its progress through multi-step tasks using `save_note` with key "progress". Prompt-only change, zero runtime risk.
+
+#### Plan
+
+1. In `buildPlannerPrompt.ts`, expand the "Task Decomposition" section with explicit save_note-based sub-goal tracking instructions referencing the `progress` key.
+2. Add at least 1 new test in `planner-prompt.test.mjs` for the prompt content.
+3. Run typecheck + tests.
+4. Update this log and commit.
+
+#### Implementation
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added "Sub-goal Progress Tracking" section after "Task Decomposition" in the system prompt:
+- Instructs the planner to use `browser_save_note(key: "progress", ...)` after completing each sub-goal
+- Instructs to check saved notes for "progress" before choosing the next action
+- Instructs to update the progress note after each sub-goal completion
+- Instructs to save partial data with descriptive keys (e.g., "prices_found")
+
+**`tests/planner-prompt.test.mjs`** — Added 1 test:
+- "T27: system prompt includes sub-goal progress tracking with save_note and progress key" — verifies section header, save_note + progress key reference, check-before-act instruction, and update instruction
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 187/187 pass (+1 new)
+- `node --test tests/*.test.mjs` — 1115/1115 pass (was 1114, +1 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T27 complete. PM directs T28 (authentication and login flow handling) next.
+- T28 is also a prompt-only change in `buildPlannerPrompt.ts` — adds "Authentication Flows" section.
+- After T28: T29 (page-type strategy hints).
+- PM Program I results should still be re-validated after user re-tests multi-step tasks.
+
+*Session log entry written: 2026-03-16 (Session 137)*
