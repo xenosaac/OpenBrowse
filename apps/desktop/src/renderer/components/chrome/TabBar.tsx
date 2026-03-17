@@ -18,6 +18,7 @@ interface Props {
   onToggleSidebar: () => void;
   onPinTab: (groupId: string) => void;
   onUnpinTab: (groupId: string) => void;
+  onMoveTab: (fromGroupId: string, toGroupId: string) => void;
 }
 
 function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { color: string; animate: boolean; title: string } {
@@ -37,10 +38,12 @@ function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { col
 export function TabBar(props: Props) {
   const {
     shellTabs, activeBrowserTab, runs, tabFavicons, pinnedTabs, sidebarVisible, mainPanel,
-    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab
+    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onMoveTab
   } = props;
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: BrowserShellTabDescriptor } | null>(null);
+  const [draggedGroupId, setDraggedGroupId] = useState<string | null>(null);
+  const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
 
   // Close context menu on any click
   useEffect(() => {
@@ -96,10 +99,40 @@ export function TabBar(props: Props) {
             <div
               key={tab.groupId}
               className="ob-tab"
+              draggable
               style={{
                 ...styles.headerTabWrap,
                 ...(active ? styles.headerTabWrapActive : {}),
-                ...(pinned ? styles.headerTabWrapPinned : {})
+                ...(pinned ? styles.headerTabWrapPinned : {}),
+                ...(draggedGroupId === tab.groupId ? { opacity: 0.4 } : {}),
+                ...(dropTargetGroupId === tab.groupId && draggedGroupId !== tab.groupId
+                  ? { borderLeft: `2px solid ${colors.emerald}` } : {})
+              }}
+              onDragStart={(e) => {
+                setDraggedGroupId(tab.groupId);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (draggedGroupId && draggedGroupId !== tab.groupId) {
+                  setDropTargetGroupId(tab.groupId);
+                }
+              }}
+              onDragLeave={() => {
+                if (dropTargetGroupId === tab.groupId) setDropTargetGroupId(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (draggedGroupId && draggedGroupId !== tab.groupId) {
+                  onMoveTab(draggedGroupId, tab.groupId);
+                }
+                setDraggedGroupId(null);
+                setDropTargetGroupId(null);
+              }}
+              onDragEnd={() => {
+                setDraggedGroupId(null);
+                setDropTargetGroupId(null);
               }}
               onContextMenu={(e) => {
                 e.preventDefault();
