@@ -226,9 +226,14 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
   // --- URL visit warnings ---
   const urlCounts = run.checkpoint.urlVisitCounts ?? {};
   const frequentUrls = Object.entries(urlCounts).filter(([, count]) => count >= 4);
-  const urlWarning = frequentUrls.length > 0
-    ? `\n** WARNING: You have visited these URLs too many times — try a completely different approach:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}`
-    : "";
+  let urlWarning = "";
+  if (frequentUrls.length > 0) {
+    const recentActions = actionHistory.slice(-5);
+    const recentActionsSummary = recentActions.length > 0
+      ? `\n  Your last ${recentActions.length} actions (what you already tried):\n${recentActions.map(a => `    Step ${a.step}: ${a.type} — "${a.description}" ${a.ok ? "OK" : "FAILED"}`).join("\n")}`
+      : "";
+    urlWarning = `\n** WARNING: You have visited these URLs too many times — you MUST try a completely different approach NOW:\n${frequentUrls.map(([url, count]) => `  ${url}: ${count} visits`).join("\n")}${recentActionsSummary}\n  REQUIRED: Do NOT repeat any of the above actions. Choose a different URL, different search terms, or use task_complete with partial results.`;
+  }
 
   // --- System prompt ---
   const system = `You are OpenBrowse, an agentic browser assistant that uses the ReAct (Reasoning + Acting) framework.
@@ -291,6 +296,15 @@ When an action fails:
 - **Navigation timeout:** Server may be slow. Use browser_wait, retry once. If it fails again, use ask_user.
 - **Type action failed:** Input may not be focused. Use browser_click on the field first, then browser_type.
 - **After 2 consecutive failures on the same action:** Stop retrying. Try a completely different approach or use ask_user for guidance.
+
+## Breaking Out of Loops (CRITICAL)
+If you notice you are repeating similar actions without making progress:
+- **Stuck on a page:** Use browser_read_text to examine what is actually on the page before clicking anything else. The visible text excerpt above is truncated — read_text gives you the full content.
+- **Same element fails repeatedly:** The page may have changed since the element list was captured. Use browser_read_text or screenshot to re-examine the page, then pick a DIFFERENT element or approach.
+- **Navigation keeps returning to the same page:** Stop navigating to that URL. Try a completely different URL — for example, search Google for the information instead of navigating directly to the site.
+- **Cannot make progress after 3 attempts at the same approach:** Use task_complete with a partial result explaining what you found and where you got stuck. A partial result is ALWAYS better than looping until the run is killed.
+- **NEVER take a screenshot more than once on the same page.** If you already took a screenshot, use browser_read_text instead — it gives structured text that is more useful for deciding what to do next.
+- **If you are on an interactive page (game, form wizard, dynamic app):** These pages often require precise sequences. If your approach is not working after 2-3 tries, describe the situation to the user via ask_user rather than guessing repeatedly.
 
 ## Partial Results
 If you have collected useful intermediate data (via save_note or read_text) and the task cannot be fully completed, prefer task_complete with partial extractedData over task_failed. Partial results are more valuable than failure.

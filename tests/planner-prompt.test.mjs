@@ -2750,3 +2750,66 @@ test("system prompt includes partial result guidance", () => {
   assert.match(system, /partial.*extractedData/i);
   assert.match(system, /task_complete/);
 });
+
+// ---------------------------------------------------------------------------
+// T25: Planner anti-loop strategies
+// ---------------------------------------------------------------------------
+
+test("T25: system prompt includes anti-loop strategies section", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+  // The "Breaking Out of Loops" section must be present
+  assert.match(system, /Breaking Out of Loops/);
+  // Key strategies from PM acceptance criteria
+  assert.match(system, /browser_read_text/);
+  assert.match(system, /NEVER take a screenshot more than once on the same page/);
+  assert.match(system, /task_complete.*partial result/i);
+  assert.match(system, /ask_user/);
+});
+
+test("T25: URL 4+ visits warning includes last 5 action descriptions", () => {
+  const run = makeRun({
+    checkpoint: {
+      ...makeRun().checkpoint,
+      stepCount: 8,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to nytimes.com/games/wordle", ok: true, createdAt: "t0" },
+        { step: 1, type: "click", description: "Click play button", ok: true, createdAt: "t1" },
+        { step: 2, type: "click", description: "Click letter C", ok: true, createdAt: "t2" },
+        { step: 3, type: "click", description: "Click letter R", ok: true, createdAt: "t3" },
+        { step: 4, type: "click", description: "Click ENTER to submit CRANE", ok: true, createdAt: "t4" },
+        { step: 5, type: "click", description: "Click letter S", ok: false, failureClass: "element_not_found", createdAt: "t5" },
+        { step: 6, type: "click", description: "Click letter S again", ok: false, failureClass: "element_not_found", createdAt: "t6" },
+        { step: 7, type: "screenshot", description: "Take screenshot", ok: true, createdAt: "t7" },
+      ],
+      urlVisitCounts: { "https://www.nytimes.com/games/wordle/index.html": 5 },
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+
+  // Must show the frequent URL
+  assert.match(user, /nytimes\.com\/games\/wordle.*5 visits/);
+  // Must include "Your last N actions" with the recent action descriptions
+  assert.match(user, /Your last \d+ actions/);
+  // Must include the last action from the history
+  assert.match(user, /Take screenshot/);
+  // Must include the "do NOT repeat" instruction
+  assert.match(user, /Do NOT repeat any of the above actions/);
+});
+
+test("T25: URL warning without 4+ visits does NOT include action recap", () => {
+  const run = makeRun({
+    checkpoint: {
+      ...makeRun().checkpoint,
+      stepCount: 3,
+      actionHistory: [
+        { step: 0, type: "navigate", description: "Go to example.com", ok: true, createdAt: "t0" },
+      ],
+      urlVisitCounts: { "https://example.com": 3 },
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+
+  // No URL warning at 3 visits
+  assert.doesNotMatch(user, /Your last \d+ actions/);
+  assert.doesNotMatch(user, /Do NOT repeat/);
+});
