@@ -29,7 +29,22 @@ export class ClaudePlannerGateway implements PlannerGateway {
 
   async decide(input: PlannerInput): Promise<PlannerDecision<BrowserAction>> {
     const { system, user } = buildPlannerPrompt(input.run, input.pageModel);
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: user }];
+
+    // Build user message content — include screenshot as image block when available
+    const userContent: Anthropic.ContentBlockParam[] = [];
+    if (input.screenshotBase64) {
+      userContent.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: input.screenshotBase64
+        }
+      });
+    }
+    userContent.push({ type: "text", text: user });
+
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: userContent }];
 
     // First call: tool_choice "auto" so Claude can reason before acting
     let response: Anthropic.Message;

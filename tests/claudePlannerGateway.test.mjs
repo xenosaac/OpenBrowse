@@ -56,6 +56,7 @@ function makeInput(overrides = {}) {
   return {
     run: overrides.run ?? makeRun(),
     pageModel: overrides.pageModel ?? makePageModel(),
+    ...(overrides.screenshotBase64 !== undefined ? { screenshotBase64: overrides.screenshotBase64 } : {}),
   };
 }
 
@@ -339,5 +340,49 @@ describe("ClaudePlannerGateway.decide", () => {
 
     assert.equal(decision.type, "clarification_request");
     assert.equal(decision.clarificationRequest.runId, "run_custom_42");
+  });
+
+  // --- Vision integration (T46) ---
+
+  it("includes image content block when screenshotBase64 is provided", async () => {
+    const { gateway, calls } = makeGatewayWithMock(() => toolUseResponse());
+    const fakeScreenshot = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk";
+
+    await gateway.decide(makeInput({ screenshotBase64: fakeScreenshot }));
+
+    const userMsg = calls[0].messages[0];
+    assert.equal(userMsg.role, "user");
+    assert.ok(Array.isArray(userMsg.content), "user content should be an array");
+    assert.equal(userMsg.content.length, 2, "should have image + text blocks");
+    const imageBlock = userMsg.content[0];
+    assert.equal(imageBlock.type, "image");
+    assert.equal(imageBlock.source.type, "base64");
+    assert.equal(imageBlock.source.media_type, "image/jpeg");
+    assert.equal(imageBlock.source.data, fakeScreenshot);
+    const textBlock = userMsg.content[1];
+    assert.equal(textBlock.type, "text");
+    assert.ok(textBlock.text.includes("Goal:"), "text block should contain the prompt");
+  });
+
+  it("proceeds without image block when screenshotBase64 is undefined", async () => {
+    const { gateway, calls } = makeGatewayWithMock(() => toolUseResponse());
+
+    await gateway.decide(makeInput());
+
+    const userMsg = calls[0].messages[0];
+    assert.equal(userMsg.role, "user");
+    assert.ok(Array.isArray(userMsg.content), "user content should be an array");
+    assert.equal(userMsg.content.length, 1, "should have only text block");
+    assert.equal(userMsg.content[0].type, "text");
+  });
+
+  it("image block uses correct JPEG media type for vision", async () => {
+    const { gateway, calls } = makeGatewayWithMock(() => toolUseResponse());
+
+    await gateway.decide(makeInput({ screenshotBase64: "base64data" }));
+
+    const imageBlock = calls[0].messages[0].content[0];
+    assert.equal(imageBlock.source.media_type, "image/jpeg", "must use image/jpeg for JPEG screenshots");
+    assert.equal(imageBlock.source.type, "base64", "must use base64 encoding");
   });
 });

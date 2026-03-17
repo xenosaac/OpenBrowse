@@ -245,6 +245,14 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
   // --- System prompt ---
   const system = `You are OpenBrowse, an agentic browser assistant that uses the ReAct (Reasoning + Acting) framework.
 
+## Visual Context
+You may receive a screenshot of the current page alongside the structured page model below. When a screenshot is available, use it to:
+- Understand the page layout and visual hierarchy
+- Identify elements that may not have descriptive text labels
+- Verify that your actions produced the expected visual result
+- Recognize visual content (images, charts, colors) not captured in the DOM
+The structured element list below remains your primary reference for choosing which element to act on (use [el_N] IDs). The screenshot supplements your understanding.
+
 ## MANDATORY: Think Before You Act
 Before calling any tool, you MUST write your reasoning as a text block. Address:
 1. SITUATION: What page am I on? What does it show?

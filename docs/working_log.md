@@ -10079,3 +10079,85 @@ Three targeted fixes (smallest safe increment):
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 162)*
+
+---
+
+### Session 163 — 2026-03-16: T46 — Vision Integration: Pass Page Screenshot to Planner (Program P)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM explicitly designates Program P (Vision Integration) as the active program and T46 as the #1 priority. PM says: "The engineer needs to be redirected toward capability work (vision integration) rather than more chrome features." T46 is the single largest remaining capability unlock — giving the planner visual understanding of pages. Framework maturity checklist satisfied — 1173/1173 tests passing.
+
+#### Plan
+
+1. **`packages/browser-runtime/src/BrowserKernel.ts`**: Add `captureScreenshot(session: BrowserSession): Promise<string | null>` to `BrowserKernel` interface. Implement in `StubBrowserKernel` (returns null).
+2. **`packages/browser-runtime/src/ElectronBrowserKernel.ts`**: Implement `captureScreenshot` — CDP `Page.captureScreenshot` with JPEG format, quality 60, graceful failure (returns null).
+3. **`packages/planner/src/PlannerGateway.ts`**: Add `screenshotBase64?: string` to `PlannerInput`.
+4. **`packages/planner/src/ClaudePlannerGateway.ts`**: When `input.screenshotBase64` is present, include as `image` content block (type: "image", source: base64 JPEG) in the user message alongside text prompt.
+5. **`packages/planner/src/buildPlannerPrompt.ts`**: Add vision awareness note to system prompt.
+6. **`packages/runtime-core/src/RunExecutor.ts`**: After capturing pageModel, capture screenshot via `browserKernel.captureScreenshot()`. Pass `screenshotBase64` in `PlannerInput`. Graceful on failure (null → text-only).
+7. **Tests**: 3+ tests per PM acceptance criteria (image block included, proceeds without image, correct media type).
+8. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`packages/browser-runtime/src/BrowserKernel.ts`** — New `captureScreenshot` interface method:
+- Added `captureScreenshot(session: BrowserSession): Promise<string | null>` to the `BrowserKernel` interface.
+- `StubBrowserKernel` implementation returns `null` (no vision in stub mode).
+
+**`packages/browser-runtime/src/ElectronBrowserKernel.ts`** — Real screenshot capture:
+- New `captureScreenshot(browserSession)` method: uses CDP `Page.captureScreenshot` with JPEG format, quality 60%.
+- Returns base64-encoded JPEG string, or `null` on any failure (session destroyed, CDP error, etc.).
+- Graceful: never throws — the planner proceeds text-only if capture fails.
+
+**`packages/planner/src/PlannerGateway.ts`** — Extended `PlannerInput`:
+- Added optional `screenshotBase64?: string` field to `PlannerInput` interface.
+
+**`packages/planner/src/ClaudePlannerGateway.ts`** — Multimodal API call:
+- User message is now always an array of content blocks.
+- When `input.screenshotBase64` is present, prepends an `image` content block (`type: "image"`, `source: { type: "base64", media_type: "image/jpeg", data: ... }`).
+- Text prompt follows as a `text` content block.
+- When no screenshot, sends just the text block (no image).
+- Both the initial call and retry use the same message format.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Vision awareness in system prompt:
+- Added "Visual Context" section before the "MANDATORY: Think Before You Act" section.
+- Instructs the planner to use screenshots for layout understanding, unlabeled elements, visual verification, and visual content (images, charts, colors).
+- Clarifies that structured element list remains the primary reference for `[el_N]` IDs.
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Screenshot capture in planner loop:
+- After capturing `pageModel` and before calling `planner.decide()`, calls `browserKernel.captureScreenshot(activeSession)`.
+- Wrapped in try-catch — screenshot failures are silently swallowed (planner proceeds text-only).
+- Passes `screenshotBase64` in the `PlannerInput` when non-null.
+
+**`tests/claudePlannerGateway.test.mjs`** — 3 new tests:
+- "includes image content block when screenshotBase64 is provided" — verifies image block is first, has correct base64 data, text block follows with prompt content.
+- "proceeds without image block when screenshotBase64 is undefined" — verifies only text block when no screenshot.
+- "image block uses correct JPEG media type for vision" — verifies `image/jpeg` media type and `base64` encoding.
+
+**`tests/runExecutor.test.mjs`** — Mock updated:
+- Added `captureScreenshot: async () => null` to mock `browserKernel` in `makeServices()`.
+
+**Behavior:**
+- Every planner loop iteration now captures a JPEG screenshot (quality 60%) alongside the page model.
+- The screenshot is sent to Claude as an `image` content block, giving the planner visual understanding of every page.
+- If screenshot capture fails for any reason (session destroyed, CDP error), the planner proceeds text-only with no run failure.
+- The planner's system prompt now includes guidance on using visual context alongside structured element data.
+- Token cost: each JPEG screenshot at quality 60% is approximately 800-1500 tokens depending on page complexity.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/claudePlannerGateway.test.mjs` — 20/20 pass (was 17, +3 new)
+- `node --test tests/*.test.mjs` — 1176/1176 pass (was 1173, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM ordering: T47 (visual fallback tool — on-demand screenshots) is next in Program P.
+- After T47, T49 (visual element annotation overlay) amplifies vision accuracy.
+- T48 (tab group persistence) is P3 polish — lower priority than vision.
+- PM note: After T46 is working, measure token cost and report. If >2000 tokens/step, T47 becomes the primary vision mode (on-demand) and T46 becomes optional.
+
+*Session log entry written: 2026-03-16 (Session 163)*
