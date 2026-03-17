@@ -164,9 +164,21 @@ export class RunExecutor {
         plannerMode: this.services.descriptor.planner.mode
       });
 
+      // Capture screenshot for vision-enabled planner (graceful — null on failure)
+      let screenshotBase64: string | null = null;
+      try {
+        screenshotBase64 = await this.services.browserKernel.captureScreenshot(activeSession);
+      } catch {
+        // Screenshot capture failed — planner proceeds text-only
+      }
+
       let decision;
       try {
-        decision = await this.services.planner.decide({ run: current, pageModel });
+        decision = await this.services.planner.decide({
+          run: current,
+          pageModel,
+          ...(screenshotBase64 ? { screenshotBase64 } : {})
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await this.logEvent(current.id, "planner_request_failed", `Planner request failed: ${message}`, {

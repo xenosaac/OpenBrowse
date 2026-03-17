@@ -302,6 +302,20 @@ export class ElectronBrowserKernel implements BrowserKernel {
     return mapRawToPageModel(raw, browserSession.id);
   }
 
+  async captureScreenshot(browserSession: BrowserSession): Promise<string | null> {
+    const managed = this.sessions.get(browserSession.id);
+    if (!managed) return null;
+    try {
+      const result = await managed.cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 60
+      }) as { data: string };
+      return result.data;
+    } catch {
+      return null;
+    }
+  }
+
   async executeAction(browserSession: BrowserSession, action: BrowserAction): Promise<BrowserActionResult> {
     const managed = this.sessions.get(browserSession.id);
     if (!managed) {

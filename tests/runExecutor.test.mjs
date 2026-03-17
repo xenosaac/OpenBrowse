@@ -85,6 +85,7 @@ function makeServices(options = {}) {
           captureIndex++;
           return pm;
         },
+        captureScreenshot: async () => null,
         executeAction: async (_session, action) => {
           const result = executeResults.shift() ?? {
             ok: true,

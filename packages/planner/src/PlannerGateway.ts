@@ -3,6 +3,7 @@ import type { BrowserAction, PageModel, PlannerDecision, TaskRun } from "@openbr
 export interface PlannerInput {
   run: TaskRun;
   pageModel: PageModel;
+  screenshotBase64?: string;
 }
 
 export interface PlannerGateway {
