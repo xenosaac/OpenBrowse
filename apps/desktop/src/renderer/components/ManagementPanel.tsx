@@ -15,9 +15,10 @@ import { CookiePanel } from "./CookiePanel";
 import { TaskHistoryPanel } from "./TaskHistoryPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { WatchesPanel } from "./WatchesPanel";
+import { TemplatesPanel } from "./TemplatesPanel";
 import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts" | "watches";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts" | "watches" | "templates";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -37,6 +38,7 @@ interface Props {
   onClose: () => void;
   keybindingOverrides: KeyBindingOverrides;
   onKeybindingOverridesChanged: (overrides: KeyBindingOverrides) => void;
+  onRunTemplate?: (goal: string) => void;
 }
 
 const TABS: { key: ManagementTab; label: string }[] = [
@@ -50,6 +52,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "taskHistory", label: "Task History" },
   { key: "shortcuts", label: "Shortcuts" },
   { key: "watches", label: "Watches" },
+  { key: "templates", label: "Templates" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -69,7 +72,8 @@ export function ManagementPanel({
   onStartDemo,
   onClose,
   keybindingOverrides,
-  onKeybindingOverridesChanged
+  onKeybindingOverridesChanged,
+  onRunTemplate
 }: Props) {
   const [activeTab, setActiveTab] = useState<ManagementTab>(initialTab);
   const [sessionsSubTab, setSessionsSubTab] = useState<SessionsSubTab>("tasks");
@@ -185,6 +189,8 @@ export function ManagementPanel({
           )}
 
           {activeTab === "watches" && <WatchesPanel />}
+
+          {activeTab === "templates" && <TemplatesPanel onRunTemplate={onRunTemplate} />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

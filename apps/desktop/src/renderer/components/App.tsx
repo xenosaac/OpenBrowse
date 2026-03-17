@@ -154,6 +154,11 @@ declare global {
       // File export
       saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }) => Promise<{ ok: boolean }>;
 
+      // Task templates
+      listTemplates: () => Promise<Array<{ id: string; name: string; goal: string; createdAt: string }>>;
+      saveTemplate: (template: { goal: string; name?: string }) => Promise<{ id: string; name: string; goal: string; createdAt: string }>;
+      deleteTemplate: (templateId: string) => Promise<{ ok: boolean }>;
+
       // Watch scheduler
       listWatches: () => Promise<Array<{
         id: string;
@@ -1025,6 +1030,9 @@ export function App() {
           onRetryTask={(goal: string) => void submitChatTask(goal)}
           onResumeRun={handleResumeRun}
           onDismissRun={handleDismissRun}
+          onSaveTemplate={(goal: string) => {
+            void ipc.templates.save({ goal });
+          }}
         />
       </aside>
 
@@ -1202,6 +1210,10 @@ export function App() {
             onClose={layout.closeManagement}
             keybindingOverrides={keybindingOverrides}
             onKeybindingOverridesChanged={setKeybindingOverrides}
+            onRunTemplate={(goal) => {
+              layout.closeManagement();
+              void submitChatTask(goal);
+            }}
           />
         )}
 
