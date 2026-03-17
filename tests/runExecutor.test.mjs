@@ -173,6 +173,11 @@ function makeServices(options = {}) {
           status: "failed",
           outcome: { status: "failed", summary, finishedAt: new Date().toISOString() },
         }),
+        cancelRun: (run, summary) => ({
+          ...run,
+          status: "cancelled",
+          outcome: { status: "cancelled", summary, finishedAt: new Date().toISOString() },
+        }),
       },
       planner: {
         decide: async () => {
@@ -474,7 +479,7 @@ test("plannerLoop fails after max total soft failures", async () => {
 
 // --- plannerLoop: session lost ---
 
-test("plannerLoop fails when browser session is lost", async () => {
+test("plannerLoop cancels cleanly when browser session is lost (T26)", async () => {
   const { services } = makeServices({
     decisions: [
       { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Submit" } },
@@ -488,8 +493,8 @@ test("plannerLoop fails when browser session is lost", async () => {
 
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
-  assert.equal(result.status, "failed");
-  assert.ok(result.outcome.summary.includes("Browser session lost"));
+  assert.equal(result.status, "cancelled");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"));
 });
 
 // --- plannerLoop: recovery context cleared after first planner call ---
@@ -1254,4 +1259,97 @@ test("plannerLoop save_note handles missing key and value gracefully", async () 
   const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
   assert.ok(runWithNotes, "Should have saved a note with default key");
   assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "note", value: "" }]);
+});
+
+// --- T26: Graceful session cleanup on tab close ---
+
+test("T26: capturePageModel 'Session not found' cancels run cleanly", async () => {
+  let captureCount = 0;
+  const { services, appendedEvents, savedRuns } = makeServices({
+    decisions: [],
+  });
+  // Override capturePageModel to throw "Session not found" on both attempts
+  services.browserKernel.capturePageModel = async () => {
+    captureCount++;
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Run should be cancelled, not failed");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"), "Should mention tab closure");
+  assert.ok(appendedEvents.some(e => e.type === "run_cancelled"), "Should log run_cancelled event");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed event");
+  assert.ok(handoff.handoffs.length >= 1, "Should write handoff");
+  assert.equal(captureCount, 2, "Should have retried once before cancelling");
+});
+
+test("T26: executeAction 'Session not found' cancels run cleanly", async () => {
+  const { services, appendedEvents } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click button",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+  });
+  // Override executeAction to throw "Session not found"
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Run should be cancelled, not failed");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"), "Should mention tab closure");
+  assert.ok(appendedEvents.some(e => e.type === "run_cancelled"), "Should log run_cancelled event");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed event");
+  assert.ok(handoff.handoffs.length >= 1, "Should write handoff");
+});
+
+test("T26: capturePageModel 'Session not found' returns already-cancelled run", async () => {
+  const { services } = makeServices({
+    decisions: [],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "cancelled",
+      outcome: { status: "cancelled", summary: "Already cancelled", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.capturePageModel = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.outcome.summary, "Already cancelled", "Should return the already-cancelled run from checkpoint");
+});
+
+test("T26: capturePageModel non-session error still uses fallback page model", async () => {
+  let captureCount = 0;
+  const { services } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done" }],
+  });
+  services.browserKernel.capturePageModel = async () => {
+    captureCount++;
+    throw new Error("CDP protocol error: page is loading");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  // Non-session errors should still use the fallback path (task_complete from planner)
+  assert.equal(result.status, "completed", "Non-session errors should not cancel");
+  assert.equal(captureCount, 2, "Should have retried once");
 });
