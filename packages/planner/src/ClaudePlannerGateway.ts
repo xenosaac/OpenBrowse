@@ -103,12 +103,22 @@ export class ClaudePlannerGateway implements PlannerGateway {
       }
     }
 
-    return mapToolCallToDecision(
+    const decision = mapToolCallToDecision(
       toolUseBlock.name,
       toolUseBlock.input as ToolInput,
       reasoning,
       input.run.id
     );
+
+    // Attach API token usage for cost measurement (T50)
+    if (response.usage) {
+      decision.usage = {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens
+      };
+    }
+
+    return decision;
   }
 
   private async callWithTimeout(

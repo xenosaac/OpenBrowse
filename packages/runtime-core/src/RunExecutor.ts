@@ -198,6 +198,7 @@ export class RunExecutor {
       // Always-on screenshot capture (T46): capture before every planner call.
       // On-demand screenshot from browser_screenshot takes priority when set.
       let screenshotForThisStep = pendingScreenshot;
+      const wasOnDemand = !!pendingScreenshot;
       pendingScreenshot = null; // Clear on-demand screenshot after one use
       if (!screenshotForThisStep) {
         try {
@@ -205,6 +206,17 @@ export class RunExecutor {
         } catch {
           // Screenshot capture failed — proceed text-only
         }
+      }
+
+      // T50: Log screenshot size for vision cost measurement
+      if (screenshotForThisStep) {
+        const base64Bytes = screenshotForThisStep.length;
+        const fileBytes = Math.floor((base64Bytes * 3) / 4);
+        await this.logEvent(current.id, "screenshot_captured", `Screenshot: ${Math.round(fileBytes / 1024)}KB`, {
+          base64Bytes: String(base64Bytes),
+          fileKB: String(Math.round(fileBytes / 1024)),
+          source: wasOnDemand ? "on_demand" : "always_on"
+        });
       }
 
       let decision;
@@ -241,7 +253,12 @@ export class RunExecutor {
       }
 
       await this.logEvent(current.id, "planner_decision", decision.reasoning, {
-        plannerDecision: decision.type
+        plannerDecision: decision.type,
+        // T50: Include token usage when available from the planner API response
+        ...(decision.usage ? {
+          inputTokens: String(decision.usage.inputTokens),
+          outputTokens: String(decision.usage.outputTokens)
+        } : {})
       });
 
       // Clear recovery context after first planner call consumes it
