@@ -289,6 +289,52 @@ export class RunExecutor {
           continue;
         }
 
+        // Handle schedule_recurring locally — register watch via scheduler
+        if (action.type === "schedule_recurring") {
+          const watchGoal = action.value ?? "";
+          let intervalMinutes = 60;
+          let startUrl: string | undefined;
+          try {
+            const hint = JSON.parse(action.interactionHint ?? "{}");
+            intervalMinutes = typeof hint.intervalMinutes === "number" ? hint.intervalMinutes : 60;
+            startUrl = typeof hint.startUrl === "string" ? hint.startUrl : undefined;
+          } catch {
+            // Use defaults if hint parsing fails
+          }
+          const metadata: Record<string, string> = {};
+          if (startUrl) metadata.startUrl = startUrl;
+          const intent = {
+            id: `task_watch_${Date.now()}`,
+            goal: startUrl ? `${watchGoal} (start at ${startUrl})` : watchGoal,
+            constraints: [] as string[],
+            metadata,
+            source: "scheduler" as const,
+            createdAt: new Date().toISOString(),
+          };
+          let watchId = "unknown";
+          try {
+            watchId = await this.services.scheduler.registerWatch(intent, intervalMinutes);
+          } catch (err) {
+            console.error("[RunExecutor] Failed to register watch:", err);
+          }
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Scheduled recurring watch "${watchGoal}" every ${intervalMinutes} minutes (watchId: ${watchId})`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true",
+            description: action.description,
+            watchId
+          });
+          const scheduleStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (scheduleStuck) return scheduleStuck;
+          continue;
+        }
+
         // Handle screenshot — capture and store for the next planner call
         if (action.type === "screenshot") {
           let screenshotData: string | null = null;

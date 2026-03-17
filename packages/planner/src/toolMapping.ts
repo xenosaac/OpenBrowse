@@ -249,6 +249,20 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "schedule_recurring",
+    description: "Set up a recurring watch that automatically runs a browser task at a fixed interval. Use when the user wants periodic monitoring — e.g. \"check this price every hour\", \"watch this page daily\", \"monitor stock availability\". The watch runs independently after the current task ends.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        goal: { type: "string", description: "The task goal for each recurring run (e.g. 'Check the price of iPhone 16 on Amazon')" },
+        start_url: { type: "string", description: "Optional URL to start each run from" },
+        interval_minutes: { type: "number", description: "How often to run, in minutes (e.g. 60 for hourly, 1440 for daily)" },
+        description: { type: "string", description: "Why you are setting up this recurring watch" }
+      },
+      required: ["goal", "interval_minutes", "description"]
+    }
+  },
+  {
     name: "ask_user",
     description: "Ask the user a question when you need clarification or cannot proceed without human input (e.g. CAPTCHA, ambiguous instructions).",
     input_schema: {
@@ -294,6 +308,9 @@ export interface ToolInput {
   options?: Array<{ label: string; summary?: string }>;
   extracted_data?: Array<Record<string, unknown>>;
   tab_index?: number;
+  goal?: string;
+  start_url?: string;
+  interval_minutes?: number;
   // Note: 'key' is used by both browser_press_key (keyboard key) and browser_save_note (note label).
   // The mapping function disambiguates by tool name.
 }
@@ -514,6 +531,23 @@ export function mapToolCallToDecision(
           value: input.value,
           description: input.description ?? "Save note",
           interactionHint: input.key
+        }
+      };
+
+    case "schedule_recurring":
+      if (!input.goal) return fail("schedule_recurring called without goal");
+      if (!input.interval_minutes) return fail("schedule_recurring called without interval_minutes");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "schedule_recurring",
+          value: input.goal,
+          description: input.description ?? "Schedule recurring watch",
+          interactionHint: JSON.stringify({
+            intervalMinutes: input.interval_minutes,
+            ...(input.start_url ? { startUrl: input.start_url } : {})
+          })
         }
       };
 
