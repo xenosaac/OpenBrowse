@@ -30,7 +30,9 @@ import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel } from "./ManagementPanel";
 import { FindBar } from "./chrome/FindBar";
 import { loadKeybindingOverrides } from "./KeyboardShortcutsPanel";
+import { SetupWizard } from "./SetupWizard";
 import type { KeyBindingOverrides } from "../lib/keybindings";
+import { isSetupNeeded } from "../lib/setupWizard";
 
 declare global {
   interface Window {
@@ -176,6 +178,10 @@ declare global {
       }>>;
       registerWatch: (params: { goal: string; startUrl?: string; intervalMinutes: number }) => Promise<{ watchId: string }>;
       unregisterWatch: (watchId: string) => Promise<{ ok: boolean }>;
+
+      // Setup wizard
+      isSetupDismissed: () => Promise<boolean>;
+      dismissSetup: () => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -202,6 +208,13 @@ export function App() {
   // ---- Keybinding overrides ----
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeyBindingOverrides>({});
   useEffect(() => { void loadKeybindingOverrides().then(setKeybindingOverrides); }, []);
+
+  // ---- Setup wizard state ----
+  const [setupDismissed, setSetupDismissed] = useState<boolean | null>(null);
+  useEffect(() => {
+    void window.openbrowse.isSetupDismissed().then(setSetupDismissed).catch(() => setSetupDismissed(false));
+  }, []);
+  const showSetupWizard = isSetupNeeded(agentRuns.settings, setupDismissed);
 
   // ---- Find-in-page state ----
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -1226,6 +1239,22 @@ export function App() {
         {/* Hamburger dropdown menu — rendered via portal to escape NavBar stacking context */}
         {menuContent}
       </section>
+
+      {/* First-launch setup wizard */}
+      {showSetupWizard && (
+        <SetupWizard
+          onComplete={async (settings) => {
+            await window.openbrowse.saveSettings(settings);
+            await window.openbrowse.dismissSetup();
+            setSetupDismissed(true);
+            await agentRuns.refresh();
+          }}
+          onSkip={async () => {
+            await window.openbrowse.dismissSetup();
+            setSetupDismissed(true);
+          }}
+        />
+      )}
     </div>
   );
 }

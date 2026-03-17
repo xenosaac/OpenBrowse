@@ -166,6 +166,10 @@ const api = {
   unregisterWatch: (watchId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke("scheduler:unregister", watchId),
 
+  // Setup wizard
+  isSetupDismissed: (): Promise<boolean> => ipcRenderer.invoke("setup:isDismissed"),
+  dismissSetup: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("setup:dismiss"),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
