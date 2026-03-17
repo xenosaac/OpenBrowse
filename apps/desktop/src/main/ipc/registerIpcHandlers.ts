@@ -578,6 +578,42 @@ export function registerIpcHandlers(
     services.scheduler.setOnChanged(() => void persistWatches());
   }
 
+  // --- Task Templates ---
+
+  register("templates:list", async () => {
+    const entries = await services.preferenceStore.list("templates");
+    return entries.map((e) => {
+      try { return JSON.parse(e.value); }
+      catch { return null; }
+    }).filter(Boolean);
+  });
+
+  register("templates:save", async (_event, template: { goal: string; name?: string }) => {
+    const id = `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const name = template.name?.trim() || template.goal.slice(0, 60);
+    const record = {
+      id,
+      name,
+      goal: template.goal,
+      createdAt: new Date().toISOString(),
+    };
+    await services.preferenceStore.upsert({
+      id,
+      namespace: "templates",
+      key: id,
+      value: JSON.stringify(record),
+      capturedAt: record.createdAt,
+    });
+    return record;
+  });
+
+  register("templates:delete", async (_event, templateId: string) => {
+    await services.preferenceStore.deleteByKey("templates", templateId);
+    return { ok: true };
+  });
+
+  // --- Watch Scheduler ---
+
   register("scheduler:list", async () => {
     if (!services.scheduler.listWatches) return [];
     return services.scheduler.listWatches();

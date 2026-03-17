@@ -35,6 +35,7 @@ interface Props {
   onRetryTask: (goal: string) => void;
   onResumeRun: (run: TaskRun | null) => Promise<void>;
   onDismissRun: (runId: string) => Promise<void>;
+  onSaveTemplate?: (goal: string) => void;
 }
 
 export function Sidebar(props: Props) {
@@ -43,7 +44,7 @@ export function Sidebar(props: Props) {
     messages, chatInput, chatBusy,
     runs, runtime, globalActionEvents, suspendedRuns,
     onToggleSessionList, onNewSession, onSwitchSession, onDeleteSession, onClearChat,
-    onChatInputChange, onSubmitTask, onRetryTask, onResumeRun, onDismissRun
+    onChatInputChange, onSubmitTask, onRetryTask, onResumeRun, onDismissRun, onSaveTemplate
   } = props;
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -115,7 +116,7 @@ export function Sidebar(props: Props) {
           </div>
         )}
         {messages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} onRetry={onRetryTask} />
+          <ChatMessageItem key={message.id} message={message} onRetry={onRetryTask} onSaveTemplate={onSaveTemplate} />
         ))}
         {sessionSuspendedRuns.length > 0 && (
           <div style={styles.questionsSection}>

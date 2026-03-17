@@ -8,17 +8,20 @@ import { colors, glass } from "../../styles/tokens";
 interface Props {
   message: ChatMessage;
   onRetry?: (goal: string) => void;
+  onSaveTemplate?: (goal: string) => void;
 }
 
 function extractedDataToTsv(data: Array<{ label: string; value: string }>): string {
   return data.map((item) => `${item.label}\t${item.value}`).join("\n");
 }
 
-export function ChatMessageItem({ message, onRetry }: Props) {
+export function ChatMessageItem({ message, onRetry, onSaveTemplate }: Props) {
   const [copied, setCopied] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
   const isAction = message.tone === "action" || message.tone === "action-error";
   const hasExtracted = message.extractedData && message.extractedData.length > 0;
   const canRetry = message.tone === "error" && !!message.goalText && !!onRetry;
+  const canSaveTemplate = message.tone === "success" && !!message.goalText && !!onSaveTemplate;
 
   const handleCopy = useCallback(() => {
     if (!message.extractedData || copied) return;
@@ -41,6 +44,13 @@ export function ChatMessageItem({ message, onRetry }: Props) {
   const handleRetry = useCallback(() => {
     if (message.goalText && onRetry) onRetry(message.goalText);
   }, [message.goalText, onRetry]);
+
+  const handleSaveTemplate = useCallback(() => {
+    if (message.goalText && onSaveTemplate && !templateSaved) {
+      onSaveTemplate(message.goalText);
+      setTemplateSaved(true);
+    }
+  }, [message.goalText, onSaveTemplate, templateSaved]);
 
   return (
     <div style={{
@@ -86,6 +96,17 @@ export function ChatMessageItem({ message, onRetry }: Props) {
         {canRetry && (
           <button onClick={handleRetry} style={styles.retryButton}>
             Retry
+          </button>
+        )}
+        {canSaveTemplate && (
+          <button
+            onClick={handleSaveTemplate}
+            style={templateSaved
+              ? { ...styles.actionButton, ...styles.actionButtonCopied, marginTop: 6 }
+              : { ...styles.actionButton, marginTop: 6 }
+            }
+          >
+            {templateSaved ? "Saved \u2713" : "Save as Template"}
           </button>
         )}
         <div style={styles.chatTime}>

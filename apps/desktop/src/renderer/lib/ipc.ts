@@ -85,6 +85,17 @@ export const ipc = {
     unregister: (watchId: string) =>
       window.openbrowse.unregisterWatch(watchId) as Promise<{ ok: boolean }>,
   },
+  templates: {
+    list: () => window.openbrowse.listTemplates() as Promise<Array<{
+      id: string; name: string; goal: string; createdAt: string;
+    }>>,
+    save: (template: { goal: string; name?: string }) =>
+      window.openbrowse.saveTemplate(template) as Promise<{
+        id: string; name: string; goal: string; createdAt: string;
+      }>,
+    delete: (templateId: string) =>
+      window.openbrowse.deleteTemplate(templateId) as Promise<{ ok: boolean }>,
+  },
   file: {
     saveExtracted: (params: { data: string; defaultName: string; format: "json" | "csv" }) =>
       window.openbrowse.saveExtractedData(params) as Promise<{ ok: boolean }>,

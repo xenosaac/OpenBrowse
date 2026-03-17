@@ -139,6 +139,14 @@ const api = {
   saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke("file:save-extracted", params),
 
+  // Task templates
+  listTemplates: (): Promise<Array<{ id: string; name: string; goal: string; createdAt: string }>> =>
+    ipcRenderer.invoke("templates:list"),
+  saveTemplate: (template: { goal: string; name?: string }): Promise<{ id: string; name: string; goal: string; createdAt: string }> =>
+    ipcRenderer.invoke("templates:save", template),
+  deleteTemplate: (templateId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("templates:delete", templateId),
+
   // Watch scheduler
   listWatches: (): Promise<Array<{
     id: string;

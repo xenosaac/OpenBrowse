@@ -11206,3 +11206,86 @@ Reason: Worktree clean, no unfinished task. All Programs A-R complete (T1-T58 do
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 178)*
+
+---
+
+### Session 179 — 2026-03-17: T60 — Saved Task Templates for Repeat Queries (Program S)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T59 → T60 → T61 (Program S). T59 done (Session 178). T60 is next: saved task templates so users can one-click re-run queries they use often. The product's proven strength is search+extract (6/6 completions), and templates reduce friction for repeat queries.
+
+#### Plan
+
+1. **IPC handlers** (`registerIpcHandlers.ts`): Add `templates:list`, `templates:save`, `templates:delete` using PreferenceStore with `templates` namespace.
+2. **Preload API** (`preload/index.ts`): Add `listTemplates`, `saveTemplate`, `deleteTemplate` methods.
+3. **Window interface** (`App.tsx`): Extend the `openbrowse` interface declaration.
+4. **IPC wrapper** (`ipc.ts`): Add `templates` namespace with typed wrappers.
+5. **TemplatesPanel** (`renderer/components/TemplatesPanel.tsx`): New component mirroring WatchesPanel pattern — list templates, delete, click to run.
+6. **ManagementPanel** (`ManagementPanel.tsx`): Add "Templates" tab.
+7. **ChatMessageItem** (`ChatMessageItem.tsx`): Add "Save as template" button on successful completed tasks.
+8. **Tests**: Unit tests for template CRUD via PreferenceStore integration.
+9. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — Three new IPC handlers:
+- `templates:list`: Queries PreferenceStore `templates` namespace, JSON-parses each entry, returns array.
+- `templates:save`: Generates `tpl_{timestamp}_{random}` ID, derives name from explicit name or goal (truncated to 60 chars). Stores as JSON in PreferenceStore.
+- `templates:delete`: Calls `preferenceStore.deleteByKey("templates", templateId)`.
+
+**`apps/desktop/src/preload/index.ts`** — Three new preload API methods:
+- `listTemplates()`, `saveTemplate(template)`, `deleteTemplate(templateId)`.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Window interface extended:
+- Added `listTemplates`, `saveTemplate`, `deleteTemplate` to `Window.openbrowse` type.
+- Wired `onRunTemplate` on ManagementPanel: closes panel and calls `submitChatTask(goal)`.
+- Wired `onSaveTemplate` on Sidebar: calls `ipc.templates.save({ goal })`.
+
+**`apps/desktop/src/renderer/lib/ipc.ts`** — New `templates` namespace:
+- `list()`, `save(template)`, `delete(templateId)` with typed returns.
+
+**`apps/desktop/src/renderer/components/TemplatesPanel.tsx`** — New component:
+- Lists saved templates with name, goal, creation date.
+- "Run" button calls `onRunTemplate` to re-run the task.
+- "Delete" button removes the template.
+- Empty state guides users to complete a task and click "Save as Template."
+- Follows WatchesPanel visual pattern: glass cards, token-based colors, consistent typography.
+
+**`apps/desktop/src/renderer/components/ManagementPanel.tsx`** — Updated:
+- Added "Templates" tab to `ManagementTab` union and `TABS` array.
+- Added `onRunTemplate` optional prop, passed to `TemplatesPanel`.
+- Renders `TemplatesPanel` when templates tab is active.
+
+**`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — Updated:
+- New `onSaveTemplate` optional prop.
+- "Save as Template" button appears on `tone === "success"` messages that have `goalText`.
+- Button shows "Saved ✓" confirmation state after click.
+
+**`apps/desktop/src/renderer/components/sidebar/Sidebar.tsx`** — Updated:
+- New `onSaveTemplate` optional prop, passed through to `ChatMessageItem`.
+
+**`tests/taskTemplates.test.mjs`** — 7 new tests:
+- Save and list, custom name, name truncation, multiple templates, delete by ID, empty list, namespace isolation.
+
+**Behavior:**
+- Before: Users who wanted to re-run the same query had to retype it or use browser history.
+- After: Completed tasks show a "Save as Template" button. Saved templates appear in Manage → Templates with "Run" and "Delete" controls. Click "Run" to re-run the same goal immediately.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/taskTemplates.test.mjs` — 7/7 pass
+- `node --test tests/*.test.mjs` — 1276/1276 pass (was 1269, +7 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program S continues: T61 (partial results on failure).
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-R complete. All PM tasks T1-T60 done (T50/T53 blocked on rebuild).
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 179)*
