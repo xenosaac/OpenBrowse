@@ -1,6 +1,7 @@
-import React, { useRef, forwardRef } from "react";
+import React from "react";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
 import type { ManagementTab } from "../ManagementPanel";
+import type { AddressBarSuggestion } from "../../hooks/useAddressBar";
 import { colors, radii, glass } from "../../styles/tokens";
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   isSecure: boolean;
   waitingCount: number;
   isBookmarked: boolean;
+  suggestions: AddressBarSuggestion[];
+  selectedIndex: number;
   onToggleBookmark: () => void;
   onAddressChange: (val: string) => void;
   onAddressFocus: () => void;
@@ -24,6 +27,9 @@ interface Props {
   onHome: () => void;
   onOpenManagement: (tab: ManagementTab) => void;
   onToggleMenu: (e: React.MouseEvent) => void;
+  onMoveSelection: (delta: number) => void;
+  onSetSelectedIndex: (index: number) => void;
+  onSelectSuggestion: (suggestion: AddressBarSuggestion) => void;
   addressBarRef: React.RefObject<HTMLInputElement | null>;
   menuButtonRef: React.RefObject<HTMLButtonElement | null>;
 }
@@ -32,11 +38,15 @@ export function NavBar(props: Props) {
   const {
     activeBrowserTab, mainPanel, addressInput, addressEditing,
     navState, displayUrl, isSecure, waitingCount,
-    isBookmarked, onToggleBookmark,
+    isBookmarked, suggestions, selectedIndex,
+    onToggleBookmark,
     onAddressChange, onAddressFocus, onAddressBlur, onNavigate,
     onBack, onForward, onReload, onHome, onOpenManagement,
-    onToggleMenu, addressBarRef, menuButtonRef
+    onToggleMenu, onMoveSelection, onSetSelectedIndex, onSelectSuggestion,
+    addressBarRef, menuButtonRef
   } = props;
+
+  const showDropdown = addressEditing && suggestions.length > 0;
 
   return (
     <div style={styles.navBar}>
@@ -68,7 +78,7 @@ export function NavBar(props: Props) {
           onClick={onHome}
         >⌂</button>
       </div>
-      <div className="ob-address" style={styles.addressBarWrap}>
+      <div className="ob-address" style={{ ...styles.addressBarWrap, position: "relative" as const }}>
         <span style={{ ...styles.addressLock, color: isSecure ? colors.emerald : colors.textSecondary }}>
           {isSecure ? "🔒" : "●"}
         </span>
@@ -79,12 +89,30 @@ export function NavBar(props: Props) {
           placeholder="Search or enter address"
           onChange={(e) => onAddressChange(e.target.value)}
           onFocus={(e) => { onAddressChange(displayUrl); onAddressFocus(); requestAnimationFrame(() => e.target.select()); }}
-          onBlur={onAddressBlur}
+          onBlur={() => {
+            // Delay blur to allow click on suggestions
+            setTimeout(() => onAddressBlur(), 150);
+          }}
           onKeyDown={(e) => {
+            if (showDropdown && e.key === "ArrowDown") {
+              e.preventDefault();
+              onMoveSelection(1);
+              return;
+            }
+            if (showDropdown && e.key === "ArrowUp") {
+              e.preventDefault();
+              onMoveSelection(-1);
+              return;
+            }
             if (e.key === "Enter") {
               e.preventDefault();
-              onNavigate(addressInput);
+              if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+                onSelectSuggestion(suggestions[selectedIndex]);
+              } else {
+                onNavigate(addressInput);
+              }
               e.currentTarget.blur();
+              return;
             }
             if (e.key === "Escape") {
               onAddressBlur();
@@ -105,6 +133,27 @@ export function NavBar(props: Props) {
           >
             {isBookmarked ? "★" : "☆"}
           </button>
+        )}
+        {showDropdown && (
+          <div style={styles.dropdown}>
+            {suggestions.map((s, i) => (
+              <div
+                key={s.url + i}
+                style={{
+                  ...styles.dropdownItem,
+                  ...(i === selectedIndex ? styles.dropdownItemActive : {}),
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelectSuggestion(s);
+                }}
+                onMouseEnter={() => onSetSelectedIndex(i)}
+              >
+                <span style={styles.suggestionTitle}>{s.title || s.url}</span>
+                <span style={styles.suggestionUrl}>{s.url}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
       <div style={styles.headerActions}>
@@ -180,5 +229,44 @@ const styles: Record<string, React.CSSProperties> = {
   },
   waitingDot: {
     width: 6, height: 6, borderRadius: "50%", background: colors.statusWaiting, display: "inline-block"
-  }
+  },
+  dropdown: {
+    position: "absolute" as const,
+    top: "100%",
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    ...glass.control,
+    background: "rgba(30, 30, 30, 0.95)",
+    border: `1px solid ${colors.borderControl}`,
+    borderRadius: radii.md,
+    overflow: "hidden",
+    zIndex: 1000,
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.5)",
+  },
+  dropdownItem: {
+    padding: "7px 12px",
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 1,
+    borderBottom: `1px solid ${colors.borderSubtle}`,
+  },
+  dropdownItemActive: {
+    background: "rgba(255, 255, 255, 0.08)",
+  },
+  suggestionTitle: {
+    color: colors.textPrimary,
+    fontSize: "0.84rem",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  },
+  suggestionUrl: {
+    color: colors.textMuted,
+    fontSize: "0.74rem",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap" as const,
+  },
 };
