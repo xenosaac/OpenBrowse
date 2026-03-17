@@ -11,4 +11,5 @@ export * from "./RecoveryManager.js";
 export * from "./settings.js";
 export * from "./compose.js";
 export * from "./queries.js";
+export * from "./buildStartupDiagnostic.js";
 export { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";

@@ -11551,3 +11551,64 @@ Reason: Worktree clean, no unfinished task. PM directs T62 → T63 → T64 (Prog
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 183)*
+
+---
+
+### Session 184 — 2026-03-17: T65 — Startup Self-Diagnostic Log (Program U)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T64 → T65 → T66 (Program U — Rebuild Safety). T64 done (Session 183). T65 is next: on app launch, log a structured diagnostic summary to console and fire a `diagnostics:startup` IPC event. This reduces first-rebuild failure risk by surfacing DB schema version, run count, watch count, and API key presence immediately on launch.
+
+#### Plan
+
+1. **`packages/runtime-core/src/buildStartupDiagnostic.ts`**: New pure function that takes pre-queried inputs (appVersion, schemaVersion, runCount, watchCount, telegramConfigured, plannerApiKeyPresent) and returns a `StartupDiagnostic` object. Also exports a `formatDiagnosticLog(diag)` function that returns a human-readable console string.
+2. **`apps/desktop/src/main/bootstrap.ts`**: After all services are initialized, query DB for schema version and run count, count restored watches, check settings, call `buildStartupDiagnostic`, log to console, and send `diagnostics:startup` IPC event to renderer.
+3. **`tests/startupDiagnostic.test.mjs`**: At least 2 tests for the pure function: one with all fields populated, one with minimal/empty state.
+4. Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/buildStartupDiagnostic.ts`** — New pure diagnostic module:
+- `StartupDiagnosticInput` interface: appVersion, schemaVersion, runCount, watchCount, telegramConfigured, plannerApiKeyPresent.
+- `StartupDiagnostic` extends input with `timestamp`.
+- `buildStartupDiagnostic(input, now?)` → `StartupDiagnostic` with auto-generated timestamp.
+- `formatDiagnosticLog(diag)` → human-readable multi-line string for console output.
+
+**`packages/runtime-core/src/index.ts`** — Added re-export of buildStartupDiagnostic module.
+
+**`apps/desktop/src/main/bootstrap.ts`** — Updated:
+- Imports `buildStartupDiagnostic`, `formatDiagnosticLog` from runtime-core and `SCHEMA_VERSION` from memory-store.
+- After all services are initialized and watches restored, queries `runCheckpointStore.listAll()` for run count.
+- Builds diagnostic with: app version from `app.getVersion()`, schema version from `SCHEMA_VERSION`, run count, restored watch count, telegram/planner key presence from `runtimeSettings`.
+- Logs formatted diagnostic to console via `console.log(formatDiagnosticLog(diag))`.
+- Sends `diagnostics:startup` IPC event to renderer with the full diagnostic object.
+
+**`tests/startupDiagnostic.test.mjs`** — 5 new tests:
+- buildStartupDiagnostic: all fields populated (verifies every field including timestamp).
+- buildStartupDiagnostic: fresh install with zero runs/watches.
+- buildStartupDiagnostic: auto-generated timestamp when no date provided.
+- formatDiagnosticLog: populated diagnostic with configured services.
+- formatDiagnosticLog: unconfigured services show "not configured" / "missing".
+
+**Behavior:**
+- Before: App launched silently — no summary of DB state, run count, or service configuration. Post-rebuild issues required manual SQLite queries to diagnose.
+- After: On startup, console shows a structured summary: app version, DB schema version, run count, watch count, Telegram and planner API key status. The same data is sent to the renderer via `diagnostics:startup` IPC event. This surfaces post-rebuild issues immediately.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/startupDiagnostic.test.mjs` — 5/5 pass
+- `node --test tests/*.test.mjs` — 1328/1328 pass (was 1323, +5 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program U continues: T66 (graceful IPC degradation). This is the final task.
+- After T66, PM directs the overnight loop to PAUSE until the user rebuilds.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-T complete. Program U: T65 done, T66 remains.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 183)*
