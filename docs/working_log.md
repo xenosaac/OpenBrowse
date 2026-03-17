@@ -11348,3 +11348,68 @@ Reason: Worktree clean, no unfinished task. PM directs T59 → T60 → T61 (Prog
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 180)*
+
+---
+
+### Session 181 — 2026-03-17: T62 — Run Step Timeline in Task History (Program T)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T61 → T62 → T63 → T64 (Program T). T61 done (Session 180). T62 is next: add an expandable step timeline to TaskHistoryPanel so clicking a run card shows its workflow events. This makes it easy for the user and PM to diagnose run failures without querying SQLite directly.
+
+#### Plan
+
+1. **TaskHistoryPanel.tsx**: Add expandable timeline to run cards. Clicking a card fetches `window.openbrowse.listLogs(runId)` and renders events as a vertical timeline with colored dots, event type, summary, timestamp, and URL from payload.
+2. **No IPC/preload changes needed** — `logs:list` handler and `listLogs` preload API already exist.
+3. **Tests**: At least 2 tests for the timeline event formatting logic (completed run, failed run). Extract a pure `formatTimelineEvent` function for testability.
+4. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/timelineFormat.ts`** — New pure formatting module:
+- `formatTimelineEvent(type, summary, createdAt, payload)` → `TimelineEntry` with label, summary, color, time, url, isTerminal.
+- Human-readable labels for all 17 WorkflowEventType values (e.g., "browser_action_executed" → "Action", "run_failed" → "Failed").
+- Color mapping matching WorkflowLog.tsx conventions.
+- URL extraction from payload (prefers `url` over `targetUrl`).
+- Terminal detection for run_completed/run_failed/run_cancelled.
+
+**`apps/desktop/src/renderer/components/TaskHistoryPanel.tsx`** — Enhanced with expandable timeline:
+- Clicking a run card toggles expansion (▸/▾ indicator).
+- Expanded state fetches `window.openbrowse.listLogs(runId)` and renders events as a vertical timeline.
+- Each step shows: colored dot, label (uppercase), summary, timestamp, and URL (when present in payload).
+- Loading state while fetching. Empty state for runs with no events.
+- Active card gets a highlighted border (borderControl).
+- No new IPC/preload changes needed — existing `logs:list` + `listLogs` already wired.
+
+**`tests/timelineFormat.test.mjs`** — 10 new tests:
+- Completed run event: label, color, isTerminal, no URL.
+- Failed run event: with URL from payload.
+- Browser action event: URL extraction.
+- targetUrl fallback when url absent.
+- Clarification and approval events: correct labels and colors.
+- Unknown event type: graceful fallback (underscores → spaces).
+- page_modeled event: correct label and color.
+- run_cancelled as terminal.
+- url preferred over targetUrl when both present.
+
+**Behavior:**
+- Before: TaskHistoryPanel showed run cards with status, goal, timestamp, and outcome summary. No way to see step-by-step execution without querying SQLite directly.
+- After: Clicking any run card expands it to show the full workflow event timeline — every page capture, planner decision, browser action, clarification, approval, and terminal event. Each step shows its type, description, timestamp, and URL. Users and the PM can now diagnose failures directly from the UI.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/timelineFormat.test.mjs` — 10/10 pass
+- `node --test tests/*.test.mjs` — 1293/1293 pass (was 1283, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program T continues: T63 (planner prompt snapshot test), T64 (structured error classification).
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-S complete. Program T: T62 done, T63 and T64 remain.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 181)*
