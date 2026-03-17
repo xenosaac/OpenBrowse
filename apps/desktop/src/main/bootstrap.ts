@@ -5,6 +5,7 @@ import { createDefaultDemoRegistry, type DemoRegistry } from "@openbrowse/demo-f
 import { registerIpcHandlers } from "./ipc/registerIpcHandlers";
 import { composeRuntime } from "./runtime/composeRuntime";
 import { migrateJsonToSqlite } from "./runtime/migrateJsonToSqlite";
+import { loadWatches } from "./runtime/watchPersistence";
 import {
   hydrateRuntimeSettings,
   markBrowserRuntimeInitFailed,
@@ -80,6 +81,30 @@ export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise
     const message = error instanceof Error ? error.message : String(error);
     console.error("[bootstrap] Telegram bridge init failed:", message);
     markChatBridgeInitFailed(services, message);
+  }
+
+  // Restore persisted watches after all services are initialized.
+  try {
+    const watchesJsonPath = path.join(app.getPath("userData"), "watches.json");
+    const savedWatches = await loadWatches(watchesJsonPath);
+    for (const w of savedWatches) {
+      const metadata: Record<string, string> = {};
+      if (w.startUrl) metadata.startUrl = w.startUrl;
+      const intent = {
+        id: `task_watch_${Date.now()}`,
+        goal: w.startUrl ? `${w.goal} (start at ${w.startUrl})` : w.goal,
+        constraints: [] as string[],
+        metadata,
+        source: "scheduler" as const,
+        createdAt: new Date().toISOString(),
+      };
+      await services.scheduler.registerWatch(intent, w.intervalMinutes);
+    }
+    if (savedWatches.length > 0) {
+      console.log(`[bootstrap] Restored ${savedWatches.length} saved watch(es).`);
+    }
+  } catch (error) {
+    console.error("[bootstrap] Failed to restore watches:", error);
   }
 
   return { browserShell, services, mainWindow, demoRegistry };

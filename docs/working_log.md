@@ -10770,3 +10770,69 @@ Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Update log, commit.
 - All PM Programs (A-P) are still complete. All PM tasks T1-T53 status: T1-T49 done, T50 waiting for rebuild, T51-T52 done, T53 waiting for rebuild.
 
 *Session log entry written: 2026-03-17 (Session 172)*
+
+---
+
+### Session 173 — 2026-03-17: Watch Persistence Across App Restart
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM tasks T1-T52 done (T50/T53 blocked on user rebuild). PM explicitly lists "Recurring/scheduled tasks" as the NEXT CAPABILITY FRONTIER (Strategic Priority #5). Session 171 exposed the scheduler to users via IPC + WatchesPanel, but watches are in-memory only — lost on app restart. Watch persistence is the natural follow-up and directly extends an existing product capability. This is capability-oriented work (PM-approved direction for self-directed work), not browser chrome or framework cleanup.
+
+#### Plan
+
+1. **`apps/desktop/src/main/runtime/watchPersistence.ts`**: Create a small utility module with `saveWatches(filePath, watches)` and `loadWatches(filePath)` functions. Persisted format: `Array<{ goal: string; startUrl?: string; intervalMinutes: number }>` — minimal data needed to re-register watches on startup.
+2. **`apps/desktop/src/main/ipc/registerIpcHandlers.ts`**: After `scheduler:register` and `scheduler:unregister`, call `saveWatches` with the current list. Compute the watches JSON path from `app.getPath("userData")`.
+3. **`apps/desktop/src/main/bootstrap.ts`**: After services are composed and IPC handlers registered, load saved watches and re-register each one via `services.scheduler.registerWatch()`.
+4. **`tests/watchPersistence.test.mjs`**: Test save/load round-trip, empty file, corrupt file, missing file.
+5. Run `pnpm run typecheck` + tests. Update log, commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/runtime/watchPersistence.ts`** — New persistence utility:
+- `PersistedWatch` interface: `{ goal: string; startUrl?: string; intervalMinutes: number }` — minimal data needed for re-registration.
+- `saveWatches(filePath, watches)`: writes JSON array to file, creates parent directories. Errors are logged but not thrown.
+- `loadWatches(filePath)`: reads and parses JSON, validates each entry (goal must be string, intervalMinutes must be number), filters out malformed entries. Returns empty array on missing/corrupt file.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — Persist-on-change:
+- Added `watchesJsonPath` computed from `app.getPath("userData")`.
+- Added `persistWatches()` helper: reads current watches from scheduler, maps to `PersistedWatch[]` (extracting goal, startUrl from intent metadata, intervalMinutes), calls `saveWatches`.
+- After `scheduler:register`: calls `persistWatches()` (fire-and-forget).
+- After `scheduler:unregister`: calls `persistWatches()` (fire-and-forget).
+
+**`apps/desktop/src/main/bootstrap.ts`** — Restore on startup:
+- After all services are initialized (browser kernel, chat bridge), loads `watches.json` from userData.
+- For each saved watch, creates a fresh `TaskIntent` with `source: "scheduler"` and calls `services.scheduler.registerWatch()`.
+- Logs count of restored watches. Errors are caught and logged.
+
+**`tests/watchPersistence.test.mjs`** — 8 tests:
+- "save and load round-trip preserves watch data" — full data including optional startUrl
+- "loadWatches returns empty array for missing file"
+- "loadWatches returns empty array for corrupt JSON"
+- "loadWatches returns empty array for non-array JSON"
+- "loadWatches filters out malformed entries" — validates type checks on goal (string) and intervalMinutes (number)
+- "saveWatches creates parent directories if needed"
+- "saveWatches overwrites previous data"
+- "empty watches array round-trips correctly"
+
+**Behavior:**
+- Before this fix: Watches created in the WatchesPanel (Session 171) were lost on app restart. Users had to manually re-create watches every time they restarted the app.
+- After this fix: Watches persist to `~/Library/Application Support/@openbrowse/desktop/watches.json`. When the app starts, saved watches are automatically restored. Adding or removing a watch updates the file. Corrupt or missing files are handled gracefully (empty state).
+- The persistence format is intentionally minimal (goal + optional startUrl + intervalMinutes). Execution state (lastTriggeredAt, consecutiveFailures, backoff) is not persisted — watches restart fresh on app launch, which is the correct default behavior since stale execution state from a previous session is misleading.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/watchPersistence.test.mjs` — 8/8 pass
+- `node --test tests/*.test.mjs` — 1216/1216 pass (was 1208, +8 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are still complete. All PM tasks T1-T53 status: T1-T49 done, T50 waiting for rebuild, T51-T52 done, T53 waiting for rebuild.
+- Consider adding a planner tool `schedule_recurring` so the agent can create watches as part of task completion (e.g., user says "check this price every hour" and the agent sets up the watch).
+- Consider page content diff notifications — when a watched page changes, send a Telegram notification with the diff.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 173)*

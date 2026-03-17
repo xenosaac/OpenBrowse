@@ -1,4 +1,5 @@
-import { ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { app, ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import path from "node:path";
 import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
 import {
@@ -18,6 +19,7 @@ import { listTaskPacks, getTaskPack } from "@openbrowse/taskpacks";
 import type { DemoRegistry } from "@openbrowse/demo-flows";
 import type { AppBrowserShell } from "../browser/AppBrowserShell";
 import type { BrowserViewportBounds, RuntimeSettings } from "@openbrowse/contracts";
+import { saveWatches, type PersistedWatch } from "../runtime/watchPersistence";
 
 export function registerIpcHandlers(
   services: RuntimeServices,
@@ -540,6 +542,20 @@ export function registerIpcHandlers(
   });
 
   // --- Watch Scheduler ---
+
+  const watchesJsonPath = path.join(app.getPath("userData"), "watches.json");
+
+  async function persistWatches(): Promise<void> {
+    if (!services.scheduler.listWatches) return;
+    const watches = await services.scheduler.listWatches();
+    const persisted: PersistedWatch[] = watches.map((w) => ({
+      goal: w.intent.goal,
+      ...(w.intent.metadata?.startUrl ? { startUrl: w.intent.metadata.startUrl } : {}),
+      intervalMinutes: w.intervalMinutes,
+    }));
+    void saveWatches(watchesJsonPath, persisted);
+  }
+
   register("scheduler:list", async () => {
     if (!services.scheduler.listWatches) return [];
     return services.scheduler.listWatches();
@@ -557,6 +573,7 @@ export function registerIpcHandlers(
       createdAt: new Date().toISOString(),
     };
     const watchId = await services.scheduler.registerWatch(intent, params.intervalMinutes);
+    void persistWatches();
     return { watchId };
   });
 
@@ -564,6 +581,7 @@ export function registerIpcHandlers(
     if (services.scheduler.unregisterWatch) {
       await services.scheduler.unregisterWatch(watchId);
     }
+    void persistWatches();
     return { ok: true };
   });
 }
