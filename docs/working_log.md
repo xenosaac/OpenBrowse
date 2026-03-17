@@ -11611,4 +11611,67 @@ Reason: Worktree clean, no unfinished task. PM directs T64 → T65 → T66 (Prog
 - All Programs A-T complete. Program U: T65 done, T66 remains.
 - Re-testing remains the #1 PM priority (user action).
 
-*Session log entry written: 2026-03-17 (Session 183)*
+*Session log entry written: 2026-03-17 (Session 184)*
+
+---
+
+### Session 185 — 2026-03-17: T66 — Graceful IPC Degradation (Program U — FINAL TASK)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T64 → T65 → T66 (Program U — Rebuild Safety). T64 done (Session 183), T65 done (Session 184). T66 is the final task: wrap all `window.openbrowse.*` calls in `ipc.ts` with try/catch so the renderer degrades gracefully instead of crashing when an IPC handler is missing or fails. After T66, the overnight loop should PAUSE per PM directive.
+
+#### Plan
+
+1. **`apps/desktop/src/renderer/lib/ipc.ts`**: Add `safeCall<T>(fn, fallback, channel)` and `safeVoid(fn, channel)` helper functions. Wrap every IPC method:
+   - List/query calls → fallback to empty array or null
+   - Mutation/action calls → fallback to null or `{ ok: false }`
+   - Void calls (showSession, hideSession, setViewport, clearViewport) → swallow error
+   - Subscribe → return no-op cleanup function
+   - Each catch logs `console.warn("[IPC] <channel> failed:", err)`.
+2. **`tests/ipcDegradation.test.mjs`**: At least 4 tests:
+   - List call (e.g., `tasks.list`) returns empty array when handler throws.
+   - Action call (e.g., `scheduler.unregister`) returns `{ ok: false }` when handler throws.
+   - Get call (e.g., `tasks.get`) returns null when handler rejects.
+   - Subscribe returns no-op when handler throws.
+3. Run `pnpm run typecheck` + `node --test tests/ipcDegradation.test.mjs` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/ipc.ts`** — Wrapped all 30+ IPC calls with graceful degradation:
+- Added exported `safeCall<T>(fn, fallback, channel)`: wraps both sync throws and async rejections, returns fallback and logs `[IPC] <channel> failed:` warning.
+- Added exported `safeVoid(fn, channel)`: wraps void IPC calls (fire-and-forget), swallows throws with a warning.
+- Every method in the `ipc` object now uses `safeCall` or `safeVoid`:
+  - List calls (tasks.list, browser.listTabs, scheduler.list, templates.list, logs.list, etc.) → `[]`
+  - Get/find calls (tasks.get, handoff.get, runtime.getSettings, etc.) → `null`
+  - Mutation calls with ok result (scheduler.unregister, templates.delete, file.saveExtracted) → `{ ok: false }`
+  - Void calls (browser.showSession, hideSession, navigate, back, forward, reload, setViewport, clearViewport, demos.run/watch/runTaskPack) → swallowed
+  - events.subscribe → returns no-op cleanup function `() => {}`
+
+**`tests/ipcDegradation.test.mjs`** — 13 new tests:
+- safeCall: sync success, async success, sync throw → fallback, async reject → fallback.
+- safeVoid: success, sync throw swallowed.
+- Integrated: tasks.list → [], tasks.get → null, scheduler.unregister → { ok: false }, templates.delete → { ok: false }, events.subscribe → no-op cleanup, browser.showSession → no throw, scheduler.list → [].
+
+**Behavior:**
+- Before: If any of the 30+ `window.openbrowse.*` IPC handlers failed to register (e.g., composition error after rebuild), the renderer got unhandled promise rejections or synchronous throws, causing the UI to break silently with no diagnostic information.
+- After: Every IPC call degrades gracefully — missing or broken handlers return sensible defaults (empty arrays for lists, null for lookups, `{ ok: false }` for mutations) and log a `[IPC] <channel> failed:` console warning. The UI renders with empty state instead of crashing. This is critical for the first rebuild, where 94 sessions of new IPC channels will be registered for the first time.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/ipcDegradation.test.mjs` — 13/13 pass
+- `node --test tests/*.test.mjs` — 1341/1341 pass (was 1328, +13 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- **Program U is now COMPLETE.** T65 (startup diagnostic) and T66 (graceful IPC degradation) are both done.
+- **ALL Programs A-U complete. ALL PM tasks T1-T66 done** (T50/T53 remain blocked on user rebuild).
+- **The overnight loop should now PAUSE per PM directive.** There is no productive work left without rebuild validation data.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- 1341 tests passing. 97 consecutive clean sessions (90-185).
+- Re-testing is the #1 PM priority (user action). The user must rebuild the app and run the 13 test tasks.
+
+*Session log entry written: 2026-03-17 (Session 185)*
