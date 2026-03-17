@@ -1289,6 +1289,131 @@ test("plannerLoop save_note handles missing key and value gracefully", async () 
   assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "note", value: "" }]);
 });
 
+// --- plannerLoop: schedule_recurring interception ---
+
+test("plannerLoop schedule_recurring registers watch via scheduler and does NOT hit kernel", async () => {
+  const registeredWatches = [];
+  const { services, savedRuns, appendedEvents } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "User wants hourly price check",
+        action: {
+          type: "schedule_recurring",
+          value: "Check iPhone price on Amazon",
+          description: "Set up hourly price monitor",
+          interactionHint: JSON.stringify({ intervalMinutes: 60, startUrl: "https://amazon.com/dp/B12345" })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  // Track executeAction calls — schedule_recurring should NOT hit the kernel
+  let executeActionCalled = false;
+  services.browserKernel.executeAction = async () => {
+    executeActionCalled = true;
+    return { ok: true, summary: "Should not be called" };
+  };
+
+  // Mock scheduler
+  services.scheduler = {
+    registerWatch: async (intent, intervalMinutes) => {
+      registeredWatches.push({ intent, intervalMinutes });
+      return "watch_123";
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(executeActionCalled, false, "schedule_recurring should not call browserKernel.executeAction");
+
+  // Verify watch was registered
+  assert.equal(registeredWatches.length, 1);
+  assert.equal(registeredWatches[0].intent.goal, "Check iPhone price on Amazon (start at https://amazon.com/dp/B12345)");
+  assert.equal(registeredWatches[0].intent.source, "scheduler");
+  assert.equal(registeredWatches[0].intent.metadata.startUrl, "https://amazon.com/dp/B12345");
+  assert.equal(registeredWatches[0].intervalMinutes, 60);
+
+  // Verify event was logged
+  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed" && e.summary.includes("Check iPhone price")));
+});
+
+test("plannerLoop schedule_recurring without startUrl omits it from intent", async () => {
+  const registeredWatches = [];
+  const { services } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Daily check",
+        action: {
+          type: "schedule_recurring",
+          value: "Check weather forecast",
+          description: "Set up daily weather check",
+          interactionHint: JSON.stringify({ intervalMinutes: 1440 })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  services.scheduler = {
+    registerWatch: async (intent, intervalMinutes) => {
+      registeredWatches.push({ intent, intervalMinutes });
+      return "watch_456";
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(registeredWatches.length, 1);
+  assert.equal(registeredWatches[0].intent.goal, "Check weather forecast");
+  assert.equal(registeredWatches[0].intent.metadata.startUrl, undefined);
+  assert.equal(registeredWatches[0].intervalMinutes, 1440);
+});
+
+test("plannerLoop schedule_recurring handles scheduler failure gracefully", async () => {
+  const { services } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Monitor",
+        action: {
+          type: "schedule_recurring",
+          value: "Check stock",
+          description: "Monitor stock",
+          interactionHint: JSON.stringify({ intervalMinutes: 60 })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  services.scheduler = {
+    registerWatch: async () => {
+      throw new Error("Scheduler unavailable");
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  // Should NOT crash — run continues after failed watch registration
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+});
+
 // --- T26: Graceful session cleanup on tab close ---
 
 test("T26: capturePageModel 'Session not found' cancels run cleanly", async () => {

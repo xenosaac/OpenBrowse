@@ -20,7 +20,8 @@ export type BrowserActionType =
   | "save_note"
   | "upload_file"
   | "open_in_new_tab"
-  | "switch_tab";
+  | "switch_tab"
+  | "schedule_recurring";
 
 export type BrowserActionFailureClass =
   | "element_not_found"

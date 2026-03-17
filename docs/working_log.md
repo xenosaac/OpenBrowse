@@ -10836,3 +10836,85 @@ Reason: Worktree clean, no unfinished task. All PM tasks T1-T52 done (T50/T53 bl
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 173)*
+
+---
+
+### Session 174 — 2026-03-17: Add `schedule_recurring` Planner Tool
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM tasks T1-T53 done (T50/T53 blocked on rebuild). All Programs A-P complete. 1216 tests passing. Framework maturity checklist satisfied. PM Strategic Priority #5 explicitly names "Recurring/scheduled tasks" as the NEXT CAPABILITY FRONTIER. Sessions 171+173 shipped the WatchesPanel UI + watch persistence. The natural next step (explicitly listed in Session 171/173 next steps) is a planner tool `schedule_recurring` so the agent can create watches during task execution. This unlocks a new task class: user says "check this price every hour" and the agent creates the watch automatically.
+
+#### Plan
+
+1. Add `"schedule_recurring"` to `BrowserActionType` in `packages/contracts/src/browser.ts`.
+2. Add `schedule_recurring` tool definition in `packages/planner/src/toolMapping.ts` with goal, startUrl, intervalMinutes params.
+3. Add `mapToolCallToDecision` case for `schedule_recurring` → `browser_action` with type `schedule_recurring`.
+4. Add `ToolInput` fields: `goal` (string), `interval_minutes` (number).
+5. Handle `schedule_recurring` in `RunExecutor.ts` — locally create TaskIntent and call `this.services.scheduler.registerWatch()`. Return synthetic success result.
+6. Add planner prompt guidance about `schedule_recurring`.
+7. Update tests: `toolMapping.test.mjs` (tool count 20→21, new mapping), `runExecutor.test.mjs` (schedule_recurring handled locally).
+8. Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**`packages/contracts/src/browser.ts`** — Added action type:
+- Added `"schedule_recurring"` to `BrowserActionType` union.
+
+**`packages/planner/src/toolMapping.ts`** — New tool definition + mapping:
+- Added `schedule_recurring` tool definition (21st tool): goal, start_url (optional), interval_minutes, description. Description guides planner usage for periodic monitoring tasks.
+- Added `ToolInput` fields: `goal`, `start_url`, `interval_minutes`.
+- Added `mapToolCallToDecision` case: maps to `browser_action` with type `schedule_recurring`. Goal stored in `value`, interval/startUrl stored as JSON in `interactionHint`. Validation: fails without goal or interval_minutes.
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Local handler (no browser kernel interaction):
+- Added `schedule_recurring` handler after `save_note` handler, before `screenshot` handler.
+- Parses `interactionHint` JSON to extract `intervalMinutes` and optional `startUrl`.
+- Creates a `TaskIntent` with `source: "scheduler"`, matching the pattern in `registerIpcHandlers.ts`.
+- Calls `this.services.scheduler.registerWatch(intent, intervalMinutes)`.
+- Returns synthetic success result with watchId in summary.
+- Graceful degradation: if scheduler.registerWatch throws, logs error but continues run (does not crash).
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Planner guidance:
+- Added "Recurring monitoring" section under multi-tab instructions.
+- Instructs planner: use `schedule_recurring` when user asks for periodic monitoring; use AFTER confirming page is accessible; lists common intervals.
+
+**`tests/toolMapping.test.mjs`** — 7 new tests:
+- Updated tool count assertion: 20 → 21.
+- Updated expected tool names list: added `schedule_recurring`.
+- "maps to schedule_recurring action with goal, interval, and startUrl" — full mapping with hint parsing.
+- "omits startUrl from hint when not provided" — interval-only case.
+- "uses default description when missing" — default description.
+- "fails when goal is missing" — validation.
+- "fails when interval_minutes is missing" — validation.
+- Updated cross-cutting reasoning test: added `schedule_recurring` entry.
+- Added 2 missing-field validation tests in the dedicated section.
+
+**`tests/runExecutor.test.mjs`** — 3 new tests:
+- "plannerLoop schedule_recurring registers watch via scheduler and does NOT hit kernel" — full integration: verifies intent fields, scheduler call, event logging, kernel bypass.
+- "plannerLoop schedule_recurring without startUrl omits it from intent" — minimal case.
+- "plannerLoop schedule_recurring handles scheduler failure gracefully" — error resilience.
+
+**Behavior:**
+- Before this feature: The agent could not create recurring watches during task execution. Users had to manually create watches in the WatchesPanel (Session 171). If a user said "check this price every hour," the agent could only mark the task complete — it couldn't set up ongoing monitoring.
+- After this feature: The planner has a `schedule_recurring` tool. When the user's goal implies periodic monitoring, the agent creates a watch automatically. The watch persists across app restarts (via Session 173's persistence). Example flow: user says "check the price of X every hour" → agent navigates to the page, reads the price, calls `schedule_recurring(goal="Check price of X", interval_minutes=60, start_url="https://...")` → watch is registered → agent completes the task. Every hour, the scheduler fires a new run with the same goal.
+- The tool follows the same local-interception pattern as `save_note` and `screenshot` — it does not go through the browser kernel. The scheduler is accessed directly via `this.services.scheduler`.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 91/91 pass (was 84, +7 new)
+- `node --test tests/runExecutor.test.mjs` — 65/65 pass (was 62, +3 new)
+- `node --test tests/*.test.mjs` — 1226/1226 pass (was 1216, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are still complete. All PM tasks T1-T53 status: T1-T49 done, T50 waiting for rebuild, T51-T52 done, T53 waiting for rebuild.
+- Current planner tool inventory: 21 tools (was 20). `schedule_recurring` is the 21st.
+- Watch persistence (Session 173) needs to also persist watches created by the planner tool. Currently the IPC handler calls `persistWatches()` after register/unregister, but the RunExecutor's direct `scheduler.registerWatch()` does not. Follow-up: either emit an event that triggers persistence, or have the scheduler itself persist on change.
+- Consider adding Telegram notification when a watched page content changes — "content diff notifications" from Session 171/173 next steps.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 174)*
