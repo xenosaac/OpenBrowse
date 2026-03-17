@@ -12510,3 +12510,46 @@ DB unchanged (54 runs, last modified Mar 16 23:42). PM doc unchanged. T50 and T6
 #### Status: PAUSED
 
 *Session log entry written: 2026-03-17 (Session 224)*
+
+---
+
+### Session 225 — 2026-03-17: T69 — Update Empty-State Task Suggestions with Validation Test Tasks
+
+#### Mode: feature (PM-directed — Program V Phase 0.5)
+
+PM doc updated with Phase 0.5 (ACTIVE NOW) at strategic section line 413-417: "Rather than wait indefinitely, the engineer should build validation infrastructure that makes testing easier and results more visible." Three tasks: T68 (run analytics panel, P2), T69 (suggested test tasks in empty state, P1), T70 (token usage in timeline, P2). Sessions 222-224 missed this because they checked the stale "For the Engineer" section. The strategic section is the authoritative directive.
+
+T69 is P1, so it goes first. It's a renderer-only change: update the 4 suggestion pills in the chat empty state to cover the 4 key validation categories (multi-step, interactive, multi-tab, simple).
+
+#### Plan
+
+1. Update the `SUGGESTIONS` array in `Sidebar.tsx` with the 4 PM-specified suggestions
+2. Run typecheck
+3. Update this log and commit
+
+#### Implementation
+
+**Updated `apps/desktop/src/renderer/components/sidebar/Sidebar.tsx`:**
+- Changed the 4 `SUGGESTIONS` entries from generic tasks to PM-specified validation test tasks:
+  1. "Find the cheapest flight from SNA to SEA in April" (multi-step navigation)
+  2. "Play today's Wordle" (vision + interactive)
+  3. "Compare AirPods prices across Amazon, Best Buy, and Walmart" (multi-tab)
+  4. "Look up the weather forecast for this week" (simple search — confidence builder)
+- These match the PM's acceptance criteria: cover all 4 key validation categories (multi-step, interactive, multi-tab, simple)
+- Click-to-submit behavior unchanged — no architecture changes
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean (0 errors)
+- Renderer-only string change; no tests needed per PM acceptance criteria ("Typecheck passes" is sufficient)
+- No new IPC, no new components, no logic changes
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T68 (run analytics panel, P2)** — next in Phase 0.5 priority order
+- **T70 (token usage in task timeline, P2)** — after T68
+- Phase 1 still requires ≥7 more user test tasks including multi-step
+
+*Session log entry written: 2026-03-17 (Session 225)*

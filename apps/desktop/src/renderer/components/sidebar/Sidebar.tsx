@@ -146,10 +146,10 @@ export function Sidebar(props: Props) {
 }
 
 const SUGGESTIONS = [
-  "Search Google for the top noise-cancelling headphones",
-  "Go to Wikipedia and summarize the article on Electron",
-  "Open Hacker News and extract the top 5 story titles",
-  "Compare flight prices on Google Flights from SFO to NYC",
+  "Find the cheapest flight from SNA to SEA in April",
+  "Play today's Wordle",
+  "Compare AirPods prices across Amazon, Best Buy, and Walmart",
+  "Look up the weather forecast for this week",
 ];
 
 const styles: Record<string, React.CSSProperties> = {
