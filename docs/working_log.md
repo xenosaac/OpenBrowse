@@ -8531,4 +8531,51 @@ Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29
 - After T29: Program J complete. PM should re-validate with user re-testing.
 - Auth-dependent tasks are now unblocked for user testing.
 
+---
+
+### Session 139 — 2026-03-16: T29 — Page-type Strategy Hints in Planner Prompt
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29 (Program J — Planner Reasoning Depth). T27 and T28 are done (Sessions 137-138). T29 is the last task in Program J: add conditional page-type strategy hints to the user prompt based on `pageModel.pageType`. Prompt-only change, zero runtime risk.
+
+#### Plan
+
+1. In `buildPlannerPrompt.ts`, replace the simple `pageTypeStr` label with a function that returns page-type-specific strategy hints for all 5 non-unknown types: `search_results`, `form`, `login`, `checkout`, `article`.
+2. Each hint includes `Page type: X` label plus 1-2 sentences of tactical guidance.
+3. Add at least 2 new tests in `planner-prompt.test.mjs` for page-type hint content.
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Replaced the bare `Page type: X` label with page-type-specific strategy hints:
+- `search_results`: "Scan results for relevant information. Use `browser_read_text` to extract. Only click through if you need deeper content."
+- `form`: "Fill fields systematically top-to-bottom. Check for required fields before submitting. Use the Forms section below."
+- `login`: "See Authentication Flows guidance above. NEVER guess credentials — use `ask_user`."
+- `checkout`: "HIGH-RISK page. Double-check all entries before submitting. Use `ask_user` to confirm before any final purchase/submit action."
+- `article`: "Use `browser_read_text` for extraction. Avoid clicking elements unless navigating to a linked section."
+- Unknown/missing pageType: no hint shown (unchanged behavior).
+
+**`tests/planner-prompt.test.mjs`** — Added 2 tests:
+- "T29: user prompt includes page-type strategy hints for search_results, form, login, checkout, article" — verifies each page type produces its specific guidance in the user prompt
+- "T29: user prompt omits page-type hint for unknown or missing pageType" — verifies no hint for unknown/undefined
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 191/191 pass (+2 new)
+- `node --test tests/*.test.mjs` — 1119/1119 pass (was 1117, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T29 complete. **Program J (Planner Reasoning Depth) is now fully complete:** T27 (sub-goal tracking), T28 (auth flows), T29 (page-type hints) all done.
+- PM should re-validate with user re-testing. Programs I and J combined address planner quality from multiple angles.
+- Next work should come from PM's self-directed feature suggestions: bookmark support, tab pinning, keyboard shortcuts, or other user-visible product value. Or revisit failure evidence after user re-testing.
+
+*Session log entry written: 2026-03-16 (Session 139)*
+
 *Session log entry written: 2026-03-16 (Session 138)*
