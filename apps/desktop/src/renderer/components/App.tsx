@@ -675,7 +675,8 @@ export function App() {
         role: "agent",
         content,
         tone,
-        timestamp: run.outcome!.finishedAt
+        timestamp: run.outcome!.finishedAt,
+        ...(ed && ed.length > 0 ? { extractedData: ed } : {})
       };
       chat.postToRunSessions(run.id, outcomeMsg);
     }

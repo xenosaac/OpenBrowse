@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import type { ChatMessage } from "../../types/chat";
 import { renderMarkdownHtml } from "../../lib/markdown";
 import { colors, glass } from "../../styles/tokens";
@@ -7,8 +7,24 @@ interface Props {
   message: ChatMessage;
 }
 
+function extractedDataToTsv(data: Array<{ label: string; value: string }>): string {
+  return data.map((item) => `${item.label}\t${item.value}`).join("\n");
+}
+
 export function ChatMessageItem({ message }: Props) {
+  const [copied, setCopied] = useState(false);
   const isAction = message.tone === "action" || message.tone === "action-error";
+  const hasExtracted = message.extractedData && message.extractedData.length > 0;
+
+  const handleCopy = useCallback(() => {
+    if (!message.extractedData || copied) return;
+    const tsv = extractedDataToTsv(message.extractedData);
+    navigator.clipboard.writeText(tsv).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [message.extractedData, copied]);
+
   return (
     <div style={{
       ...styles.chatRow,
@@ -33,6 +49,14 @@ export function ChatMessageItem({ message }: Props) {
           <div dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(message.content) }} />
         ) : (
           <div>{message.content}</div>
+        )}
+        {hasExtracted && (
+          <button
+            onClick={handleCopy}
+            style={copied ? { ...styles.copyButton, ...styles.copyButtonCopied } : styles.copyButton}
+          >
+            {copied ? "Copied \u2713" : "Copy"}
+          </button>
         )}
         <div style={styles.chatTime}>
           {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -91,5 +115,20 @@ const styles: Record<string, React.CSSProperties> = {
     borderLeft: "2px solid " + colors.statusFailed, borderRadius: 6,
     padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
   } as React.CSSProperties,
-  chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" }
+  chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" },
+  copyButton: {
+    ...glass.control,
+    border: "1px solid " + colors.borderControl,
+    borderRadius: 6,
+    padding: "3px 10px",
+    marginTop: 6,
+    fontSize: "0.72rem",
+    color: colors.textSecondary,
+    cursor: "pointer",
+    transition: "all 150ms ease",
+  } as React.CSSProperties,
+  copyButtonCopied: {
+    color: colors.emerald,
+    borderColor: colors.emeraldBorder,
+  },
 };
