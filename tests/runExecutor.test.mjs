@@ -1379,3 +1379,97 @@ test("T26: capturePageModel non-session error still uses fallback page model", a
   assert.equal(result.status, "completed", "Non-session errors should not cancel");
   assert.equal(captureCount, 2, "Should have retried once");
 });
+
+// --- Session 162: Cancel-vs-fail race condition fixes ---
+
+test("capturePageModel non-session error returns already-cancelled run from checkpoint", async () => {
+  // Simulates: tab closed → cancelTrackedRun saved "cancelled" → capturePageModel
+  // throws a CDP error (not "Session not found") → should detect the cancelled
+  // checkpoint and return it instead of falling through to fallback page model.
+  const { services, appendedEvents } = makeServices({
+    decisions: [],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "cancelled",
+      outcome: { status: "cancelled", summary: "Run cancelled from browser group close.", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.capturePageModel = async () => {
+    throw new Error("Object has been destroyed");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Should return the already-cancelled run");
+  assert.equal(result.outcome.summary, "Run cancelled from browser group close.");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed");
+  assert.ok(!appendedEvents.some(e => e.type === "planner_request_failed"), "Should NOT log planner_request_failed");
+});
+
+test("executeAction non-session error returns already-cancelled run from checkpoint", async () => {
+  // Simulates: tab closed → cancelTrackedRun saved "cancelled" → executeAction
+  // throws a CDP error (not "Session not found") → should detect the cancelled
+  // checkpoint and return it instead of re-throwing to failUnexpectedRun.
+  const cancelledRun = {
+    ...makeRun({ id: "run_1" }),
+    status: "cancelled",
+    outcome: { status: "cancelled", summary: "Run cancelled from browser group close.", finishedAt: new Date().toISOString() },
+  };
+  const savedStore = [cancelledRun];
+  const { services, appendedEvents } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click button",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+  });
+  // Override load to return the cancelled run after the first save (observePage)
+  let loadCount = 0;
+  services.runCheckpointStore.load = async () => {
+    loadCount++;
+    // After observePage save, subsequent loads find the cancelled run
+    return loadCount > 1 ? cancelledRun : null;
+  };
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Debugger is not attached");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun({ id: "run_1" }), makeSession());
+
+  assert.equal(result.status, "cancelled", "Should return the cancelled run, not throw");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed");
+});
+
+test("executeAction 'Session not found' returns already-failed run from checkpoint", async () => {
+  // Edge case: if the checkpoint shows "failed" (e.g., set by another process),
+  // the handler should return it rather than trying to cancel again.
+  const { services } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "failed",
+      outcome: { status: "failed", summary: "Already failed", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.outcome.summary, "Already failed");
+});

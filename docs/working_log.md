@@ -9929,6 +9929,7 @@ Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complet
 
 ### Session 161 — 2026-03-16: Split View (Self-Directed Browser Feature)
 
+
 #### Mode: feature
 
 Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complete. PM guidance: "After T45, self-directed features should remain browser-visible or capability work. Good candidates: print-to-PDF improvements, tab grouping, split view." Sessions 159-160 did reader mode and tab grouping. Split view is the next PM-suggested candidate. Framework maturity checklist satisfied — 1170/1170 tests passing.
@@ -10018,4 +10019,63 @@ Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complet
 - Tab group persistence (like T40 did for pin state) could be a follow-up.
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
-*Session log entry written: 2026-03-16 (Session 161)*
+---
+
+### Session 162 — 2026-03-16: Fix Cancel-vs-Fail Race Condition on Tab Close
+
+#### Mode: framework
+
+Reason: Worktree clean, no unfinished task. Analysis of database failure evidence shows recurring "Browser session lost" → run_failed pattern. The code has a race condition: when a browser tab is closed mid-run, `cancelTrackedRun` saves "cancelled" to the checkpoint, but the concurrent planner loop can overwrite it with "running" (via its own checkpoint save at observePage) or with "failed" (via `failUnexpectedRun` catch-all). PM explicitly flagged this: "T26 should have converted this to a clean cancel. This warrants investigation."
+
+Root cause analysis:
+1. `cancelTrackedRun` does NOT set the CancellationController's `pending` flag — only the checkpoint-based check can detect it.
+2. The planner loop's checkpoint save (after observePage) can overwrite a "cancelled" checkpoint back to "running", making the later checkpoint-based check see "running" instead of "cancelled".
+3. CDP errors from destroyed sessions may not match "Session not found" (e.g., "Object has been destroyed", "Debugger is not attached") — these fall through to the fallback page model path instead of the session-lost handler.
+4. `failUnexpectedRun` (catch-all for unhandled plannerLoop exceptions) uses the original stale `run` object, not the latest checkpoint, and can overwrite "cancelled" with "failed".
+
+#### Plan
+
+Three targeted fixes (smallest safe increment):
+1. **`failUnexpectedRun`**: Load latest checkpoint before overwriting. If already terminal, return it.
+2. **`capturePageModel` catch**: After "Session not found" check, add checkpoint freshness check for other session-death errors before falling through to fallback.
+3. **`executeAction` catch**: After "Session not found" check, add checkpoint freshness check before re-throwing.
+
+#### Implementation
+
+**`packages/runtime-core/src/OpenBrowseRuntime.ts` — `failUnexpectedRun`:**
+- Before calling `failRun`, loads the latest checkpoint from the store.
+- If the checkpoint shows the run is already terminal (completed/cancelled/failed), returns that run immediately — prevents the catch-all from overwriting "cancelled" with "failed".
+- Uses the latest checkpoint as the base for `failRun` instead of the stale in-memory `run` object.
+
+**`packages/runtime-core/src/RunExecutor.ts` — `capturePageModel` catch (secondErr handler):**
+- After the existing "Session not found" check, added a checkpoint freshness check.
+- If the run was already cancelled externally (e.g., `cancelTrackedRun` saved "cancelled" while the CDP error was "Object has been destroyed" instead of "Session not found"), returns the already-terminal run instead of falling through to the fallback page model path.
+- Prevents the planner loop from continuing on a fake page model when the run should be done.
+
+**`packages/runtime-core/src/RunExecutor.ts` — `executeAction` catch:**
+- After the existing "Session not found" check, added a checkpoint freshness check before re-throwing.
+- If the run was already cancelled but the CDP error wasn't "Session not found" (e.g., "Debugger is not attached"), returns the already-terminal run instead of propagating the exception to `failUnexpectedRun`.
+
+**`tests/runExecutor.test.mjs` — 3 new tests:**
+- "capturePageModel non-session error returns already-cancelled run from checkpoint" — verifies "Object has been destroyed" error returns cancelled run, no run_failed/planner_request_failed events.
+- "executeAction non-session error returns already-cancelled run from checkpoint" — verifies "Debugger is not attached" error returns cancelled run, no re-throw.
+- "executeAction 'Session not found' returns already-failed run from checkpoint" — verifies the handler returns an already-failed run without trying to cancel again.
+
+#### Verification
+
+- `pnpm --filter @openbrowse/runtime-core typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/desktop typecheck` — ✓ clean
+- `pnpm --filter @openbrowse/runtime-core build` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 48/48 pass (was 45, +3 new)
+- `node --test tests/*.test.mjs` — 1173/1173 pass (was 1170, +3 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- These fixes close the cancel-vs-fail race condition. The "Browser session lost" → run_failed pattern should no longer occur when a tab is closed mid-run.
+- The remaining gap is that `cancelTrackedRun` does not set the CancellationController's `pending` flag (it's a standalone function without access to it). This means the planner loop's synchronous `isCancelled()` check at the top of each iteration won't detect it. The checkpoint-based checks are the defense, which now cover all the error paths. A future improvement could wire the CancellationController into `cancelTrackedRun` for faster cooperative cancellation.
+- PM guidance: self-directed features should remain browser-visible or capability work.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 162)*
