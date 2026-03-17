@@ -355,6 +355,18 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  register("browser:save-tab-groups", async (_event, data: {
+    groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+    assignments: Record<string, string>;
+  }) => {
+    browserShell.saveTabGroups(data.groups, data.assignments);
+    return { ok: true };
+  });
+
+  register("browser:get-tab-groups", async () => {
+    return browserShell.getTabGroups();
+  });
+
   register("browser:navigate", async (_event, { sessionId, url }: { sessionId: string; url: string }) => {
     browserShell.navigateTo(sessionId, url);
     return { ok: true };

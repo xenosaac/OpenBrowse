@@ -78,6 +78,14 @@ declare global {
       browserNewTab: (url?: string) => Promise<BrowserShellTabDescriptor>;
       setTabPinned: (tabId: string, pinned: boolean) => Promise<void>;
       setTabOrder: (orderedIds: string[]) => Promise<void>;
+      saveTabGroups: (
+        groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>,
+        assignments: Record<string, string>
+      ) => Promise<{ ok: boolean }>;
+      getTabGroups: () => Promise<{
+        tabGroups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+        groupAssignments: Record<string, string>;
+      }>;
       browserNavigate: (sessionId: string, url: string) => Promise<void>;
       browserBack: (sessionId: string) => Promise<void>;
       browserForward: (sessionId: string) => Promise<void>;
