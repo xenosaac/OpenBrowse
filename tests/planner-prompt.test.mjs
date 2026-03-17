@@ -2858,3 +2858,48 @@ test("T28: system prompt explicitly forbids guessing credentials", () => {
   // Must say NEVER guess/auto-fill/fabricate credentials
   assert.match(system, /NEVER guess, auto-fill, or fabricate credentials/);
 });
+
+// ---------------------------------------------------------------------------
+// T29: Page-type strategy hints in planner prompt
+// ---------------------------------------------------------------------------
+
+test("T29: user prompt includes page-type strategy hints for search_results, form, login, checkout, article", () => {
+  const pageTypes = ["search_results", "form", "login", "checkout", "article"];
+
+  for (const pt of pageTypes) {
+    const { user } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: pt }));
+    // Each page type should include its label
+    assert.match(user, new RegExp(`Page type: ${pt}`), `Missing page type label for ${pt}`);
+  }
+
+  // search_results: scan results guidance
+  const { user: searchUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "search_results" }));
+  assert.match(searchUser, /search results page.*Scan results/i);
+
+  // form: fill fields top-to-bottom
+  const { user: formUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "form" }));
+  assert.match(formUser, /form page.*Fill fields.*top-to-bottom/i);
+
+  // login: references Authentication Flows
+  const { user: loginUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "login" }));
+  assert.match(loginUser, /login page.*Authentication Flows/i);
+
+  // checkout: HIGH-RISK and ask_user confirm
+  const { user: checkoutUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "checkout" }));
+  assert.match(checkoutUser, /checkout.*HIGH-RISK/i);
+  assert.match(checkoutUser, /ask_user.*confirm/i);
+
+  // article: use read_text
+  const { user: articleUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "article" }));
+  assert.match(articleUser, /content.*article page.*read_text/i);
+});
+
+test("T29: user prompt omits page-type hint for unknown or missing pageType", () => {
+  // unknown
+  const { user: unknownUser } = buildPlannerPrompt(makeRun(), makePageModel({ pageType: "unknown" }));
+  assert.doesNotMatch(unknownUser, /Page type:/);
+
+  // undefined (default makePageModel has no pageType)
+  const { user: noTypeUser } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.doesNotMatch(noTypeUser, /Page type:/);
+});

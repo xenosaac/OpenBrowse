@@ -142,9 +142,16 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     })
     .join("\n");
 
-  // --- Page type context ---
+  // --- Page type context with strategy hints (T29) ---
+  const pageTypeHints: Record<string, string> = {
+    search_results: "Page type: search_results — You are on a search results page. Scan results for relevant information. Use `browser_read_text` to extract details. Only click through to a result if you need deeper content not visible in the snippet.",
+    form: "Page type: form — You are on a form page. Fill fields systematically top-to-bottom. Check for required fields before submitting. Use the Forms section below for field refs and current values.",
+    login: "Page type: login — You are on a login page. See Authentication Flows guidance above. NEVER guess credentials — use `ask_user`.",
+    checkout: "Page type: checkout — You are on a checkout/payment page. This is a HIGH-RISK page. Double-check all entries before submitting. Use `ask_user` to confirm before any final purchase/submit action.",
+    article: "Page type: article — You are on a content/article page. Use `browser_read_text` for extraction. Avoid clicking elements unless navigating to a linked section or page.",
+  };
   const pageTypeStr = pageModel.pageType && pageModel.pageType !== "unknown"
-    ? `Page type: ${pageModel.pageType}`
+    ? (pageTypeHints[pageModel.pageType] ?? `Page type: ${pageModel.pageType}`)
     : "";
 
   // --- Alerts ---
