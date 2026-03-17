@@ -148,7 +148,7 @@ export function TabBar(props: Props) {
                 } as React.CSSProperties}
                 title={pinned ? tab.title : undefined}
               >
-                {favicon ? (
+                {favicon && !dot.animate ? (
                   <img src={favicon} alt="" width={16} height={16}
                     style={{ flexShrink: 0, borderRadius: 2 }}
                     onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
@@ -156,7 +156,7 @@ export function TabBar(props: Props) {
                 ) : (
                   <span style={{
                     ...styles.headerTabDot, background: dot.color,
-                    ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
+                    ...(dot.animate ? { width: 8, height: 8, animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
                   }} title={dot.title} />
                 )}
                 {!pinned && <span style={styles.headerTabTitle}>{tab.title}</span>}
