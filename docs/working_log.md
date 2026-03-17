@@ -9146,4 +9146,61 @@ Tab pinning is a standard browser feature. Pinned tabs are compact (favicon only
 - Tab drag reorder (PM-suggested self-directed feature).
 - PM guidance: focus on user-visible browser value.
 
+---
+
+### Session 150 — 2026-03-16: Tab Drag Reorder (Self-Directed Browser Feature)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-M and tasks T30-T38 done. Session 149 completed tab pinning. PM guidance: "self-directed features should focus on user-visible browser value (tab pinning, tab drag reorder, print support)." Tab drag reorder is next in list. Framework maturity checklist satisfied — bias toward feature work. Failure data is mostly from pre-fix un-rebuilt app or vision-requiring tasks (Wordle).
+
+#### Context
+
+Tab drag-and-drop reorder is a standard browser feature. Users should be able to drag tabs to rearrange their order. Pinned tabs stay in the pinned group; unpinned tabs stay in the unpinned group. Visual feedback during drag (opacity on dragged tab, drop indicator on target).
+
+#### Plan
+
+1. **`useBrowserTabs.ts`**: Add `moveTab(fromGroupId, toGroupId)` that reorders `shellTabs`. The existing `sortedTabs` stable sort preserves reorder within pin groups.
+2. **`TabBar.tsx`**: Accept `onMoveTab` prop. Add HTML5 drag-and-drop (draggable, dragstart, dragover, drop, dragend). Show opacity change on dragged tab and left-border indicator on drop target.
+3. **`App.tsx`**: Wire `onMoveTab` prop from `browserTabs.moveTab` to `TabBar`.
+4. Run typecheck.
+5. Run tests.
+6. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Added `moveTab` function:
+- New `moveTab(fromGroupId, toGroupId)` callback that reorders `shellTabs` by splicing the source tab to the target tab's position.
+- Works correctly with the existing `sortedTabs` stable sort: reorder within pinned tabs stays in pinned group, reorder within unpinned tabs stays in unpinned group.
+- Returned from the hook for consumer wiring.
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Added drag-and-drop support:
+- New prop: `onMoveTab: (fromGroupId: string, toGroupId: string) => void`.
+- New state: `draggedGroupId` and `dropTargetGroupId` for tracking drag state.
+- Each tab is `draggable`. Drag handlers:
+  - `onDragStart`: stores dragged tab's groupId, sets `effectAllowed: "move"`.
+  - `onDragOver`: prevents default, sets `dropEffect: "move"`, highlights drop target.
+  - `onDragLeave`: clears drop target highlight.
+  - `onDrop`: calls `onMoveTab(draggedGroupId, dropTargetGroupId)`, clears state.
+  - `onDragEnd`: clears all drag state (handles drops outside valid targets).
+- Visual feedback: dragged tab gets `opacity: 0.4`, drop target gets `borderLeft: 2px solid emerald`.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wired new prop:
+- Passes `onMoveTab={browserTabs.moveTab}` to `TabBar`.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — pure renderer UI drag-and-drop)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Print support (PM-suggested self-directed feature).
+- Persist tab order + pin state to SQLite for cross-restart preservation.
+- PM guidance: focus on user-visible browser value.
+
+*Session log entry written: 2026-03-16 (Session 150)*
+
 *Session log entry written: 2026-03-16 (Session 149)*

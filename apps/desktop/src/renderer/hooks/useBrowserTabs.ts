@@ -103,6 +103,18 @@ export function useBrowserTabs() {
     });
   }, []);
 
+  const moveTab = useCallback((fromGroupId: string, toGroupId: string) => {
+    setShellTabs(prev => {
+      const fromIdx = prev.findIndex(t => t.groupId === fromGroupId);
+      const toIdx = prev.findIndex(t => t.groupId === toGroupId);
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }, []);
+
   // Sorted tabs: pinned first (preserving relative order), then unpinned
   const sortedTabs = [...shellTabs].sort((a, b) => {
     const ap = pinnedTabs.has(a.groupId) ? 0 : 1;
@@ -113,6 +125,6 @@ export function useBrowserTabs() {
   return {
     shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs,
     refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload,
-    pinTab, unpinTab, togglePinTab
+    pinTab, unpinTab, togglePinTab, moveTab
   };
 }

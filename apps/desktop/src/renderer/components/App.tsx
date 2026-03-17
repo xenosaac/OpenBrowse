@@ -866,6 +866,7 @@ export function App() {
             onToggleSidebar={layout.toggleSidebar}
             onPinTab={browserTabs.pinTab}
             onUnpinTab={browserTabs.unpinTab}
+            onMoveTab={browserTabs.moveTab}
           />
           <div style={styles.chromeSeparator} />
           <NavBar
