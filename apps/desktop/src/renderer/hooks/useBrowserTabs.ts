@@ -7,6 +7,7 @@ export function useBrowserTabs() {
   const [shellTabs, setShellTabs] = useState<BrowserShellTabDescriptor[]>([]);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
   const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
+  const [pinnedTabs, setPinnedTabs] = useState<Set<string>>(new Set());
 
   const refreshTabs = useCallback(async () => {
     try {
@@ -86,8 +87,32 @@ export function useBrowserTabs() {
     await window.openbrowse.browserReload(sessionId);
   }, []);
 
+  const pinTab = useCallback((groupId: string) => {
+    setPinnedTabs(prev => { const next = new Set(prev); next.add(groupId); return next; });
+  }, []);
+
+  const unpinTab = useCallback((groupId: string) => {
+    setPinnedTabs(prev => { const next = new Set(prev); next.delete(groupId); return next; });
+  }, []);
+
+  const togglePinTab = useCallback((groupId: string) => {
+    setPinnedTabs(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId); else next.add(groupId);
+      return next;
+    });
+  }, []);
+
+  // Sorted tabs: pinned first (preserving relative order), then unpinned
+  const sortedTabs = [...shellTabs].sort((a, b) => {
+    const ap = pinnedTabs.has(a.groupId) ? 0 : 1;
+    const bp = pinnedTabs.has(b.groupId) ? 0 : 1;
+    return ap - bp;
+  });
+
   return {
-    shellTabs, loadingTabs, tabFavicons,
-    refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload
+    shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs,
+    refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload,
+    pinTab, unpinTab, togglePinTab
   };
 }
