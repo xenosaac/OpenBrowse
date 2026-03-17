@@ -2945,3 +2945,42 @@ test("T33: saved notes section absent when no notes", () => {
   const { user } = buildPlannerPrompt(makeRun(), makePageModel());
   assert.ok(!user.includes("Your saved notes"));
 });
+
+// --- Content stagnation warning ---
+
+test("content stagnation warning appears when unchangedPageActions >= 3", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      unchangedPageActions: 3
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /page content has NOT visibly changed/);
+  assert.match(user, /last 3 actions/);
+  assert.match(user, /COMPLETELY DIFFERENT approach/);
+});
+
+test("content stagnation warning absent when unchangedPageActions < 3", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "ok",
+      notes: [],
+      stepCount: 3,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      unchangedPageActions: 2
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.ok(!user.includes("page content has NOT visibly changed"));
+});
+
+test("content stagnation warning absent when unchangedPageActions is undefined", () => {
+  const { user } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.ok(!user.includes("page content has NOT visibly changed"));
+});

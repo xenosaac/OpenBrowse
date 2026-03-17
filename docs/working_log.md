@@ -10500,4 +10500,74 @@ Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) done, all Prog
 
 *Session log entry written: 2026-03-16 (Session 168)*
 
+---
+
+### Session 169 — 2026-03-16: Page Content Change Detection for Planner Anti-Stall
+
+#### Mode: framework
+
+Reason: Worktree clean, no unfinished task. All PM tasks (T1-T49) done, all Programs (A-P) complete. Database failure evidence shows "stuck in cycle" remains the #1 failure class (7-8 of 35 failures). The planner gets stuck clicking/typing without realizing its actions have no visible effect. Existing stuck detectors (cycle detection, URL visit count, consecutive identical actions) only trigger after many wasted steps. Content-based progress detection — tracking whether the page visually changes after actions — was explicitly suggested in Session 168. This gives the planner early warning that its actions aren't working, allowing it to change strategy before hard detectors kill the run. Framework mode: core runtime safety improvement discovered from database failure evidence.
+
+#### Plan
+
+1. **`contracts/src/tasks.ts`**: Add optional `unchangedPageActions?: number` to `RunCheckpoint`.
+2. **`RunExecutor.ts`**: Track visible text fingerprint (first 500 chars). After each successful action, compare current page model's content with previous. Increment `unchangedPageActions` when content unchanged; reset when it changes. Only increment when the previous action was successful.
+3. **`buildPlannerPrompt.ts`**: When `unchangedPageActions >= 3`, inject warning: "Your last N actions did not visibly change the page content. Your actions may not be having the intended effect."
+4. **Tests**: Test prompt warning injection, test RunExecutor tracking.
+5. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`packages/contracts/src/tasks.ts`** — New checkpoint field:
+- Added optional `unchangedPageActions?: number` to `RunCheckpoint` interface.
+- Tracks how many consecutive successful browser actions produced no visible change in page content.
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Content change tracking in planner loop:
+- Added `lastContentSlice` and `lastActionOk` local variables.
+- After each page model capture, computes a content fingerprint (first 500 chars of `visibleText`).
+- If the previous action was successful and the content fingerprint matches the previous iteration, increments `checkpoint.unchangedPageActions`.
+- If content changed, resets to 0. If the previous action failed or there's no previous content, skips the check.
+- `lastActionOk` is set to `true` only after successful kernel actions (click, type, navigate, etc.), NOT after internal actions (save_note, screenshot) since those don't affect page content.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Stagnation warning injection:
+- When `unchangedPageActions >= 3`, injects a warning section in the user prompt.
+- Warning text: "The page content has NOT visibly changed after your last N actions. Your actions may not be having the intended effect."
+- Provides 5 concrete strategies: use `read_text`, try different elements, use `press_key`, navigate elsewhere, call `task_complete` with partial results.
+- Placed alongside other warning sections (soft failures, URL warnings, etc.) in the prompt template.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests:
+- "content stagnation warning appears when unchangedPageActions >= 3" — verifies warning text and count.
+- "content stagnation warning absent when unchangedPageActions < 3" — verifies no false positive at count 2.
+- "content stagnation warning absent when unchangedPageActions is undefined" — verifies clean default.
+
+**`tests/runExecutor.test.mjs`** — 3 new tests:
+- "plannerLoop tracks unchangedPageActions when page content stays the same" — 4 successful actions with identical visible text, verifies counter >= 3.
+- "plannerLoop resets unchangedPageActions when page content changes" — content changes mid-run, verifies counter resets (final value = 1, proving the reset).
+- "plannerLoop does NOT increment unchangedPageActions after failed actions" — failed action followed by same content, verifies counter stays <= 1.
+
+**Behavior:**
+- Before this fix: The planner could take many actions on a page without realizing those actions had no visible effect. The only safety nets were: cycle detection (requires exact action repetition), URL visit counter (only for navigate actions), and consecutive identical actions (requires exact action key match). A planner clicking different buttons that all do nothing would waste the full 50-step budget.
+- After this fix: The planner receives an explicit warning after 3 consecutive successful actions that don't change the page content. This warning includes concrete strategies for breaking out of the stall. The planner can change approach before the hard stuck detectors kill the run.
+- This directly addresses the "stuck in cycle" failure class (7-8 of 35 database failures) by catching a more general stagnation pattern: the planner is acting, but the page isn't responding.
+- The content check only fires for "real" browser actions (click, type, navigate, etc.), not internal actions (save_note, screenshot), so there are no false positives from read-only operations.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 197/197 pass (was 194, +3 new)
+- `node --test tests/runExecutor.test.mjs` — 58/58 pass (was 55, +3 new)
+- `node --test tests/*.test.mjs` — 1204/1204 pass (was 1198, +6 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are still complete. All PM tasks (T1-T49) still done.
+- Re-testing remains the #1 PM priority (user action) — 72+ sessions of fixes sitting unvalidated.
+- The stagnation warning provides early feedback; further improvement could add a hard kill at e.g., 8 unchanged actions.
+- Consider page-structure fingerprinting (element count + form count) in addition to visible text for better sensitivity.
+- Consider lowering MAX_URL_VISITS_BEFORE_FAIL from 12 to 8 (Session 168 suggestion, still relevant).
+
+*Session log entry written: 2026-03-16 (Session 169)*
+
 *Session log entry written: 2026-03-16 (Session 167)*

@@ -132,6 +132,8 @@ export interface RunCheckpoint {
   openedTabs?: Array<{ index: number; sessionId: string; url?: string; title?: string }>;
   /** Which tab the agent is currently operating on (index into openedTabs). Defaults to 0. */
   activeTabIndex?: number;
+  /** How many consecutive successful actions produced no visible change in page content. */
+  unchangedPageActions?: number;
   /** Injected when a run resumes after crash/restart. Cleared after the first planner step post-recovery. */
   recoveryContext?: {
     recoveredAt: string;
