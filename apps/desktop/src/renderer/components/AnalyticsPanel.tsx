@@ -2,12 +2,23 @@ import { useEffect, useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
 import { colors, glass } from "../styles/tokens";
 import { computeRunAnalytics, type RunAnalytics } from "../lib/runAnalytics";
+import { classifyFailure } from "../lib/classifyFailure";
 
 const statusColors: Record<string, string> = {
   completed: colors.emerald,
   failed: colors.statusFailed,
   cancelled: colors.textMuted,
   running: colors.statusRunning,
+};
+
+const failureCategoryLabels: Record<string, string> = {
+  navigation_failed: "Navigation",
+  agent_stuck: "Stuck / Loop",
+  session_lost: "Session Lost",
+  element_stale: "Element Stale",
+  api_error: "API Error",
+  content_policy: "Content Policy",
+  unknown: "Other",
 };
 
 const statusLabels: Record<string, string> = {
@@ -28,7 +39,7 @@ export function AnalyticsPanel() {
     let cancelled = false;
     window.openbrowse.listRecentRuns(200).then((runs: TaskRun[]) => {
       if (!cancelled) {
-        setAnalytics(computeRunAnalytics(runs));
+        setAnalytics(computeRunAnalytics(runs, classifyFailure));
         setLoading(false);
       }
     }).catch(() => {
@@ -69,6 +80,26 @@ export function AnalyticsPanel() {
           )}
         </div>
       </div>
+
+      {/* Failure breakdown by category */}
+      {a.failed > 0 && Object.keys(a.failureBreakdown).length > 0 && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>Failure Breakdown</h3>
+          <div style={styles.breakdownGrid}>
+            {Object.entries(a.failureBreakdown)
+              .sort(([, a], [, b]) => b - a)
+              .map(([category, count]) => (
+                <BreakdownRow
+                  key={category}
+                  label={failureCategoryLabels[category] ?? category}
+                  count={count}
+                  total={a.failed}
+                  color={colors.statusFailed}
+                />
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent runs */}
       <div style={styles.section}>
