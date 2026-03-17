@@ -9022,3 +9022,70 @@ T37: When a task fails, the failure message in the chat should include a "Retry"
 - PM guidance: self-directed features should focus on user-visible browser value.
 
 *Session log entry written: 2026-03-16 (Session 147)*
+
+---
+
+### Session 148 — 2026-03-16: T38 — Address Bar Autocomplete from Browsing History (Program M)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. T37 done in Session 147. PM ordering says T38 next. Program M (Browser Daily-Use Polish). Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+T38: As the user types in the address bar, a dropdown appears with matching URLs from browsing history. Clicking a suggestion navigates to that URL. The `browsing_history` table already has data and a `search()` method. The `searchHistory` IPC handler already exists in preload. Need: debounced query in useAddressBar hook, autocomplete dropdown in NavBar, keyboard navigation (arrow keys + Enter + Escape).
+
+#### Plan
+
+1. **`useAddressBar.ts`**: Add `suggestions` state and a debounced (150ms) IPC query to `searchHistory` on input change while editing. Clear suggestions on blur/navigate/escape.
+2. **`NavBar.tsx`**: Render an autocomplete dropdown below the address bar when suggestions are non-empty. Each item shows title + URL. Click selects. Arrow keys navigate. Enter on highlighted item navigates.
+3. **`App.tsx`**: Update the `searchHistory` type in the Window interface to return typed results.
+4. Style with `glass.control` and existing token system.
+5. Run typecheck.
+6. Run tests.
+7. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useAddressBar.ts`** — Added autocomplete state and debounced search:
+- New `AddressBarSuggestion` interface: `{ url: string; title: string }` (exported).
+- New state: `suggestions` (array), `selectedIndex` (number, -1 = none).
+- Debounced IPC query: on `addressInput` change while `addressEditing` is true and input >= 2 chars, queries `window.openbrowse.searchHistory(input)` after 150ms debounce. Results capped at 8.
+- Clears suggestions on blur/escape via `stopEditing`.
+- `moveSelection(delta)`: wraps around for arrow key navigation.
+- `setSelectedIndex(i)`: absolute positioning for mouse hover.
+- `clearSuggestions()`: clears list and resets selection.
+- `getSelectedSuggestion()`: returns currently highlighted suggestion or null.
+
+**`apps/desktop/src/renderer/components/chrome/NavBar.tsx`** — Added autocomplete dropdown:
+- New props: `suggestions`, `selectedIndex`, `onMoveSelection`, `onSetSelectedIndex`, `onSelectSuggestion`.
+- Dropdown rendered inside the address bar wrapper (position: relative + absolute) when `addressEditing && suggestions.length > 0`.
+- Each suggestion shows title (primary text) and URL (muted secondary text), truncated with ellipsis.
+- Arrow Up/Down: moves selection, prevents default scroll.
+- Enter on selected suggestion: navigates to that URL and blurs. Enter without selection: navigates to typed input as before.
+- Escape: dismisses dropdown + blur (existing behavior).
+- mouseDown on suggestion: navigates to URL (uses mouseDown instead of click to fire before blur).
+- mouseEnter on suggestion: highlights that item.
+- Blur has 150ms delay to allow click on suggestions.
+- Styled with `glass.control`, dark background (rgba(30,30,30,0.95)), border, shadow, existing token system.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wired new NavBar props:
+- Passes `suggestions`, `selectedIndex`, `onMoveSelection`, `onSetSelectedIndex`, `onSelectSuggestion` to NavBar.
+- `onSelectSuggestion`: calls `addressBar.clearSuggestions()` then `handleNavigate(s.url)`.
+- Updated `searchHistory` type in Window interface from `Promise<unknown[]>` to typed `Promise<Array<{ id; url; title; visitedAt }>>`.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — this is pure renderer UI + existing IPC handler)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T38 complete. Program M is now complete.
+- All PM-directed programs (A-M) and all PM-ordered tasks (T30-T38) are done.
+- PM guidance: self-directed features should focus on user-visible browser value (tab pinning, tab drag reorder, print support).
+- No remaining PM-specified tasks. Next iteration should examine failure data for agent reliability gaps or pick a self-directed browser feature.
+
+*Session log entry written: 2026-03-16 (Session 148)*

@@ -120,7 +120,7 @@ declare global {
       chatLinkRun: (sessionId: string, runId: string) => Promise<void>;
       // Browsing history
       listHistory: (limit?: number) => Promise<unknown[]>;
-      searchHistory: (query: string) => Promise<unknown[]>;
+      searchHistory: (query: string) => Promise<Array<{ id: string; url: string; title: string; visitedAt: string }>>;
       clearHistory: () => Promise<void>;
 
       // Cookie management
@@ -875,11 +875,19 @@ export function App() {
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
           isBookmarked={isBookmarked}
+          suggestions={addressBar.suggestions}
+          selectedIndex={addressBar.selectedIndex}
           onToggleBookmark={() => void handleToggleBookmark()}
           onAddressChange={addressBar.setAddressInput}
           onAddressFocus={addressBar.startEditing}
           onAddressBlur={addressBar.stopEditing}
           onNavigate={(input) => void handleNavigate(input)}
+          onMoveSelection={addressBar.moveSelection}
+          onSetSelectedIndex={addressBar.setSelectedIndex}
+          onSelectSuggestion={(s) => {
+            addressBar.clearSuggestions();
+            void handleNavigate(s.url);
+          }}
           onBack={() => {
             if (selection.activeBrowserTab && selection.mainPanel === "browser") {
               void browserTabs.goBack(selection.activeBrowserTab.id);
