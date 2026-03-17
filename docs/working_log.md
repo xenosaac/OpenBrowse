@@ -8909,3 +8909,58 @@ T35: Surface the planner's action description as a compact line in the chat side
 - After Program L: self-directed features should focus on user-visible browser value per PM guidance.
 
 *Session log entry written: 2026-03-16 (Session 145)*
+
+---
+
+### Session 146 — 2026-03-16: T36 — Extractable Result Copy-to-Clipboard (Program L)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. T35 done in Session 145. PM ordering says T36 next. Program L (Run UX — Trust and Transparency). Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+T36: Add a "Copy" button on extractedData tables in chat. When clicked, serialize to TSV and copy to clipboard. Show brief "Copied" feedback. This directly improves the #1 working use case (web search + extract).
+
+#### Plan
+
+1. Add `extractedData?: Array<{label: string; value: string}>` to ChatMessage type.
+2. In App.tsx outcome mapping, pass structured `extractedData` on the ChatMessage (in addition to markdown in content).
+3. In ChatMessageItem, when `message.extractedData` exists and is non-empty, render a "Copy" button (glass.control style) after the content.
+4. On click: serialize to TSV, copy to clipboard via `navigator.clipboard.writeText()`, show "Copied ✓" for 1.5s.
+5. Run typecheck.
+6. Run tests.
+7. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/types/chat.ts`** — Added optional `extractedData` field to ChatMessage:
+- `extractedData?: Array<{ label: string; value: string }>`
+- Carries structured data through to the renderer so it can be serialized to TSV independently of the markdown content.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Pass extractedData on outcome messages:
+- When `ed` (extractedData) is non-empty, spread `extractedData: ed` onto the ChatMessage object.
+- The markdown table content is still generated for display; the structured data is passed separately for clipboard.
+
+**`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — Added Copy button with clipboard + feedback:
+- New `extractedDataToTsv()` helper: serializes `Array<{label, value}>` to tab-separated text (paste-friendly for spreadsheets).
+- When `message.extractedData` is non-empty, renders a "Copy" button (glass.control style) below the table content.
+- On click: copies TSV to clipboard via `navigator.clipboard.writeText()`, shows "Copied ✓" for 1.5s, then reverts.
+- Uses `useState` for copied state, `useCallback` for the handler.
+- Button styled with `glass.control` + `borderControl` per PM spec. Copied state shows emerald color + border.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program L is now fully complete (T35 ✓, T36 ✓).
+- All PM-directed programs (A-L) and all PM-ordered tasks (T30-T36) are done.
+- PM guidance: "After Program L, self-directed features should focus on user-visible browser value" (bookmark support, tab pinning, address bar history), not planner infrastructure.
+- Next iteration should pick a user-visible browser feature or re-examine the failure data for remaining agent reliability gaps.
+
+*Session log entry written: 2026-03-16 (Session 146)*
