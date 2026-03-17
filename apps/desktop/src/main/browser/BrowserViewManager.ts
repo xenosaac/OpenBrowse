@@ -1,10 +1,21 @@
-import { WebContentsView, session, type BrowserWindow } from "electron";
+import { WebContentsView, session, app, type BrowserWindow } from "electron";
+import path from "node:path";
 
 export interface ManagedBrowserView {
   id: string;
   profileId: string;
   view: WebContentsView;
   createdAt: string;
+}
+
+export interface DownloadInfo {
+  id: string;
+  filename: string;
+  url: string;
+  savePath: string;
+  totalBytes: number;
+  receivedBytes: number;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
 }
 
 interface ViewportBounds {
@@ -16,12 +27,27 @@ interface ViewportBounds {
 
 export class BrowserViewManager {
   private readonly views = new Map<string, ManagedBrowserView>();
+  private readonly downloadSessions = new Set<string>();
   private activeViewId: string | null = null;
   private hostWindow: BrowserWindow;
   private viewportBounds: ViewportBounds | null = null;
+
+  // Split view state
+  private splitMode = false;
+  private splitLeftId: string | null = null;
+  private splitRightId: string | null = null;
+  private splitLeftBounds: ViewportBounds | null = null;
+  private splitRightBounds: ViewportBounds | null = null;
   onNavigate: ((sessionId: string, url: string, title: string) => void) | null = null;
   onLoadingStateChanged: ((sessionId: string, isLoading: boolean) => void) | null = null;
   onFaviconUpdated: ((sessionId: string, faviconUrl: string) => void) | null = null;
+  onFindResult: ((sessionId: string, result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean }) => void) | null = null;
+  onContextMenu: ((sessionId: string, params: {
+    x: number; y: number; linkURL: string; linkText: string;
+    selectionText: string; mediaType: string; srcURL: string; isEditable: boolean;
+  }) => void) | null = null;
+  onLoadError: ((sessionId: string, errorCode: number, errorDescription: string, validatedURL: string) => void) | null = null;
+  onDownloadUpdated: ((info: DownloadInfo) => void) | null = null;
 
   constructor(hostWindow: BrowserWindow) {
     this.hostWindow = hostWindow;
@@ -77,6 +103,68 @@ export class BrowserViewManager {
       }
     });
 
+    view.webContents.on("found-in-page", (_event, result) => {
+      this.onFindResult?.(sessionId, {
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+        finalUpdate: result.finalUpdate
+      });
+    });
+
+    view.webContents.on("context-menu", (_event, params) => {
+      this.onContextMenu?.(sessionId, {
+        x: params.x,
+        y: params.y,
+        linkURL: params.linkURL,
+        linkText: params.linkText,
+        selectionText: params.selectionText,
+        mediaType: params.mediaType,
+        srcURL: params.srcURL,
+        isEditable: params.isEditable
+      });
+    });
+
+    view.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame && errorCode !== -3) {
+        this.onLoadError?.(sessionId, errorCode, errorDescription, validatedURL);
+      }
+    });
+
+    // Attach download handler once per partition to avoid duplicate listeners
+    const partitionKey = partition;
+    if (!this.downloadSessions.has(partitionKey)) {
+      this.downloadSessions.add(partitionKey);
+      ses.on("will-download", (_event, item) => {
+        const downloadId = `dl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const filename = item.getFilename() || "download";
+        const downloadsDir = app.getPath("downloads");
+        const savePath = path.join(downloadsDir, filename);
+        item.setSavePath(savePath);
+
+        const emitUpdate = (state: DownloadInfo["state"]) => {
+          this.onDownloadUpdated?.({
+            id: downloadId,
+            filename,
+            url: item.getURL(),
+            savePath,
+            totalBytes: item.getTotalBytes(),
+            receivedBytes: item.getReceivedBytes(),
+            state,
+          });
+        };
+
+        emitUpdate("progressing");
+
+        item.on("updated", (_ev, state) => {
+          emitUpdate(state === "progressing" ? "progressing" : "interrupted");
+        });
+
+        item.once("done", (_ev, state) => {
+          emitUpdate(state === "completed" ? "completed" : "cancelled");
+        });
+      });
+    }
+
     view.webContents.on("destroyed", () => {
       this.views.delete(sessionId);
       if (this.activeViewId === sessionId) {
@@ -85,6 +173,45 @@ export class BrowserViewManager {
     });
 
     return managed;
+  }
+
+  findInPage(sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }): void {
+    const managed = this.views.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed() && text) {
+      managed.view.webContents.findInPage(text, options);
+    }
+  }
+
+  stopFindInPage(sessionId: string, action: "clearSelection" | "keepSelection" | "activateSelection" = "clearSelection"): void {
+    const managed = this.views.get(sessionId);
+    if (managed && !managed.view.webContents.isDestroyed()) {
+      managed.view.webContents.stopFindInPage(action);
+    }
+  }
+
+  zoomIn(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    const current = managed.view.webContents.getZoomLevel();
+    const next = Math.min(current + 0.5, 5);
+    managed.view.webContents.setZoomLevel(next);
+    return next;
+  }
+
+  zoomOut(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    const current = managed.view.webContents.getZoomLevel();
+    const next = Math.max(current - 0.5, -3);
+    managed.view.webContents.setZoomLevel(next);
+    return next;
+  }
+
+  resetZoom(sessionId: string): number {
+    const managed = this.views.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) return 0;
+    managed.view.webContents.setZoomLevel(0);
+    return 0;
   }
 
   navigate(sessionId: string, url: string): void {
@@ -200,6 +327,11 @@ export class BrowserViewManager {
       this.activeViewId = null;
     }
 
+    // Exit split if destroying a split pane
+    if (this.splitMode && (sessionId === this.splitLeftId || sessionId === this.splitRightId)) {
+      this.exitSplit();
+    }
+
     try {
       this.hostWindow.contentView.removeChildView(managed.view);
     } catch {
@@ -218,7 +350,67 @@ export class BrowserViewManager {
     }
   }
 
+  // ---- Split view ----
+
+  showSplit(leftId: string, rightId: string): void {
+    this.splitMode = true;
+    this.splitLeftId = leftId;
+    this.splitRightId = rightId;
+    this.activeViewId = leftId;
+    this.promote(leftId);
+    this.promote(rightId);
+    this.applyVisibility();
+  }
+
+  setSplitBounds(leftBounds: ViewportBounds, rightBounds: ViewportBounds): void {
+    this.splitLeftBounds = {
+      x: Math.max(0, Math.round(leftBounds.x)),
+      y: Math.max(0, Math.round(leftBounds.y)),
+      width: Math.max(0, Math.round(leftBounds.width)),
+      height: Math.max(0, Math.round(leftBounds.height))
+    };
+    this.splitRightBounds = {
+      x: Math.max(0, Math.round(rightBounds.x)),
+      y: Math.max(0, Math.round(rightBounds.y)),
+      width: Math.max(0, Math.round(rightBounds.width)),
+      height: Math.max(0, Math.round(rightBounds.height))
+    };
+    this.relayout();
+  }
+
+  exitSplit(): void {
+    this.splitMode = false;
+    const keepId = this.splitLeftId;
+    this.splitLeftId = null;
+    this.splitRightId = null;
+    this.splitLeftBounds = null;
+    this.splitRightBounds = null;
+    if (keepId) {
+      this.activeViewId = keepId;
+    }
+    this.applyVisibility();
+  }
+
+  isSplit(): boolean {
+    return this.splitMode;
+  }
+
+  getSplitIds(): { leftId: string | null; rightId: string | null } {
+    return { leftId: this.splitLeftId, rightId: this.splitRightId };
+  }
+
   relayout(): void {
+    if (this.splitMode) {
+      const left = this.splitLeftId ? this.views.get(this.splitLeftId) : null;
+      const right = this.splitRightId ? this.views.get(this.splitRightId) : null;
+      if (left && this.splitLeftBounds) {
+        left.view.setBounds(this.splitLeftBounds);
+      }
+      if (right && this.splitRightBounds) {
+        right.view.setBounds(this.splitRightBounds);
+      }
+      return;
+    }
     if (this.activeViewId) {
       const managed = this.views.get(this.activeViewId);
       if (managed) {
@@ -229,7 +421,16 @@ export class BrowserViewManager {
 
   private applyVisibility(): void {
     for (const [id, managed] of this.views) {
-      if (id === this.activeViewId) {
+      if (this.splitMode && (id === this.splitLeftId || id === this.splitRightId)) {
+        const bounds = id === this.splitLeftId ? this.splitLeftBounds : this.splitRightBounds;
+        if (bounds) {
+          managed.view.setBounds(bounds);
+        }
+        managed.view.setVisible(true);
+        if (id === this.activeViewId) {
+          try { managed.view.webContents.focus(); } catch { /* best-effort */ }
+        }
+      } else if (!this.splitMode && id === this.activeViewId) {
         this.layoutView(managed.view);
         managed.view.setVisible(true);
         try {

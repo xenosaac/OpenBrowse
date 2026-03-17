@@ -557,6 +557,45 @@ test("recordBrowserResult tracks network_error as soft failure", () => {
   assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
 });
 
+test("recordBrowserResult tracks interaction_failed as soft failure", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "interaction_failed",
+    summary: "click failed",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
+test("recordBrowserResult tracks navigation_timeout as soft failure", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "navigation_timeout",
+    summary: "timed out",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
+test("recordBrowserResult tracks validation_error as soft failure (T34)", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "validation_error",
+    summary: "invalid email",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
 test("recordBrowserResult does not count non-soft failures", () => {
   const o = makeOrchestrator();
   let run = makeRunning(o);
@@ -586,7 +625,7 @@ test("recordBrowserResult tracks urlVisitCounts for navigate actions", () => {
   assert.equal(run.checkpoint.urlVisitCounts["https://a.com"], 2);
 });
 
-test("recordBrowserResult tracks urlVisitCounts using lastKnownUrl for non-navigate", () => {
+test("recordBrowserResult does NOT increment urlVisitCounts for non-navigate actions", () => {
   const o = makeOrchestrator();
   let run = makeRunning(o);
   run.checkpoint.lastKnownUrl = "https://current.com";
@@ -596,7 +635,9 @@ test("recordBrowserResult tracks urlVisitCounts using lastKnownUrl for non-navig
     summary: "clicked",
   }));
 
-  assert.equal(run.checkpoint.urlVisitCounts["https://current.com"], 1);
+  // Non-navigate actions should not count as URL visits —
+  // they are productive work on the current page, not revisitation.
+  assert.equal(run.checkpoint.urlVisitCounts["https://current.com"], undefined);
 });
 
 test("recordBrowserResult records targetUrl for navigate actions", () => {

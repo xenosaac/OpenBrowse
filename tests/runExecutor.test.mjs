@@ -79,12 +79,14 @@ function makeServices(options = {}) {
     sentClarifications,
     sentMessages,
     services: {
+      pendingCancellations: new Set(),
       browserKernel: {
         capturePageModel: async () => {
           const pm = capturePageModels[captureIndex] ?? makePageModel();
           captureIndex++;
           return pm;
         },
+        captureScreenshot: options.captureScreenshot ?? (async () => null),
         executeAction: async (_session, action) => {
           const result = executeResults.shift() ?? {
             ok: true,
@@ -172,6 +174,11 @@ function makeServices(options = {}) {
           ...run,
           status: "failed",
           outcome: { status: "failed", summary, finishedAt: new Date().toISOString() },
+        }),
+        cancelRun: (run, summary) => ({
+          ...run,
+          status: "cancelled",
+          outcome: { status: "cancelled", summary, finishedAt: new Date().toISOString() },
         }),
       },
       planner: {
@@ -322,7 +329,32 @@ test("plannerLoop executes browser_action and continues", async () => {
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
   assert.equal(result.status, "completed");
-  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed"));
+  const actionEvt = appendedEvents.find(e => e.type === "browser_action_executed");
+  assert.ok(actionEvt, "browser_action_executed event should exist");
+  assert.equal(actionEvt.payload.description, "Click submit", "event payload should include action description");
+  assert.equal(actionEvt.payload.ok, "true");
+});
+
+// --- plannerLoop: browser_action_executed includes description for failed actions (T35) ---
+
+test("plannerLoop browser_action_executed event includes description on failure (T35)", async () => {
+  const { services, appendedEvents } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Click button", action: { type: "click", targetId: "btn_1", description: "Click the search button" } },
+    ],
+    executeResults: [{ ok: false, summary: "Target not found: btn_1", failureClass: "unknown" }],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  const actionEvt = appendedEvents.find(e => e.type === "browser_action_executed");
+  assert.ok(actionEvt, "browser_action_executed event should exist");
+  assert.equal(actionEvt.payload.description, "Click the search button");
+  assert.equal(actionEvt.payload.ok, "false");
 });
 
 // --- plannerLoop: cooperative cancellation ---
@@ -346,15 +378,15 @@ test("plannerLoop returns early when cancellation is set before first step", asy
 // --- plannerLoop: MAX_LOOP_STEPS exceeded ---
 
 test("plannerLoop fails after exceeding max steps", async () => {
-  // Create 36 browser_action decisions (max is 35) — unique targetIds/descriptions/urls to avoid stuck detection
-  const decisions = Array.from({ length: 36 }, (_, i) => ({
+  // Create 51 browser_action decisions (max is 50) — unique targetIds/descriptions/urls to avoid stuck detection
+  const decisions = Array.from({ length: 51 }, (_, i) => ({
     type: "browser_action",
     reasoning: `Step ${i}`,
     action: { type: "click", targetId: `btn_${i}`, description: `Click button ${i}` },
   }));
-  const executeResults = Array.from({ length: 36 }, (_, i) => ({ ok: true, summary: `ok ${i}`, targetId: `btn_${i}`, url: `https://example.com/page${i}` }));
+  const executeResults = Array.from({ length: 51 }, (_, i) => ({ ok: true, summary: `ok ${i}`, targetId: `btn_${i}`, url: `https://example.com/page${i}` }));
   // Unique page models per step to avoid URL visit count stuck detection
-  const capturePageModels = Array.from({ length: 36 }, (_, i) =>
+  const capturePageModels = Array.from({ length: 51 }, (_, i) =>
     makePageModel({ url: `https://example.com/page${i}`, title: `Page ${i}` })
   );
 
@@ -474,7 +506,7 @@ test("plannerLoop fails after max total soft failures", async () => {
 
 // --- plannerLoop: session lost ---
 
-test("plannerLoop fails when browser session is lost", async () => {
+test("plannerLoop cancels cleanly when browser session is lost (T26)", async () => {
   const { services } = makeServices({
     decisions: [
       { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Submit" } },
@@ -488,8 +520,8 @@ test("plannerLoop fails when browser session is lost", async () => {
 
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
-  assert.equal(result.status, "failed");
-  assert.ok(result.outcome.summary.includes("Browser session lost"));
+  assert.equal(result.status, "cancelled");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"));
 });
 
 // --- plannerLoop: recovery context cleared after first planner call ---
@@ -560,12 +592,12 @@ test("continueResume executes pending action before plannerLoop", async () => {
   assert.equal(result.status, "completed");
 });
 
-test("continueResume fails if pending action has hard failure", async () => {
-  const { services } = makeServices({
-    decisions: [],
+test("continueResume recovers from pending action validation_error (soft failure, T34)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after validation recovery" }],
     executeResults: [
       { ok: true, summary: "Navigated" },
-      { ok: false, summary: "Click failed", failureClass: "interaction_failed" },
+      { ok: false, summary: "Invalid input", failureClass: "validation_error" },
     ],
   });
   const cancellation = makeCancellation();
@@ -575,8 +607,49 @@ test("continueResume fails if pending action has hard failure", async () => {
   const pendingAction = { type: "click", targetId: "btn_pending", description: "Pending click" };
   const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
 
-  assert.equal(result.status, "failed");
-  assert.ok(handoff.handoffs.length >= 1);
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("validation_error")));
+  assert.ok(runWithNote, "Should have a note about the validation_error soft failure");
+});
+
+test("continueResume recovers from pending action interaction_failed (soft failure)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after recovery" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Click failed — element stale", failureClass: "interaction_failed" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "click", targetId: "btn_stale", description: "Click stale button" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("interaction_failed")));
+  assert.ok(runWithNote, "Should have a note about the interaction_failed soft failure");
+});
+
+test("continueResume recovers from pending action navigation_timeout (soft failure)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after recovery" }],
+    executeResults: [
+      { ok: true, summary: "Navigated" },
+      { ok: false, summary: "Navigation timed out", failureClass: "navigation_timeout" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const pendingAction = { type: "navigate", value: "https://slow.com", description: "Navigate to slow page" };
+  const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
+
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("navigation_timeout")));
+  assert.ok(runWithNote, "Should have a note about the navigation_timeout soft failure");
 });
 
 test("continueResume recovers from pending action element_not_found (soft failure)", async () => {
@@ -955,6 +1028,69 @@ test("plannerLoop sends step progress when chatBridge.shouldSendStepProgress ret
   assert.equal(sentMessages[0].channel, "telegram");
 });
 
+// --- plannerLoop: interaction_failed treated as soft failure ---
+
+test("plannerLoop continues on interaction_failed soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn", description: "Click obscured button" } },
+      { type: "task_complete", reasoning: "Done after recovering" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Element not interactable", failureClass: "interaction_failed" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
+
+// --- plannerLoop: navigation_timeout treated as soft failure ---
+
+test("plannerLoop continues on navigation_timeout soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Navigate", action: { type: "navigate", value: "https://slow.example.com", description: "Go to slow page" } },
+      { type: "task_complete", reasoning: "Done after retrying" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Navigation timed out", failureClass: "navigation_timeout" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
+
+// --- plannerLoop: validation_error treated as soft failure (T34) ---
+
+test("plannerLoop continues on validation_error soft failure", async () => {
+  const { services } = makeServices({
+    decisions: [
+      { type: "browser_action", reasoning: "Type", action: { type: "type", targetId: "input", description: "Type text" } },
+      { type: "task_complete", reasoning: "Done after validation retry" },
+    ],
+    executeResults: [
+      { ok: false, summary: "Invalid selector", failureClass: "validation_error" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+});
+
 // --- plannerLoop: network_error treated as soft failure ---
 
 test("plannerLoop continues on network_error soft failure", async () => {
@@ -974,4 +1110,793 @@ test("plannerLoop continues on network_error soft failure", async () => {
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
   assert.equal(result.status, "completed");
+});
+
+// --- plannerLoop: save_note interception (T16) ---
+
+test("plannerLoop save_note stores note in plannerNotes on checkpoint", async () => {
+  const { services, savedRuns, appendedEvents } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save flight price",
+        action: { type: "save_note", interactionHint: "flight_price", value: "$299", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  // Track executeAction calls — save_note should NOT hit the kernel
+  let executeActionCalled = false;
+  services.browserKernel.executeAction = async () => {
+    executeActionCalled = true;
+    return { ok: true, summary: "Should not be called" };
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(executeActionCalled, false, "save_note should not call browserKernel.executeAction");
+
+  // Verify plannerNotes was saved to checkpoint
+  const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  assert.ok(runWithNotes, "Should have a saved run with plannerNotes");
+  assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "flight_price", value: "$299" }]);
+
+  // Verify event was logged
+  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed" && e.summary.includes("flight_price")));
+});
+
+test("plannerLoop save_note upserts — same key replaces existing value", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save price",
+        action: { type: "save_note", interactionHint: "price", value: "$100", description: "Save note" },
+      },
+      {
+        type: "browser_action",
+        reasoning: "Update price",
+        action: { type: "save_note", interactionHint: "price", value: "$89", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Find the run saved after the second save_note — it should have the updated value
+  const runsWithNotes = savedRuns.filter(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  // The last save with notes should have the upserted value
+  const finalNotesRun = runsWithNotes[runsWithNotes.length - 1];
+  assert.ok(finalNotesRun, "Should have saved runs with plannerNotes");
+  assert.equal(finalNotesRun.checkpoint.plannerNotes.length, 1, "Upsert should not create duplicate keys");
+  assert.deepStrictEqual(finalNotesRun.checkpoint.plannerNotes[0], { key: "price", value: "$89" });
+});
+
+test("plannerLoop save_note caps at 20 notes — 21st evicts oldest", async () => {
+  // Pre-populate 20 notes on the checkpoint, then add a 21st via save_note
+  const existingNotes = Array.from({ length: 20 }, (_, i) => ({
+    key: `note_${i}`,
+    value: `Value ${i}`,
+  }));
+
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Add 21st note",
+        action: { type: "save_note", interactionHint: "note_20", value: "Value 20", description: "Save note" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const run = makeRun({ checkpoint: { plannerNotes: existingNotes } });
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Find the saved run after the 21st note was added
+  const runsWithNotes = savedRuns.filter(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  const finalNotesRun = runsWithNotes[runsWithNotes.length - 1];
+  assert.ok(finalNotesRun, "Should have saved runs with plannerNotes");
+  assert.equal(finalNotesRun.checkpoint.plannerNotes.length, 20, "Should be capped at 20 notes");
+  // The first note (note_0) should have been evicted
+  assert.ok(
+    !finalNotesRun.checkpoint.plannerNotes.some(n => n.key === "note_0"),
+    "Oldest note (note_0) should have been evicted"
+  );
+  // The new 21st note should be present
+  assert.ok(
+    finalNotesRun.checkpoint.plannerNotes.some(n => n.key === "note_20" && n.value === "Value 20"),
+    "New note (note_20) should be present"
+  );
+});
+
+test("plannerLoop save_note persists across steps — notes survive into next planner iteration", async () => {
+  // Step 1: save_note. Step 2: browser action. Step 3: task_complete.
+  // After step 1, plannerNotes should still be in the checkpoint when step 2 runs.
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save title",
+        action: { type: "save_note", interactionHint: "title", value: "Hacker News", description: "Save note" },
+      },
+      {
+        type: "browser_action",
+        reasoning: "Click next",
+        action: { type: "click", targetId: "btn_next", description: "Click next page" },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+    executeResults: [{ ok: true, summary: "Clicked next" }],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // The final saved runs should still have plannerNotes from the save_note step
+  const finalRun = savedRuns[savedRuns.length - 1];
+  assert.ok(finalRun.checkpoint.plannerNotes, "plannerNotes should persist across steps");
+  assert.ok(
+    finalRun.checkpoint.plannerNotes.some(n => n.key === "title" && n.value === "Hacker News"),
+    "plannerNotes should contain the note saved in step 1"
+  );
+});
+
+test("plannerLoop save_note handles missing key and value gracefully", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Save with defaults",
+        action: { type: "save_note", description: "Save note" },
+        // interactionHint and value are both missing
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+
+  // Should have used defaults: key="note", value=""
+  const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
+  assert.ok(runWithNotes, "Should have saved a note with default key");
+  assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "note", value: "" }]);
+});
+
+// --- T26: Graceful session cleanup on tab close ---
+
+test("T26: capturePageModel 'Session not found' cancels run cleanly", async () => {
+  let captureCount = 0;
+  const { services, appendedEvents, savedRuns } = makeServices({
+    decisions: [],
+  });
+  // Override capturePageModel to throw "Session not found" on both attempts
+  services.browserKernel.capturePageModel = async () => {
+    captureCount++;
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Run should be cancelled, not failed");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"), "Should mention tab closure");
+  assert.ok(appendedEvents.some(e => e.type === "run_cancelled"), "Should log run_cancelled event");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed event");
+  assert.ok(handoff.handoffs.length >= 1, "Should write handoff");
+  assert.equal(captureCount, 2, "Should have retried once before cancelling");
+});
+
+test("T26: executeAction 'Session not found' cancels run cleanly", async () => {
+  const { services, appendedEvents } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click button",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+  });
+  // Override executeAction to throw "Session not found"
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Run should be cancelled, not failed");
+  assert.ok(result.outcome.summary.includes("browser tab was closed"), "Should mention tab closure");
+  assert.ok(appendedEvents.some(e => e.type === "run_cancelled"), "Should log run_cancelled event");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed event");
+  assert.ok(handoff.handoffs.length >= 1, "Should write handoff");
+});
+
+test("T26: capturePageModel 'Session not found' returns already-cancelled run", async () => {
+  const { services } = makeServices({
+    decisions: [],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "cancelled",
+      outcome: { status: "cancelled", summary: "Already cancelled", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.capturePageModel = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled");
+  assert.equal(result.outcome.summary, "Already cancelled", "Should return the already-cancelled run from checkpoint");
+});
+
+test("T26: capturePageModel non-session error still uses fallback page model", async () => {
+  let captureCount = 0;
+  const { services } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done" }],
+  });
+  services.browserKernel.capturePageModel = async () => {
+    captureCount++;
+    throw new Error("CDP protocol error: page is loading");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  // Non-session errors should still use the fallback path (task_complete from planner)
+  assert.equal(result.status, "completed", "Non-session errors should not cancel");
+  assert.equal(captureCount, 2, "Should have retried once");
+});
+
+// --- Session 162: Cancel-vs-fail race condition fixes ---
+
+test("capturePageModel non-session error returns already-cancelled run from checkpoint", async () => {
+  // Simulates: tab closed → cancelTrackedRun saved "cancelled" → capturePageModel
+  // throws a CDP error (not "Session not found") → should detect the cancelled
+  // checkpoint and return it instead of falling through to fallback page model.
+  const { services, appendedEvents } = makeServices({
+    decisions: [],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "cancelled",
+      outcome: { status: "cancelled", summary: "Run cancelled from browser group close.", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.capturePageModel = async () => {
+    throw new Error("Object has been destroyed");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "cancelled", "Should return the already-cancelled run");
+  assert.equal(result.outcome.summary, "Run cancelled from browser group close.");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed");
+  assert.ok(!appendedEvents.some(e => e.type === "planner_request_failed"), "Should NOT log planner_request_failed");
+});
+
+test("executeAction non-session error returns already-cancelled run from checkpoint", async () => {
+  // Simulates: tab closed → cancelTrackedRun saved "cancelled" → executeAction
+  // throws a CDP error (not "Session not found") → should detect the cancelled
+  // checkpoint and return it instead of re-throwing to failUnexpectedRun.
+  const cancelledRun = {
+    ...makeRun({ id: "run_1" }),
+    status: "cancelled",
+    outcome: { status: "cancelled", summary: "Run cancelled from browser group close.", finishedAt: new Date().toISOString() },
+  };
+  const savedStore = [cancelledRun];
+  const { services, appendedEvents } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click button",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+  });
+  // Override load to return the cancelled run after the first save (observePage)
+  let loadCount = 0;
+  services.runCheckpointStore.load = async () => {
+    loadCount++;
+    // After observePage save, subsequent loads find the cancelled run
+    return loadCount > 1 ? cancelledRun : null;
+  };
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Debugger is not attached");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun({ id: "run_1" }), makeSession());
+
+  assert.equal(result.status, "cancelled", "Should return the cancelled run, not throw");
+  assert.ok(!appendedEvents.some(e => e.type === "run_failed"), "Should NOT log run_failed");
+});
+
+test("executeAction 'Session not found' returns already-failed run from checkpoint", async () => {
+  // Edge case: if the checkpoint shows "failed" (e.g., set by another process),
+  // the handler should return it rather than trying to cancel again.
+  const { services } = makeServices({
+    decisions: [{
+      type: "browser_action",
+      reasoning: "Click",
+      action: { type: "click", targetId: "el_1", description: "Click" },
+    }],
+    loadOverride: (id) => ({
+      ...makeRun({ id }),
+      status: "failed",
+      outcome: { status: "failed", summary: "Already failed", finishedAt: new Date().toISOString() },
+    }),
+  });
+  services.browserKernel.executeAction = async () => {
+    throw new Error("Session not found: sess_1");
+  };
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.outcome.summary, "Already failed");
+});
+
+// --- T47: browser_screenshot on-demand vision ---
+
+test("browser_screenshot action captures screenshot and delivers it on the NEXT planner call", async () => {
+  const screenshotData = "base64_jpeg_data_here";
+  const plannerInputs = [];
+
+  const { services, appendedEvents } = makeServices({
+    captureScreenshot: async () => screenshotData,
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "need visual", action: { type: "screenshot", description: "Check page layout" } },
+      // Step 2: planner completes (should see the screenshot in its input)
+      { type: "task_complete", reasoning: "Looks good" },
+    ],
+  });
+
+  // Intercept planner.decide to capture inputs
+  const originalDecide = services.planner.decide;
+  let callIndex = 0;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    callIndex++;
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // First planner call: always-on screenshot captured (T46)
+  assert.equal(plannerInputs[0].screenshotBase64, screenshotData);
+
+  // Second planner call: on-demand screenshot from browser_screenshot takes priority
+  assert.equal(plannerInputs[1].screenshotBase64, screenshotData);
+
+  // Verify the screenshot captured event was logged
+  const screenshotEvent = appendedEvents.find(e => e.summary.includes("Screenshot captured"));
+  assert.ok(screenshotEvent, "should log screenshot captured event");
+});
+
+test("on-demand screenshot from browser_screenshot takes priority over always-on", async () => {
+  const plannerInputs = [];
+  let captureCount = 0;
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { captureCount++; return `capture_${captureCount}`; },
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "check", action: { type: "screenshot", description: "Look" } },
+      // Step 2: planner navigates (on-demand screenshot from step 1 should take priority)
+      { type: "browser_action", reasoning: "nav", action: { type: "navigate", value: "https://example.com/page2", description: "Go to page 2" } },
+      // Step 3: planner completes (on-demand consumed — falls back to always-on)
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  await executor.plannerLoop(makeRun(), makeSession());
+
+  // Step 1: always-on screenshot (capture_1)
+  assert.equal(plannerInputs[0].screenshotBase64, "capture_1");
+  // Step 2: on-demand screenshot from browser_screenshot action (capture_2, captured by handler)
+  // takes priority over always-on
+  assert.equal(plannerInputs[1].screenshotBase64, "capture_2");
+  // Step 3: on-demand consumed, falls back to always-on (capture_3)
+  assert.equal(plannerInputs[2].screenshotBase64, "capture_3");
+});
+
+test("browser_screenshot handles capture failure gracefully", async () => {
+  const plannerInputs = [];
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { throw new Error("CDP error"); },
+    decisions: [
+      // Step 1: planner requests a screenshot — capture fails
+      { type: "browser_action", reasoning: "check", action: { type: "screenshot", description: "Look" } },
+      // Step 2: planner continues (no screenshot available)
+      { type: "task_complete", reasoning: "Done anyway" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // No screenshot available on any step (capture failed)
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+  assert.equal(plannerInputs[1].screenshotBase64, undefined);
+});
+
+// --- T46: Always-on planner screenshots (vision integration) ---
+
+test("always-on screenshot is captured and passed to planner on every step", async () => {
+  const plannerInputs = [];
+  let captureCount = 0;
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { captureCount++; return `screenshot_step_${captureCount}`; },
+    decisions: [
+      { type: "browser_action", reasoning: "click", action: { type: "click", targetId: "el_1", description: "Click button" } },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // Both planner calls should have received a screenshot
+  assert.equal(plannerInputs[0].screenshotBase64, "screenshot_step_1");
+  assert.equal(plannerInputs[1].screenshotBase64, "screenshot_step_2");
+  assert.equal(captureCount, 2, "captureScreenshot should be called once per planner step");
+});
+
+test("always-on screenshot is null when capture fails — planner proceeds text-only", async () => {
+  const plannerInputs = [];
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { throw new Error("CDP unavailable"); },
+    decisions: [
+      { type: "task_complete", reasoning: "Quick task" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // Screenshot capture failed — planner should proceed without screenshot
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+});
+
+test("on-demand screenshot from browser_screenshot overrides always-on capture", async () => {
+  const plannerInputs = [];
+  let alwaysOnCount = 0;
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { alwaysOnCount++; return `always_on_${alwaysOnCount}`; },
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "need visual", action: { type: "screenshot", description: "Check layout" } },
+      // Step 2: planner completes (should see on-demand screenshot, not always-on)
+      { type: "task_complete", reasoning: "Looks good" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // Step 1: always-on screenshot (no pending on-demand yet)
+  assert.equal(plannerInputs[0].screenshotBase64, "always_on_1");
+  // Step 2: on-demand screenshot from browser_screenshot should take priority
+  // The on-demand capture returns "always_on_2" (from the captureScreenshot mock called by screenshot handler)
+  // but the pendingScreenshot is set from the browser_screenshot action handler which also calls captureScreenshot
+  // So pendingScreenshot = "always_on_2" (set during screenshot action), and then the always-on capture is skipped
+  assert.ok(plannerInputs[1].screenshotBase64, "step 2 should have a screenshot");
+});
+
+// --- Session 168: Stuck detection now covers special-handler actions ---
+
+test("plannerLoop detects stuck screenshot loop (consecutive identical)", async () => {
+  // MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8. Create 9 identical screenshot decisions.
+  // Before Session 168, screenshot bypassed stuck detection entirely.
+  const count = 9;
+  const decisions = Array.from({ length: count }, () => ({
+    type: "browser_action",
+    reasoning: "Check visual",
+    action: { type: "screenshot", description: "Check page layout" },
+  }));
+
+  const { services } = makeServices({
+    decisions,
+    captureScreenshot: async () => "base64_data",
+  });
+
+  // Override recordBrowserResult to record screenshot type (default mock records "click")
+  let recordCount = 0;
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "screenshot",
+          targetId: "",
+          description: `Unique desc ${++recordCount}`,
+          url: "https://example.com",
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("repeated"), `Expected "repeated" in: "${result.outcome.summary}"`);
+  assert.ok(result.outcome.summary.includes("screenshot"), `Expected "screenshot" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1, "should write handoff on stuck failure");
+});
+
+test("plannerLoop detects stuck save_note loop (consecutive identical)", async () => {
+  // MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8. Create 9 identical save_note decisions.
+  // Before Session 168, save_note bypassed stuck detection entirely.
+  const count = 9;
+  const decisions = Array.from({ length: count }, () => ({
+    type: "browser_action",
+    reasoning: "Save data",
+    action: { type: "save_note", interactionHint: "price", value: "$100", description: "Save note" },
+  }));
+
+  const { services } = makeServices({ decisions });
+
+  // Override recordBrowserResult to record save_note type
+  let recordCount = 0;
+  services.orchestrator.recordBrowserResult = (run, result) => ({
+    ...run,
+    checkpoint: {
+      ...run.checkpoint,
+      actionHistory: [
+        ...(run.checkpoint.actionHistory ?? []),
+        {
+          step: (run.checkpoint.actionHistory?.length ?? 0) + 1,
+          type: "save_note",
+          targetId: "",
+          description: `Unique desc ${++recordCount}`,
+          url: "https://example.com",
+          ok: true,
+        },
+      ],
+      consecutiveSoftFailures: 0,
+      totalSoftFailures: run.checkpoint.totalSoftFailures ?? 0,
+    },
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(result.outcome.summary.includes("repeated"), `Expected "repeated" in: "${result.outcome.summary}"`);
+  assert.ok(result.outcome.summary.includes("save_note"), `Expected "save_note" in: "${result.outcome.summary}"`);
+  assert.ok(handoff.handoffs.length >= 1, "should write handoff on stuck failure");
+});
+
+test("plannerLoop screenshot does NOT trigger stuck detection when actions vary", async () => {
+  // Interleave screenshot with a normal click — stuck detection should NOT fire
+  const decisions = [
+    { type: "browser_action", reasoning: "Check", action: { type: "screenshot", description: "Look" } },
+    { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn_1", description: "Click button" } },
+    { type: "browser_action", reasoning: "Check", action: { type: "screenshot", description: "Look again" } },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked" },
+  ];
+
+  const { services } = makeServices({
+    decisions,
+    executeResults,
+    captureScreenshot: async () => "base64_data",
+  });
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed", "Varied actions should complete without stuck detection");
+});
+
+// --- Page content change tracking ---
+
+test("plannerLoop tracks unchangedPageActions when page content stays the same", async () => {
+  // 4 successful click actions, same page content every time → checkpoint.unchangedPageActions increments
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click A" }, reasoning: "Trying A" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click B" }, reasoning: "Trying B" },
+    { type: "browser_action", action: { type: "click", targetId: "el_3", description: "Click C" }, reasoning: "Trying C" },
+    { type: "browser_action", action: { type: "click", targetId: "el_4", description: "Click D" }, reasoning: "Trying D" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked A" },
+    { ok: true, summary: "Clicked B" },
+    { ok: true, summary: "Clicked C" },
+    { ok: true, summary: "Clicked D" },
+  ];
+  // All page model captures return same visibleText (must set directly — makePageModel ignores visibleText override)
+  const capturePageModels = Array.from({ length: 5 }, (_, i) => {
+    const pm = makePageModel();
+    pm.visibleText = "Same content on the page";
+    return pm;
+  });
+
+  const { services } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // After 4 successful actions with unchanged content, the final run should have
+  // unchangedPageActions >= 3 (first iteration has no previous, so counting starts from 2nd).
+  const finalUnchanged = result.checkpoint.unchangedPageActions ?? 0;
+  assert.ok(finalUnchanged >= 3, `Expected unchangedPageActions >= 3 but got ${finalUnchanged}`);
+});
+
+test("plannerLoop resets unchangedPageActions when page content changes", async () => {
+  // 3 actions: first two get same content, third gets different content → counter resets
+  const page1 = makePageModel(); page1.visibleText = "Original page content";
+  const page2 = makePageModel(); page2.visibleText = "Original page content";
+  const page3 = makePageModel(); page3.visibleText = "New different content after action";
+  const page4 = makePageModel(); page4.visibleText = "New different content after action";
+
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click 1" }, reasoning: "First" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click 2" }, reasoning: "Second" },
+    { type: "browser_action", action: { type: "click", targetId: "el_3", description: "Click 3" }, reasoning: "Third" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked 1" },
+    { ok: true, summary: "Clicked 2" },
+    { ok: true, summary: "Clicked 3" },
+  ];
+  const capturePageModels = [page1, page2, page3, page4];
+
+  const { services, savedRuns } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // Without the content change, 3 actions would produce unchangedPageActions = 3.
+  // With the change at iteration 3 (page3), counter resets to 0, then increments to 1
+  // on iteration 4 (page4 = same as page3). Final value = 1, proving reset happened.
+  const finalUnchanged = result.checkpoint.unchangedPageActions ?? 0;
+  assert.ok(finalUnchanged < 3, `Counter should have reset on content change; got ${finalUnchanged} (expected < 3)`);
+  assert.equal(finalUnchanged, 1, "One unchanged iteration after reset");
+});
+
+test("plannerLoop does NOT increment unchangedPageActions after failed actions", async () => {
+  // A failed action followed by same page content should not increment
+  const makeSamePage = () => { const p = makePageModel(); p.visibleText = "Same content here"; return p; };
+
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click 1" }, reasoning: "First" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click 2" }, reasoning: "Second" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: false, summary: "Element not found", failureClass: "element_not_found" },
+    { ok: true, summary: "Clicked 2" },
+  ];
+  const capturePageModels = [makeSamePage(), makeSamePage(), makeSamePage()];
+
+  const { services, savedRuns } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // After first action (failed): lastActionOk = false → should not increment
+  // After second action (succeeded): lastActionOk = true but only one successful → count should be low
+  const maxUnchanged = Math.max(...savedRuns.map(r => r.checkpoint.unchangedPageActions ?? 0));
+  assert.ok(maxUnchanged <= 1, `Expected unchangedPageActions <= 1 after failed actions, got ${maxUnchanged}`);
 });

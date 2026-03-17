@@ -50,13 +50,16 @@ export class CancellationController {
     return cancelledRun;
   }
 
-  /** Sync check — no I/O. Safe to call in hot loop. */
+  /** Sync check — no I/O. Safe to call in hot loop.
+   *  Checks both the instance-local pending set and the shared
+   *  pendingCancellations set on RuntimeServices (populated by cancelTrackedRun). */
   isCancelled(runId: string): boolean {
-    return this.pending.has(runId);
+    return this.pending.has(runId) || this.services.pendingCancellations.has(runId);
   }
 
   /** Clear flag after loop has observed it. */
   acknowledge(runId: string): void {
     this.pending.delete(runId);
+    this.services.pendingCancellations.delete(runId);
   }
 }

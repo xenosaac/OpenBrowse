@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { BrowserProfile, RunHandoffArtifact, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import type { ReplayStep } from "@openbrowse/observability";
 import type {
@@ -26,6 +27,9 @@ import { HomePage } from "./panels/HomePage";
 import { AgentActivityBar } from "./AgentActivityBar";
 import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel } from "./ManagementPanel";
+import { FindBar } from "./chrome/FindBar";
+import { loadKeybindingOverrides } from "./KeyboardShortcutsPanel";
+import type { KeyBindingOverrides } from "../lib/keybindings";
 
 declare global {
   interface Window {
@@ -35,6 +39,7 @@ declare global {
       resumeTask: (message: unknown) => Promise<TaskRun | null>;
       cancelTask: (runId: string) => Promise<TaskRun | null>;
       listRuns: () => Promise<TaskRun[]>;
+      listRecentRuns: (limit?: number) => Promise<TaskRun[]>;
       getRun: (runId: string) => Promise<TaskRun | null>;
       listProfiles: () => Promise<BrowserProfile[]>;
       listLogs: (runId: string) => Promise<WorkflowEvent[]>;
@@ -71,6 +76,16 @@ declare global {
       closeBrowserGroup: (groupId: string) => Promise<TaskRun | null>;
       onRuntimeEvent: (callback: (event: unknown) => void) => () => void;
       browserNewTab: (url?: string) => Promise<BrowserShellTabDescriptor>;
+      setTabPinned: (tabId: string, pinned: boolean) => Promise<void>;
+      setTabOrder: (orderedIds: string[]) => Promise<void>;
+      saveTabGroups: (
+        groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>,
+        assignments: Record<string, string>
+      ) => Promise<{ ok: boolean }>;
+      getTabGroups: () => Promise<{
+        tabGroups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+        groupAssignments: Record<string, string>;
+      }>;
       browserNavigate: (sessionId: string, url: string) => Promise<void>;
       browserBack: (sessionId: string) => Promise<void>;
       browserForward: (sessionId: string) => Promise<void>;
@@ -91,8 +106,16 @@ declare global {
       addBookmark: (data: { url: string; title: string; faviconUrl?: string }) => Promise<{ id: string }>;
       deleteBookmark: (id: string) => Promise<void>;
       searchBookmarks: (query: string) => Promise<unknown[]>;
-      // DevTools / Print / PDF
+      // Find in page
+      findInPage: (sessionId: string, text: string, options?: { forward?: boolean; findNext?: boolean }) => Promise<unknown>;
+      stopFindInPage: (sessionId: string) => Promise<unknown>;
+      // Zoom
+      browserZoomIn: (sessionId: string) => Promise<{ zoomLevel: number }>;
+      browserZoomOut: (sessionId: string) => Promise<{ zoomLevel: number }>;
+      browserZoomReset: (sessionId: string) => Promise<{ zoomLevel: number }>;
+      // DevTools / Print / PDF / Reader
       openDevTools: (sessionId: string) => Promise<unknown>;
+      toggleReaderMode: (sessionId: string) => Promise<{ active: boolean; success: boolean }>;
       printPage: (sessionId: string) => Promise<unknown>;
       saveAsPdf: (sessionId: string) => Promise<boolean>;
       // Chat persistence
@@ -111,13 +134,22 @@ declare global {
       chatLinkRun: (sessionId: string, runId: string) => Promise<void>;
       // Browsing history
       listHistory: (limit?: number) => Promise<unknown[]>;
-      searchHistory: (query: string) => Promise<unknown[]>;
+      searchHistory: (query: string) => Promise<Array<{ id: string; url: string; title: string; visitedAt: string }>>;
       clearHistory: () => Promise<void>;
 
       // Cookie management
       listCookies: (sessionId: string) => Promise<unknown[]>;
       removeCookie: (sessionId: string, url: string, name: string) => Promise<void>;
       removeAllCookies: (sessionId: string) => Promise<void>;
+
+      // Keybinding preferences
+      getKeybindings: () => Promise<Array<{ key: string; value: string }>>;
+      saveKeybindings: (entries: Array<{ key: string; value: string }>) => Promise<{ ok: boolean }>;
+
+      // Split view
+      enterSplitView: (leftId: string, rightId: string) => Promise<{ ok: boolean }>;
+      exitSplitView: () => Promise<{ ok: boolean }>;
+      setSplitViewBounds: (leftBounds: { x: number; y: number; width: number; height: number }, rightBounds: { x: number; y: number; width: number; height: number }) => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -139,6 +171,89 @@ export function App() {
   const addressBar = useAddressBar(selection.activeBrowserTab, selection.mainPanel);
   const layout = useUILayout();
   const addressBarRef = useRef<HTMLInputElement | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // ---- Keybinding overrides ----
+  const [keybindingOverrides, setKeybindingOverrides] = useState<KeyBindingOverrides>({});
+  useEffect(() => { void loadKeybindingOverrides().then(setKeybindingOverrides); }, []);
+
+  // ---- Find-in-page state ----
+  const [findBarOpen, setFindBarOpen] = useState(false);
+  const [findResult, setFindResult] = useState({ activeMatchOrdinal: 0, matches: 0 });
+
+  // ---- Tab load error state ----
+  const [tabErrors, setTabErrors] = useState<Record<string, { errorCode: number; errorDescription: string; url: string }>>({});
+
+  // ---- Download state ----
+  interface DownloadEntry {
+    id: string;
+    filename: string;
+    savePath: string;
+    totalBytes: number;
+    receivedBytes: number;
+    state: "progressing" | "completed" | "cancelled" | "interrupted";
+  }
+  const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
+
+  useEffect(() => {
+    return runtimeEventBus.subscribe((event) => {
+      if (event.type === "find_in_page_result" && event.finalUpdate) {
+        setFindResult({
+          activeMatchOrdinal: event.activeMatchOrdinal ?? 0,
+          matches: event.matches ?? 0,
+        });
+      }
+      if (event.type === "tab_load_error" && event.sessionId) {
+        const sid = event.sessionId;
+        setTabErrors(prev => ({
+          ...prev,
+          [sid]: {
+            errorCode: event.errorCode ?? 0,
+            errorDescription: event.errorDescription ?? "",
+            url: event.url ?? "",
+          }
+        }));
+      }
+      if (event.type === "tab_navigated" && event.sessionId) {
+        const sid = event.sessionId;
+        setTabErrors(prev => {
+          if (!prev[sid]) return prev;
+          const next = { ...prev };
+          delete next[sid];
+          return next;
+        });
+      }
+      if (event.type === "download_updated" && event.id) {
+        const entry: DownloadEntry = {
+          id: event.id,
+          filename: event.filename ?? "download",
+          savePath: event.savePath ?? "",
+          totalBytes: event.totalBytes ?? 0,
+          receivedBytes: event.receivedBytes ?? 0,
+          state: event.state ?? "progressing",
+        };
+        setDownloads(prev => {
+          const idx = prev.findIndex(d => d.id === entry.id);
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = entry;
+            return next;
+          }
+          return [...prev, entry];
+        });
+      }
+    });
+  }, []);
+
+  // Close find bar when switching tabs
+  useEffect(() => {
+    if (findBarOpen && selection.activeBrowserTab) {
+      void window.openbrowse.stopFindInPage(selection.activeBrowserTab.id);
+    }
+    setFindBarOpen(false);
+    setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.activeBrowserTab?.id]);
 
   // ---- Step 1.3: Sync selectedRunId → inspectedRunId, foregroundRunId ----
   useEffect(() => {
@@ -180,6 +295,69 @@ export function App() {
     }
   }, [displayUrl, isBookmarked, selection.activeBrowserTab?.title]);
 
+  // ---- Reader mode state ----
+  const [readerModeTabs, setReaderModeTabs] = useState<Set<string>>(new Set());
+  const isReaderMode = selection.activeBrowserTab ? readerModeTabs.has(selection.activeBrowserTab.id) : false;
+
+  // Reset reader mode on navigation
+  useEffect(() => {
+    if (selection.activeBrowserTab && displayUrl) {
+      setReaderModeTabs(prev => {
+        if (!prev.has(selection.activeBrowserTab!.id)) return prev;
+        const next = new Set(prev);
+        next.delete(selection.activeBrowserTab!.id);
+        return next;
+      });
+    }
+  }, [displayUrl]);
+
+  const handleToggleReaderMode = useCallback(async () => {
+    if (!selection.activeBrowserTab) return;
+    const sessionId = selection.activeBrowserTab.id;
+    const result = await window.openbrowse.toggleReaderMode(sessionId);
+    if (result.success) {
+      setReaderModeTabs(prev => {
+        const next = new Set(prev);
+        if (result.active) next.add(sessionId);
+        else next.delete(sessionId);
+        return next;
+      });
+    }
+  }, [selection.activeBrowserTab]);
+
+  // ---- Split view state ----
+  const [splitViewTabId, setSplitViewTabId] = useState<string | null>(null);
+  const [splitRatio, setSplitRatio] = useState(0.5);
+
+  const splitTab = splitViewTabId
+    ? browserTabs.shellTabs.find(t => t.id === splitViewTabId) ?? null
+    : null;
+
+  // Exit split view when the split tab is closed
+  useEffect(() => {
+    if (splitViewTabId && !browserTabs.shellTabs.some(t => t.id === splitViewTabId)) {
+      setSplitViewTabId(null);
+    }
+  }, [splitViewTabId, browserTabs.shellTabs]);
+
+  // Exit split view when leaving browser panel
+  useEffect(() => {
+    if (selection.mainPanel !== "browser" && splitViewTabId) {
+      setSplitViewTabId(null);
+    }
+  }, [selection.mainPanel, splitViewTabId]);
+
+  const handleEnterSplitView = useCallback((tabId: string) => {
+    if (!selection.activeBrowserTab || tabId === selection.activeBrowserTab.id) return;
+    setSplitViewTabId(tabId);
+    setSplitRatio(0.5);
+    selection.setMainPanel("browser");
+  }, [selection.activeBrowserTab, selection.setMainPanel]);
+
+  const handleExitSplitView = useCallback(() => {
+    setSplitViewTabId(null);
+  }, []);
+
   // ---- Step 1.6: Cross-cutting handlers ----
 
   const handleCancelRun = useCallback(async (runId: string) => {
@@ -188,6 +366,11 @@ export function App() {
   }, [agentRuns.refresh]);
 
   const handleCloseTab = useCallback(async (tab: BrowserShellTabDescriptor) => {
+    // Exit split view if closing one of the split panes
+    if (splitViewTabId === tab.id || (selection.activeBrowserTab?.id === tab.id && splitViewTabId)) {
+      setSplitViewTabId(null);
+    }
+
     const closingActive = selection.mainPanel === "browser" &&
       selection.activeBrowserTab?.groupId === tab.groupId;
     const tabIndex = browserTabs.shellTabs.findIndex(t => t.groupId === tab.groupId);
@@ -211,10 +394,10 @@ export function App() {
       }
     }
   }, [
-    selection.mainPanel, selection.activeBrowserTab?.groupId, browserTabs.shellTabs,
+    selection.mainPanel, selection.activeBrowserTab?.groupId, selection.activeBrowserTab?.id, browserTabs.shellTabs,
     browserTabs.closeTab, agentRuns.refresh, browserTabs.refreshTabs,
     selection.clearGroupSelection, selection.selectGroup, selection.selectRun,
-    selection.setForegroundRunId, selection.setMainPanel
+    selection.setForegroundRunId, selection.setMainPanel, splitViewTabId
   ]);
 
   const handleNewTab = useCallback(async (url?: string) => {
@@ -223,6 +406,24 @@ export function App() {
     selection.setForegroundRunId(tab.runId);
     selection.setMainPanel("browser");
   }, [browserTabs.newTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
+
+  const handleReopenClosedTab = useCallback(async () => {
+    const tab = await browserTabs.reopenClosedTab();
+    if (tab) {
+      selection.selectGroup(tab.groupId);
+      selection.setForegroundRunId(tab.runId);
+      selection.setMainPanel("browser");
+    }
+  }, [browserTabs.reopenClosedTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
+
+  const handleDuplicateTab = useCallback(async (groupId: string) => {
+    const tab = await browserTabs.duplicateTab(groupId);
+    if (tab) {
+      selection.selectGroup(tab.groupId);
+      selection.setForegroundRunId(tab.runId);
+      selection.setMainPanel("browser");
+    }
+  }, [browserTabs.duplicateTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
 
   const handleNavigate = useCallback(async (input: string) => {
     const url = normalizeUrl(input);
@@ -247,8 +448,8 @@ export function App() {
     selection.setMainPanel("browser");
   }, [selection.selectGroup, selection.selectRun, selection.setForegroundRunId, selection.setMainPanel]);
 
-  const submitChatTask = async () => {
-    const goal = chat.chatInput.trim();
+  const submitChatTask = async (goalOverride?: string) => {
+    const goal = (goalOverride ?? chat.chatInput).trim();
     if (!goal || chat.chatBusy) return;
 
     chat.setMessages(current => [
@@ -335,6 +536,10 @@ export function App() {
     document.documentElement.classList.add("dark");
     document.body.style.margin = "0";
     document.body.style.background = colors.bgBase;
+    document.body.style.backgroundImage = [
+      'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(16,185,129,0.03) 0%, transparent 70%)',
+      'radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.02) 0%, transparent 60%)'
+    ].join(', ');
     const style = document.createElement("style");
     style.textContent = `
       @keyframes ob-pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
@@ -434,7 +639,7 @@ export function App() {
         transition: all 200ms cubic-bezier(0.4, 0, 0.2, 1);
       }
       .ob-card:hover {
-        border-color: rgba(255,255,255,0.22) !important;
+        border-color: rgba(255,255,255,0.14) !important;
         box-shadow: 0 4px 20px rgba(0,0,0,0.2), 0 0 12px rgba(16,185,129,0.06), inset 0 1px 0 rgba(255,255,255,0.08);
         transform: translateY(-1px);
       }
@@ -446,6 +651,19 @@ export function App() {
       .ob-dropdown-item:hover {
         background: rgba(16,185,129,0.08) !important;
         color: #ffffff !important;
+      }
+
+      /* Suggestion pill hover */
+      .ob-suggestion-pill {
+        transition: border-color 150ms ease, color 150ms ease;
+      }
+      .ob-suggestion-pill:hover {
+        border-color: rgba(255,255,255,0.14) !important;
+        color: ${colors.textPrimary} !important;
+      }
+      .ob-suggestion-pill:active {
+        border-color: rgba(16,185,129,0.3) !important;
+        color: ${colors.emerald} !important;
       }
 
       /* Scrollbar */
@@ -522,11 +740,14 @@ export function App() {
         const msgId = `action:${evt.id}`;
         if (!next.some(m => m.id === msgId)) {
           if (!changed) { next = [...next]; changed = true; }
+          const ok = evt.payload?.ok !== "false";
+          const description = evt.payload?.description || evt.summary;
+          const content = ok ? description : `${description} — failed`;
           next.push({
             id: msgId,
             role: "agent",
-            content: evt.summary,
-            tone: "action",
+            content,
+            tone: ok ? "action" : "action-error",
             timestamp: evt.createdAt
           });
         }
@@ -556,12 +777,20 @@ export function App() {
       postedOutcomesRef.current.add(run.id);
       const tone: ChatMessage["tone"] = run.outcome.status === "completed" ? "success" : "error";
       const msgId = `outcome:${run.id}`;
+      let content = run.outcome!.summary;
+      const ed = run.outcome!.extractedData;
+      if (ed && ed.length > 0) {
+        content += "\n\n## Results\n\n| Label | Value |\n|---|---|\n"
+          + ed.map((item) => `| ${item.label.replace(/\|/g, "\\|")} | ${item.value.replace(/\|/g, "\\|")} |`).join("\n");
+      }
       const outcomeMsg: ChatMessage = {
         id: msgId,
         role: "agent",
-        content: run.outcome!.summary,
+        content,
         tone,
-        timestamp: run.outcome!.finishedAt
+        timestamp: run.outcome!.finishedAt,
+        ...(ed && ed.length > 0 ? { extractedData: ed } : {}),
+        ...(tone === "error" && run.goal ? { goalText: run.goal } : {})
       };
       chat.postToRunSessions(run.id, outcomeMsg);
     }
@@ -581,17 +810,52 @@ export function App() {
     activeBrowserTab: selection.activeBrowserTab,
     mainPanel: selection.mainPanel,
     addressBarRef,
+    keybindingOverrides,
     onNewTab: () => void handleNewTab(),
     onCloseTab: () => { if (selection.activeBrowserTab) void handleCloseTab(selection.activeBrowserTab); },
+    onReopenClosedTab: () => void handleReopenClosedTab(),
     onReload: () => { if (selection.activeBrowserTab) void browserTabs.reload(selection.activeBrowserTab.id); },
     onBack: () => { if (selection.activeBrowserTab) void browserTabs.goBack(selection.activeBrowserTab.id); },
     onForward: () => { if (selection.activeBrowserTab) void browserTabs.goForward(selection.activeBrowserTab.id); },
-    onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); }
+    onFocusAddressBar: () => { addressBarRef.current?.focus(); addressBarRef.current?.select(); },
+    onFindInPage: () => {
+      if (selection.activeBrowserTab && selection.mainPanel === "browser") {
+        setFindBarOpen(true);
+        setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+      }
+    },
+    onZoomIn: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomIn(selection.activeBrowserTab.id); },
+    onZoomOut: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomOut(selection.activeBrowserTab.id); },
+    onZoomReset: () => { if (selection.activeBrowserTab) void window.openbrowse.browserZoomReset(selection.activeBrowserTab.id); }
   });
 
-  // ---- Hamburger dropdown menu content (passed to NavBar) ----
-  const menuContent = (
-    <div style={styles.dropdownMenu} onClick={() => layout.setMenuOpen(false)}>
+  const handleFindInPage = useCallback((text: string, options?: { forward?: boolean; findNext?: boolean }) => {
+    if (selection.activeBrowserTab) {
+      void window.openbrowse.findInPage(selection.activeBrowserTab.id, text, options);
+    }
+  }, [selection.activeBrowserTab]);
+
+  const handleStopFind = useCallback(() => {
+    if (selection.activeBrowserTab) {
+      void window.openbrowse.stopFindInPage(selection.activeBrowserTab.id);
+    }
+    setFindResult({ activeMatchOrdinal: 0, matches: 0 });
+  }, [selection.activeBrowserTab]);
+
+  const handleCloseFindBar = useCallback(() => {
+    handleStopFind();
+    setFindBarOpen(false);
+  }, [handleStopFind]);
+
+  // ---- Hamburger dropdown menu content (rendered via portal) ----
+  const menuRect = menuButtonRef.current?.getBoundingClientRect();
+  const menuContent = layout.menuOpen && menuRect ? createPortal(
+    <div style={{
+      ...styles.dropdownMenu,
+      position: "fixed",
+      top: menuRect.bottom + 4,
+      right: window.innerWidth - menuRect.right,
+    }} onClick={() => layout.setMenuOpen(false)}>
       <button
         className="ob-dropdown-item"
         style={styles.dropdownItem}
@@ -609,9 +873,45 @@ export function App() {
       >
         New Session
       </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(browserTabs.closedTabStack.length === 0 ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => void handleReopenClosedTab()}
+      >
+        <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Reopen Closed Tab</span>
+          <span style={{ fontSize: "0.72rem", color: colors.textMuted, marginLeft: 16 }}>⌘⇧T</span>
+        </span>
+      </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("history")}>
         History
       </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("taskHistory")}>
+        Task History
+      </button>
+      <div style={styles.dropdownSeparator} />
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab && browserTabs.shellTabs.length >= 2 && !splitViewTabId) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => {
+          if (!selection.activeBrowserTab) return;
+          const other = browserTabs.shellTabs.find(t => t.id !== selection.activeBrowserTab!.id);
+          if (other) handleEnterSplitView(other.id);
+        }}
+      >
+        Split View
+      </button>
+      {splitViewTabId && (
+        <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={handleExitSplitView}>
+          Exit Split View
+        </button>
+      )}
       <div style={styles.dropdownSeparator} />
       <button
         className="ob-dropdown-item"
@@ -624,6 +924,16 @@ export function App() {
         }}
       >
         Developer Tools
+      </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => void handleToggleReaderMode()}
+      >
+        {isReaderMode ? "Exit Reader Mode" : "Reader Mode"}
       </button>
       <div style={styles.dropdownSeparator} />
       <button
@@ -652,8 +962,9 @@ export function App() {
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("bookmarks")}>Bookmarks</button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("cookies")}>Cookies</button>
-    </div>
-  );
+    </div>,
+    document.body
+  ) : null;
 
   // ---- Step 1.8: JSX with extracted components ----
   return (
@@ -688,6 +999,7 @@ export function App() {
           onClearChat={chat.clearCurrentChat}
           onChatInputChange={chat.setChatInput}
           onSubmitTask={submitChatTask}
+          onRetryTask={(goal: string) => void submitChatTask(goal)}
           onResumeRun={handleResumeRun}
           onDismissRun={handleDismissRun}
         />
@@ -699,20 +1011,39 @@ export function App() {
 
       {/* Main browser area */}
       <section style={styles.main}>
-        <TabBar
-          shellTabs={browserTabs.shellTabs}
-          activeBrowserTab={selection.activeBrowserTab}
-          runs={agentRuns.runs}
-          tabFavicons={browserTabs.tabFavicons}
-          sidebarVisible={layout.sidebarVisible}
-          mainPanel={selection.mainPanel}
-          onSelectTab={handleSelectTab}
-          onCloseTab={handleCloseTab}
-          onNewTab={() => void handleNewTab()}
-          onToggleSidebar={layout.toggleSidebar}
-        />
-
-        <NavBar
+        {/* Unified chrome band — single Tier 1 glass surface for TabBar + NavBar */}
+        <div className="ob-glass-panel" style={styles.chromeBand}>
+          <TabBar
+            shellTabs={browserTabs.shellTabs}
+            activeBrowserTab={selection.activeBrowserTab}
+            runs={agentRuns.runs}
+            tabFavicons={browserTabs.tabFavicons}
+            pinnedTabs={browserTabs.pinnedTabs}
+            sidebarVisible={layout.sidebarVisible}
+            mainPanel={selection.mainPanel}
+            tabGroups={browserTabs.tabGroups}
+            groupAssignments={browserTabs.groupAssignments}
+            onSelectTab={handleSelectTab}
+            onCloseTab={handleCloseTab}
+            onNewTab={() => void handleNewTab()}
+            onToggleSidebar={layout.toggleSidebar}
+            onPinTab={browserTabs.pinTab}
+            onUnpinTab={browserTabs.unpinTab}
+            onDuplicateTab={(groupId: string) => void handleDuplicateTab(groupId)}
+            onMoveTab={browserTabs.moveTab}
+            onCreateTabGroup={browserTabs.createTabGroup}
+            onAddTabToGroup={browserTabs.addTabToGroup}
+            onRemoveTabFromGroup={browserTabs.removeTabFromGroup}
+            onRenameTabGroup={browserTabs.renameTabGroup}
+            onSetTabGroupColor={browserTabs.setTabGroupColor}
+            onToggleCollapseTabGroup={browserTabs.toggleCollapseTabGroup}
+            onDeleteTabGroup={browserTabs.deleteTabGroup}
+            splitViewTabId={splitViewTabId}
+            onOpenInSplitView={handleEnterSplitView}
+            onExitSplitView={handleExitSplitView}
+          />
+          <div style={styles.chromeSeparator} />
+          <NavBar
           activeBrowserTab={selection.activeBrowserTab}
           mainPanel={selection.mainPanel}
           addressInput={addressBar.addressInput}
@@ -721,13 +1052,22 @@ export function App() {
           displayUrl={displayUrl}
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
-          menuOpen={layout.menuOpen}
           isBookmarked={isBookmarked}
+          isReaderMode={isReaderMode}
+          onToggleReaderMode={() => void handleToggleReaderMode()}
+          suggestions={addressBar.suggestions}
+          selectedIndex={addressBar.selectedIndex}
           onToggleBookmark={() => void handleToggleBookmark()}
           onAddressChange={addressBar.setAddressInput}
           onAddressFocus={addressBar.startEditing}
           onAddressBlur={addressBar.stopEditing}
           onNavigate={(input) => void handleNavigate(input)}
+          onMoveSelection={addressBar.moveSelection}
+          onSetSelectedIndex={addressBar.setSelectedIndex}
+          onSelectSuggestion={(s) => {
+            addressBar.clearSuggestions();
+            void handleNavigate(s.url);
+          }}
           onBack={() => {
             if (selection.activeBrowserTab && selection.mainPanel === "browser") {
               void browserTabs.goBack(selection.activeBrowserTab.id);
@@ -749,8 +1089,9 @@ export function App() {
           onOpenManagement={layout.openManagement}
           onToggleMenu={(e) => { e.stopPropagation(); layout.toggleMenu(); }}
           addressBarRef={addressBarRef}
-          menuContent={menuContent}
+          menuButtonRef={menuButtonRef}
         />
+        </div>
 
         {/* Loading indicator */}
         {selection.activeBrowserTab && browserTabs.loadingTabs[selection.activeBrowserTab.id] && (
@@ -773,9 +1114,29 @@ export function App() {
                 recentAction={agentRuns.foregroundRunEvents.at(-1) ?? null}
                 onCancel={(runId) => void handleCancelRun(runId)}
               />
+              {findBarOpen && (
+                <FindBar
+                  onFind={handleFindInPage}
+                  onStopFind={handleStopFind}
+                  onClose={handleCloseFindBar}
+                  activeMatchOrdinal={findResult.activeMatchOrdinal}
+                  totalMatches={findResult.matches}
+                />
+              )}
               <BrowserPanel
                 activeTab={selection.activeBrowserTab}
                 covered={layout.managementOpen || layout.menuOpen}
+                loadError={selection.activeBrowserTab ? tabErrors[selection.activeBrowserTab.id] ?? null : null}
+                onReload={() => {
+                  if (selection.activeBrowserTab) {
+                    void window.openbrowse.browserReload(selection.activeBrowserTab.id);
+                  }
+                }}
+                downloads={downloads}
+                onDismissDownload={(id) => setDownloads(prev => prev.filter(d => d.id !== id))}
+                splitTab={splitTab}
+                splitRatio={splitRatio}
+                onSplitRatioChange={setSplitRatio}
               />
             </>
           ) : (
@@ -783,6 +1144,7 @@ export function App() {
               shellTabs={browserTabs.shellTabs}
               tabFavicons={browserTabs.tabFavicons}
               onOpenTab={handleSelectTab}
+              onStartTask={(goal) => void submitChatTask(goal)}
             />
           )}
         </div>
@@ -815,8 +1177,13 @@ export function App() {
               }
             }}
             onClose={layout.closeManagement}
+            keybindingOverrides={keybindingOverrides}
+            onKeybindingOverridesChanged={setKeybindingOverrides}
           />
         )}
+
+        {/* Hamburger dropdown menu — rendered via portal to escape NavBar stacking context */}
+        {menuContent}
       </section>
     </div>
   );
@@ -830,6 +1197,10 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100vh",
     overflow: "hidden",
     background: colors.bgBase,
+    backgroundImage: [
+      'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(16,185,129,0.03) 0%, transparent 70%)',
+      'radial-gradient(ellipse 60% 40% at 80% 100%, rgba(99,102,241,0.02) 0%, transparent 60%)'
+    ].join(', '),
     color: colors.textPrimary,
     fontFamily: "'SF Pro Display', 'Avenir Next', sans-serif"
   },
@@ -849,13 +1220,24 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 10,
     boxSizing: "border-box" as const
   },
+  chromeBand: {
+    ...glass.panel,
+    border: `1px solid ${colors.borderGlass}`,
+    borderBottom: '1px solid rgba(255,255,255,0.12)',
+    boxShadow: shadows.glass,
+  } as React.CSSProperties,
+  chromeSeparator: {
+    height: 1,
+    background: colors.borderSubtle,
+    margin: '0 10px',
+  },
   main: {
     flex: 1,
     minWidth: 0,
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",
-    background: colors.bgBase,
+    background: "transparent",
     position: "relative"
   },
   mainBody: {
@@ -864,17 +1246,13 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "hidden"
   },
   dropdownMenu: {
-    position: "absolute",
-    top: "100%",
-    right: 0,
-    marginTop: 4,
     ...glass.panel,
     border: `1px solid ${colors.borderGlass}`,
     borderRadius: 10,
     padding: "6px 0",
     minWidth: 180,
     boxShadow: shadows.glassElevated,
-    zIndex: 2000
+    zIndex: 9999
   } as React.CSSProperties,
   dropdownItem: {
     display: "block",
@@ -890,7 +1268,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dropdownSeparator: {
     height: 1,
-    background: colors.borderDefault,
+    background: colors.borderSubtle,
     margin: "4px 0"
   }
 };

@@ -1,18 +1,21 @@
 import type { BrowserActionFailureClass } from "@openbrowse/contracts";
 
 const ELEMENT_TARGET_ID_RE = /^el_(\d+)$/;
+const FRAME_ELEMENT_TARGET_ID_RE = /^frame(\d+)_el_(\d+)$/;
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:", "about:"]);
 
 /**
- * Parse an `el_<N>` target ID and return the numeric index.
+ * Parse an `el_<N>` or `frame<F>_el_<N>` target ID and return the element index.
  * Throws if the format is invalid.
  */
 export function validateElementTargetId(targetId: string): number {
   const match = ELEMENT_TARGET_ID_RE.exec(targetId);
-  if (!match) {
-    throw new Error(`Invalid element target ID: ${targetId}`);
-  }
-  return Number(match[1]);
+  if (match) return Number(match[1]);
+
+  const frameMatch = FRAME_ELEMENT_TARGET_ID_RE.exec(targetId);
+  if (frameMatch) return Number(frameMatch[2]);
+
+  throw new Error(`Invalid element target ID: ${targetId}`);
 }
 
 /**

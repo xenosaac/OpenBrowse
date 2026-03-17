@@ -123,7 +123,7 @@ const styles: Record<string, React.CSSProperties> = {
   search: {
     flex: 1,
     ...glass.input,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderDefault}`,
     borderRadius: 8,
     padding: "8px 12px",
     color: colors.textPrimary,
@@ -131,8 +131,8 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
   } as React.CSSProperties,
   refreshBtn: {
-    background: colors.buttonBg,
-    border: `1px solid ${colors.borderGlass}`,
+    ...glass.control,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",
@@ -141,8 +141,8 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   clearBtn: {
-    background: colors.buttonBg,
-    border: `1px solid ${colors.borderGlass}`,
+    ...glass.control,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",
@@ -153,7 +153,7 @@ const styles: Record<string, React.CSSProperties> = {
   clearBtnConfirm: {
     background: "rgba(239,68,68,0.15)",
     border: "1px solid rgba(239,68,68,0.3)",
-    color: "#ef4444",
+    color: colors.statusFailed,
     borderRadius: 8,
     padding: "7px 14px",
     cursor: "pointer",
@@ -174,7 +174,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 10px",
     borderRadius: 10,
     ...glass.card,
-    border: `1px solid ${colors.borderGlass}`,
+    border: `1px solid ${colors.borderSubtle}`,
   } as React.CSSProperties,
   info: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 },
   nameRow: { display: "flex", alignItems: "center", gap: 6 },

@@ -7,7 +7,7 @@ interface Props {
 
 export function ManagedProfiles({ profiles }: Props) {
   if (profiles.length === 0) {
-    return <p style={{ color: "#9090a8" }}>No managed profiles yet.</p>;
+    return <p style={{ color: colors.textSecondary }}>No managed profiles yet.</p>;
   }
 
   return (
@@ -34,7 +34,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 14,
     padding: "12px 14px",
     marginBottom: 8,
-    border: "1px solid " + colors.borderGlass
+    border: "1px solid " + colors.borderSubtle
   } as React.CSSProperties,
   row: {
     display: "flex",
@@ -53,7 +53,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     gap: 16,
     fontSize: "0.8rem",
-    color: "#8f90a6",
+    color: colors.textSecondary,
     marginTop: 4
   }
 };

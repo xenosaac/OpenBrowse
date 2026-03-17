@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
 import {
@@ -53,6 +53,102 @@ export function registerIpcHandlers(
     mainWindow.webContents.send("runtime:event", { type: "tab_favicon", sessionId, faviconUrl });
   });
 
+  browserShell.setFindCallback((sessionId, result) => {
+    mainWindow.webContents.send("runtime:event", { type: "find_in_page_result", sessionId, ...result });
+  });
+
+  browserShell.setLoadErrorCallback((sessionId, errorCode, errorDescription, validatedURL) => {
+    mainWindow.webContents.send("runtime:event", {
+      type: "tab_load_error", sessionId, errorCode, errorDescription, url: validatedURL
+    });
+  });
+
+  browserShell.setDownloadCallback((info) => {
+    mainWindow.webContents.send("runtime:event", {
+      type: "download_updated",
+      id: info.id,
+      filename: info.filename,
+      url: info.url,
+      savePath: info.savePath,
+      totalBytes: info.totalBytes,
+      receivedBytes: info.receivedBytes,
+      state: info.state,
+    });
+  });
+
+  browserShell.setContextMenuCallback((sessionId, params) => {
+    const navState = browserShell.getNavState(sessionId);
+    const template: Electron.MenuItemConstructorOptions[] = [];
+
+    if (params.linkURL) {
+      template.push({
+        label: "Open Link in New Tab",
+        click: () => {
+          const tab = browserShell.createStandaloneTab(params.linkURL);
+          mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+        }
+      });
+      template.push({
+        label: "Copy Link Address",
+        click: () => clipboard.writeText(params.linkURL)
+      });
+      template.push({ type: "separator" });
+    }
+
+    if (params.mediaType === "image") {
+      template.push({
+        label: "Copy Image",
+        click: () => browserShell.copyImageAt(sessionId, params.x, params.y)
+      });
+      template.push({ type: "separator" });
+    }
+
+    if (params.isEditable) {
+      template.push({ label: "Cut", click: () => browserShell.executeEditCommand(sessionId, "cut") });
+      template.push({ label: "Copy", click: () => browserShell.executeEditCommand(sessionId, "copy") });
+      template.push({ label: "Paste", click: () => browserShell.executeEditCommand(sessionId, "paste") });
+      template.push({ label: "Select All", click: () => browserShell.executeEditCommand(sessionId, "selectAll") });
+      template.push({ type: "separator" });
+    } else if (params.selectionText) {
+      template.push({ label: "Copy", click: () => browserShell.executeEditCommand(sessionId, "copy") });
+      const truncated = params.selectionText.length > 30
+        ? params.selectionText.slice(0, 30) + "\u2026"
+        : params.selectionText;
+      template.push({
+        label: `Search Google for \u201c${truncated}\u201d`,
+        click: () => {
+          const q = encodeURIComponent(params.selectionText);
+          const tab = browserShell.createStandaloneTab(`https://www.google.com/search?q=${q}`);
+          mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
+        }
+      });
+      template.push({ type: "separator" });
+    }
+
+    template.push({
+      label: "Back",
+      enabled: navState?.canGoBack ?? false,
+      click: () => browserShell.goBack(sessionId)
+    });
+    template.push({
+      label: "Forward",
+      enabled: navState?.canGoForward ?? false,
+      click: () => browserShell.goForward(sessionId)
+    });
+    template.push({
+      label: "Reload",
+      click: () => browserShell.reload(sessionId)
+    });
+    template.push({ type: "separator" });
+    template.push({
+      label: "Inspect Element",
+      click: () => browserShell.inspectElement(sessionId, params.x, params.y)
+    });
+
+    const menu = Menu.buildFromTemplate(template);
+    menu.popup({ window: mainWindow });
+  });
+
   register("task:start", async (_event, intent: TaskIntent) => {
     const run = await bootstrapRunDetached(services, intent, async (updatedRun) => {
       mainWindow.webContents.send("runtime:event", { type: "run_updated", run: updatedRun });
@@ -93,6 +189,11 @@ export function registerIpcHandlers(
 
   register("runs:list", async () => {
     return listAllRuns(services);
+  });
+
+  register("runs:listRecent", async (_event, limit?: number) => {
+    const all = await listAllRuns(services);
+    return all.slice(0, limit ?? 50);
   });
 
   register("runs:get", async (_event, runId: string) => {
@@ -206,6 +307,22 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  // Split view
+  register("browser:split-view:enter", async (_event, data: { leftId: string; rightId: string }) => {
+    browserShell.enterSplitView(data.leftId, data.rightId);
+    return { ok: true };
+  });
+
+  register("browser:split-view:exit", async () => {
+    browserShell.exitSplitView();
+    return { ok: true };
+  });
+
+  register("browser:split-view:set-bounds", async (_event, data: { leftBounds: BrowserViewportBounds; rightBounds: BrowserViewportBounds }) => {
+    browserShell.setSplitBounds(data.leftBounds, data.rightBounds);
+    return { ok: true };
+  });
+
   // Handles both standalone tabs and agent-run groups.
   register("browser:close-group", async (_event, groupId: string) => {
     if (browserShell.isStandaloneTab(groupId)) {
@@ -226,6 +343,28 @@ export function registerIpcHandlers(
     const tab = browserShell.createStandaloneTab(url ?? "about:blank");
     mainWindow.webContents.send("runtime:event", { type: "standalone_tab_created", tab });
     return tab;
+  });
+
+  register("browser:set-tab-pinned", async (_event, { tabId, pinned }: { tabId: string; pinned: boolean }) => {
+    browserShell.setTabPinned(tabId, pinned);
+    return { ok: true };
+  });
+
+  register("browser:set-tab-order", async (_event, orderedIds: string[]) => {
+    browserShell.reorderTabs(orderedIds);
+    return { ok: true };
+  });
+
+  register("browser:save-tab-groups", async (_event, data: {
+    groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+    assignments: Record<string, string>;
+  }) => {
+    browserShell.saveTabGroups(data.groups, data.assignments);
+    return { ok: true };
+  });
+
+  register("browser:get-tab-groups", async () => {
+    return browserShell.getTabGroups();
   });
 
   register("browser:navigate", async (_event, { sessionId, url }: { sessionId: string; url: string }) => {
@@ -252,9 +391,35 @@ export function registerIpcHandlers(
     return browserShell.getNavState(sessionId);
   });
 
+  register("browser:zoom-in", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.zoomIn(sessionId) };
+  });
+
+  register("browser:zoom-out", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.zoomOut(sessionId) };
+  });
+
+  register("browser:zoom-reset", async (_event, sessionId: string) => {
+    return { zoomLevel: browserShell.resetZoom(sessionId) };
+  });
+
+  register("browser:find-in-page", async (_event, data: { sessionId: string; text: string; forward?: boolean; findNext?: boolean }) => {
+    browserShell.findInPage(data.sessionId, data.text, { forward: data.forward, findNext: data.findNext });
+    return { ok: true };
+  });
+
+  register("browser:stop-find-in-page", async (_event, sessionId: string) => {
+    browserShell.stopFindInPage(sessionId, "clearSelection");
+    return { ok: true };
+  });
+
   register("browser:devtools", async (_event, sessionId: string) => {
     browserShell.openDevTools(sessionId);
     return { ok: true };
+  });
+
+  register("browser:toggle-reader-mode", async (_event, sessionId: string) => {
+    return browserShell.toggleReaderMode(sessionId);
   });
 
   register("browser:print", async (_event, sessionId: string) => {
@@ -361,5 +526,16 @@ export function registerIpcHandlers(
 
   register("cookies:remove-all", async (_event, sessionId: string) => {
     await browserShell.removeAllCookies(sessionId);
+  });
+
+  // --- Keybinding Preferences ---
+  register("keybindings:get", async () => {
+    const entries = await services.preferenceStore.list("keybindings");
+    return entries.map((e) => ({ key: e.key, value: e.value }));
+  });
+
+  register("keybindings:save", async (_event, entries: Array<{ key: string; value: string }>) => {
+    await services.preferenceStore.saveNamespaceSettings("keybindings", entries);
+    return { ok: true };
   });
 }

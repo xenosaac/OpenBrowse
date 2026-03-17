@@ -11,7 +11,11 @@ import type {
 } from "@openbrowse/contracts";
 import type { AttachSessionOptions, BrowserKernel } from "./BrowserKernel.js";
 import { CdpClient } from "./cdp/CdpClient.js";
+import { DISMISS_COOKIE_BANNER_SCRIPT } from "./cdp/dismissCookieBanner.js";
+import { INJECT_ANNOTATION_OVERLAY_SCRIPT, REMOVE_ANNOTATION_OVERLAY_SCRIPT } from "./cdp/annotationOverlay.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
+import { mapRawToPageModel, type RawPageModelResult } from "./mapRawToPageModel.js";
+import { navigateWithRetry } from "./navigateRetry.js";
 import { classifyFailure, parseKeyboardShortcut, validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
 
 export interface EmbeddedViewProvider {
@@ -38,6 +42,31 @@ interface ManagedSession {
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const TARGET_ATTR = "data-openbrowse-target-id";
 
+/**
+ * Inline JS helper that resolves an element by targetId, including same-origin
+ * iframe traversal for frame-prefixed IDs like "frame0_el_5".
+ * Returns { el, iframe } where iframe is the containing iframe element (or null).
+ * This string is prepended inside callFunction bodies that need element resolution.
+ */
+const RESOLVE_TARGET_JS = `
+  function _resolve(targetAttr, targetId) {
+    var fm = targetId.match(/^frame(\\d+)_el_/);
+    if (fm) {
+      var fi = parseInt(fm[1], 10);
+      var ifs = document.querySelectorAll('iframe');
+      var si = 0;
+      for (var i = 0; i < ifs.length; i++) {
+        var d; try { d = ifs[i].contentDocument; } catch(e) { continue; }
+        if (!d || !d.body) continue;
+        if (si === fi) return { el: d.querySelector('[' + targetAttr + '="' + targetId + '"]'), iframe: ifs[i] };
+        si++;
+      }
+      return { el: null, iframe: null };
+    }
+    return { el: document.querySelector('[' + targetAttr + '="' + targetId + '"]'), iframe: null };
+  }
+`;
+
 function rejectAfterTimeout(ms: number, message: string): Promise<never> {
   return new Promise((_resolve, reject) => {
     setTimeout(() => reject(new Error(message)), ms);
@@ -47,6 +76,7 @@ function rejectAfterTimeout(ms: number, message: string): Promise<never> {
 export class ElectronBrowserKernel implements BrowserKernel {
   private readonly profiles = new Map<string, BrowserProfile>();
   private readonly sessions = new Map<string, ManagedSession>();
+  private readonly cookieDismissAttempted = new Map<string, Set<string>>();
   private readonly parentWindow: BrowserWindow;
   private readonly profilesDir: string;
   private readonly viewProvider: EmbeddedViewProvider | null;
@@ -237,43 +267,75 @@ export class ElectronBrowserKernel implements BrowserKernel {
       throw new Error(`Session not found: ${browserSession.id}`);
     }
 
-    const raw = await managed.cdp.evaluate<{
-      url: string;
-      title: string;
-      summary: string;
-      focusedElementId?: string;
-      elements: Array<{
-        id: string; role: string; label: string; value?: string; isActionable: boolean;
-        href?: string; inputType?: string; disabled?: boolean; readonly?: boolean; boundingVisible?: boolean;
-        boundingBox?: { x: number; y: number; width: number; height: number };
-      }>;
-      visibleText: string;
-      pageType?: string;
-      forms?: Array<{
-        action: string; method: string; fieldCount: number;
-        fields?: Array<{ ref: string; label: string; type: string; required: boolean; currentValue: string }>;
-        submitRef?: string;
-      }>;
-      alerts?: string[];
-      captchaDetected?: boolean;
-      scrollY?: number;
-    }>(EXTRACT_PAGE_MODEL_SCRIPT);
+    const raw = await managed.cdp.evaluate<RawPageModelResult>(EXTRACT_PAGE_MODEL_SCRIPT);
 
-    return {
-      id: `page_${browserSession.id}_${Date.now()}`,
-      url: raw.url,
-      title: raw.title,
-      summary: raw.summary,
-      focusedElementId: raw.focusedElementId,
-      elements: raw.elements,
-      visibleText: raw.visibleText,
-      pageType: (raw.pageType as PageModel["pageType"]) ?? undefined,
-      forms: raw.forms,
-      alerts: raw.alerts,
-      captchaDetected: raw.captchaDetected,
-      scrollY: raw.scrollY,
-      createdAt: new Date().toISOString()
-    };
+    // Auto-dismiss cookie banner if detected and not yet attempted for this session+hostname
+    if (raw.cookieBannerDetected) {
+      let hostname: string;
+      try { hostname = new URL(raw.url).hostname; } catch { hostname = raw.url; }
+      const attempted = this.cookieDismissAttempted.get(browserSession.id);
+      if (!attempted?.has(hostname)) {
+        // Record that we've attempted for this session+hostname
+        if (!attempted) {
+          this.cookieDismissAttempted.set(browserSession.id, new Set([hostname]));
+        } else {
+          attempted.add(hostname);
+        }
+
+        try {
+          const dismissResult = await managed.cdp.evaluate<{ dismissed: boolean; method?: string; detail?: string }>(
+            DISMISS_COOKIE_BANNER_SCRIPT
+          );
+          if (dismissResult.dismissed) {
+            // Wait for banner dismiss animation
+            await new Promise((r) => setTimeout(r, 500));
+            managed.cdp.invalidateContext();
+            // Re-extract page model with banner dismissed
+            const fresh = await managed.cdp.evaluate<RawPageModelResult>(EXTRACT_PAGE_MODEL_SCRIPT);
+            return mapRawToPageModel(fresh, browserSession.id);
+          }
+        } catch {
+          // Dismiss failed — return original page model with banner still detected
+        }
+      }
+    }
+
+    return mapRawToPageModel(raw, browserSession.id);
+  }
+
+  async captureScreenshot(browserSession: BrowserSession): Promise<string | null> {
+    const managed = this.sessions.get(browserSession.id);
+    if (!managed) return null;
+    try {
+      // Inject element annotation overlay before capture
+      try {
+        await managed.cdp.evaluate(INJECT_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Overlay injection failed — capture without annotations
+      }
+
+      const result = await managed.cdp.send("Page.captureScreenshot", {
+        format: "jpeg",
+        quality: 60
+      }) as { data: string };
+
+      // Remove overlay after capture
+      try {
+        await managed.cdp.evaluate(REMOVE_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Overlay removal failed — non-critical, will be cleaned up on next page model capture
+      }
+
+      return result.data;
+    } catch {
+      // Ensure overlay is removed even if screenshot capture fails
+      try {
+        await managed.cdp.evaluate(REMOVE_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Best effort cleanup
+      }
+      return null;
+    }
   }
 
   async executeAction(browserSession: BrowserSession, action: BrowserAction): Promise<BrowserActionResult> {
@@ -289,10 +351,13 @@ export class ElectronBrowserKernel implements BrowserKernel {
         case "navigate": {
           if (action.value) {
             const safeUrl = validateUrl(action.value);
-            await Promise.race([
-              wc.loadURL(safeUrl),
-              rejectAfterTimeout(NAVIGATION_TIMEOUT_MS, `Navigation to ${safeUrl} timed out after ${NAVIGATION_TIMEOUT_MS}ms`)
-            ]);
+            await navigateWithRetry(
+              () => Promise.race([
+                wc.loadURL(safeUrl),
+                rejectAfterTimeout(NAVIGATION_TIMEOUT_MS, `Navigation to ${safeUrl} timed out after ${NAVIGATION_TIMEOUT_MS}ms`)
+              ]),
+              classifyFailure
+            );
           }
           managed.cdp.invalidateContext();
           break;
@@ -303,11 +368,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
           // Scroll element into view and get its center coordinates
           const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return null;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              const rect = el.getBoundingClientRect();
-              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              var rect = r.el.getBoundingClientRect();
+              var ox = 0, oy = 0;
+              if (r.iframe) { var ir = r.iframe.getBoundingClientRect(); ox = ir.left; oy = ir.top; }
+              return { x: Math.round(ox + rect.left + rect.width / 2), y: Math.round(oy + rect.top + rect.height / 2) };
             }`,
             TARGET_ATTR,
             targetId
@@ -328,20 +396,35 @@ export class ElectronBrowserKernel implements BrowserKernel {
         case "type": {
           const targetId = this.requireTargetId(action);
           const value = this.requireActionValue(action);
-          // Focus element, scroll into view, select all existing text
+          // Focus element, scroll into view
           const found = await managed.cdp.callFunction<boolean>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return false;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
-              if (typeof el.select === 'function') el.select();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return false;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
               return true;
             }`,
             TARGET_ATTR,
             targetId
           );
           if (!found) throw new Error(`Target not found: ${targetId}`);
+
+          // If clear_first, select all existing text via keyboard shortcut before typing.
+          // Uses Ctrl+A (works cross-platform in Chromium content areas).
+          if (action.clearFirst) {
+            await managed.cdp.send("Input.dispatchKeyEvent", {
+              type: "keyDown", key: "a", code: "KeyA",
+              modifiers: 2, // Ctrl
+              windowsVirtualKeyCode: 65
+            });
+            await managed.cdp.send("Input.dispatchKeyEvent", {
+              type: "keyUp", key: "a", code: "KeyA",
+              modifiers: 2,
+              windowsVirtualKeyCode: 65
+            });
+          }
 
           // Use character-by-character key dispatch for React/Vue/Angular compat.
           // Fast-path: insertText if hinted (plain HTML inputs without framework bindings).
@@ -358,10 +441,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           // Dispatch input + change for framework compatibility
           await managed.cdp.callFunction(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (el) {
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (r.el) {
+                r.el.dispatchEvent(new Event('input', { bubbles: true }));
+                r.el.dispatchEvent(new Event('change', { bubbles: true }));
               }
             }`,
             TARGET_ATTR,
@@ -377,24 +461,25 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const value = this.requireActionValue(action);
           await managed.cdp.callFunction(
             `function(targetAttr, targetId, value) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) throw new Error('Target not found: ' + targetId);
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) throw new Error('Target not found: ' + targetId);
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
 
               // Use native setter to trigger internal state update
               var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
                 window.HTMLSelectElement.prototype, 'value'
               )?.set;
               if (nativeInputValueSetter) {
-                nativeInputValueSetter.call(el, value);
+                nativeInputValueSetter.call(r.el, value);
               } else {
-                el.value = value;
+                r.el.value = value;
               }
 
               // Dispatch both native and synthetic events for framework compat
-              el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+              r.el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+              r.el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
             }`,
             TARGET_ATTR,
             targetId,
@@ -414,8 +499,9 @@ export class ElectronBrowserKernel implements BrowserKernel {
             validateElementTargetId(tid);
             await managed.cdp.callFunction(
               `function(targetAttr, targetId, delta) {
-                const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-                if (el) el.scrollBy({ top: delta, behavior: 'smooth' });
+                ${RESOLVE_TARGET_JS}
+                var r = _resolve(targetAttr, targetId);
+                if (r.el) r.el.scrollBy({ top: delta, behavior: 'smooth' });
               }`,
               TARGET_ATTR,
               tid,
@@ -431,10 +517,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const targetId = this.requireTargetId(action);
           const found = await managed.cdp.callFunction<boolean>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return false;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return false;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
               return true;
             }`,
             TARGET_ATTR,
@@ -448,11 +535,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const targetId = this.requireTargetId(action);
           const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return null;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              const rect = el.getBoundingClientRect();
-              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              var rect = r.el.getBoundingClientRect();
+              var ox = 0, oy = 0;
+              if (r.iframe) { var ir = r.iframe.getBoundingClientRect(); ox = ir.left; oy = ir.top; }
+              return { x: Math.round(ox + rect.left + rect.width / 2), y: Math.round(oy + rect.top + rect.height / 2) };
             }`,
             TARGET_ATTR,
             targetId
@@ -479,6 +569,122 @@ export class ElectronBrowserKernel implements BrowserKernel {
           await managed.cdp.evaluate(EXTRACT_PAGE_MODEL_SCRIPT);
           break;
 
+        case "go_back": {
+          if (wc.canGoBack()) {
+            wc.goBack();
+            await this.waitForLoadIfNavigating(wc);
+            managed.cdp.invalidateContext();
+          }
+          break;
+        }
+
+        case "wait_for_text": {
+          const searchText = this.requireActionValue(action);
+          const timeout = Number(action.interactionHint) || 5000;
+          const pollInterval = 200;
+          const maxAttempts = Math.ceil(timeout / pollInterval);
+
+          let found = false;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const hasText = await managed.cdp.callFunction<boolean>(
+              `function(searchText) {
+                return (document.body.innerText || '').includes(searchText);
+              }`,
+              searchText
+            );
+            if (hasText) {
+              found = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, pollInterval));
+          }
+
+          managed.cdp.invalidateContext();
+          const pageModelAfterWait = await this.capturePageModel(browserSession);
+
+          if (found) {
+            return {
+              ok: true,
+              action,
+              pageModelId: pageModelAfterWait.id,
+              summary: `Text "${searchText.slice(0, 60)}" found on page`
+            };
+          } else {
+            return {
+              ok: false,
+              action,
+              pageModelId: pageModelAfterWait.id,
+              summary: `Text "${searchText.slice(0, 60)}" not found after ${timeout}ms`,
+              failureClass: "interaction_failed" as const
+            };
+          }
+        }
+
+        case "read_text": {
+          const targetId = this.requireTargetId(action);
+          const text = await managed.cdp.callFunction<string | null>(
+            `function(targetAttr, targetId) {
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              return (r.el.innerText || '').trim().slice(0, 2000);
+            }`,
+            TARGET_ATTR,
+            targetId
+          );
+          if (text === null) throw new Error(`Target not found: ${targetId}`);
+          const pageModelAfterRead = await this.capturePageModel(browserSession);
+          return {
+            ok: true,
+            action,
+            pageModelId: pageModelAfterRead.id,
+            summary: `Read text from [${targetId}]: ${text.slice(0, 100)}${text.length > 100 ? "..." : ""}`,
+            extractedText: text
+          };
+        }
+
+        case "wait_for_navigation": {
+          const initialUrl = wc.getURL();
+          const navTimeout = Number(action.interactionHint) || 10000;
+          const navPollInterval = 200;
+          const navMaxAttempts = Math.ceil(navTimeout / navPollInterval);
+
+          let navigated = false;
+          for (let attempt = 0; attempt < navMaxAttempts; attempt++) {
+            const currentUrl = wc.getURL();
+            if (currentUrl !== initialUrl) {
+              navigated = true;
+              break;
+            }
+            await new Promise((r) => setTimeout(r, navPollInterval));
+          }
+
+          if (navigated) {
+            // Wait for the new page to finish loading
+            await this.waitForLoadIfNavigating(wc);
+          }
+
+          managed.cdp.invalidateContext();
+          const pageModelAfterNav = await this.capturePageModel(browserSession);
+
+          if (navigated) {
+            return {
+              ok: true,
+              action,
+              pageModelId: pageModelAfterNav.id,
+              summary: `Navigation detected: ${initialUrl.slice(0, 60)} → ${wc.getURL().slice(0, 60)}`
+            };
+          } else {
+            return {
+              ok: false,
+              action,
+              pageModelId: pageModelAfterNav.id,
+              summary: `URL did not change after ${navTimeout}ms (still at ${initialUrl.slice(0, 60)})`,
+              failureClass: "interaction_failed" as const
+            };
+          }
+        }
+
         case "screenshot": {
           const screenshotResult = await managed.cdp.send("Page.captureScreenshot", { format: "png" }) as { data: string };
           const pageModelAfterScreenshot = await this.capturePageModel(browserSession);
@@ -488,6 +694,51 @@ export class ElectronBrowserKernel implements BrowserKernel {
             pageModelId: pageModelAfterScreenshot.id,
             summary: "Screenshot captured",
             screenshotBase64: screenshotResult.data
+          };
+        }
+
+        case "upload_file": {
+          const targetId = this.requireTargetId(action);
+          const filePath = this.requireActionValue(action);
+
+          // Use DOM.getDocument + DOM.querySelector to find the file input by target attribute
+          const doc = await managed.cdp.send<{ root: { nodeId: number } }>("DOM.getDocument", {});
+          const queryResult = await managed.cdp.send<{ nodeId: number }>("DOM.querySelector", {
+            nodeId: doc.root.nodeId,
+            selector: `[${TARGET_ATTR}="${targetId}"]`
+          });
+          if (!queryResult.nodeId) throw new Error(`Target not found: ${targetId}`);
+
+          // Set the file on the input element via CDP
+          await managed.cdp.send("DOM.setFileInputFiles", {
+            files: [filePath],
+            nodeId: queryResult.nodeId
+          });
+
+          // Dispatch change event for framework compatibility
+          await managed.cdp.callFunction(
+            `function(targetAttr, targetId) {
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (r.el) {
+                r.el.dispatchEvent(new Event('change', { bubbles: true }));
+                r.el.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+            }`,
+            TARGET_ATTR,
+            targetId
+          );
+
+          // Post-action settle
+          await this.postActionSettle(wc);
+          managed.cdp.invalidateContext();
+
+          const pageModelAfterUpload = await this.capturePageModel(browserSession);
+          return {
+            ok: true,
+            action,
+            pageModelId: pageModelAfterUpload.id,
+            summary: `File uploaded: ${filePath.split("/").pop() ?? filePath}`
           };
         }
       }
@@ -528,6 +779,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
     if (!managed) return;
 
     this.sessions.delete(sessionId);
+    this.cookieDismissAttempted.delete(sessionId);
 
     try {
       await managed.cdp.detach();
@@ -547,6 +799,7 @@ export class ElectronBrowserKernel implements BrowserKernel {
     for (const id of ids) {
       await this.destroySession(id);
     }
+    this.cookieDismissAttempted.clear();
   }
 
   async getSession(sessionId: string): Promise<BrowserSession | null> {

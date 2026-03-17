@@ -10,8 +10,8 @@ export const colors = {
   bgOverlay: "rgba(0,0,0,0.58)",
 
   // Borders
-  borderSubtle: "rgba(255,255,255,0.08)",
-  borderDefault: "rgba(255,255,255,0.08)",
+  borderSubtle: "rgba(255,255,255,0.06)",
+  borderDefault: "rgba(255,255,255,0.10)",
   borderHover: "rgba(255,255,255,0.12)",
   borderGlass: "rgba(255,255,255,0.18)",
   borderGlassHover: "rgba(255,255,255,0.28)",
@@ -21,6 +21,8 @@ export const colors = {
   textSecondary: "#9090a8",
   textMuted: "#6b6b82",
   textWhite: "#ffffff",
+  textBright: "#f5f5ff",
+  textWarm: "#fffdf9",
 
   // Emerald accent
   emerald: "#10b981",
@@ -37,6 +39,16 @@ export const colors = {
   statusRunning: "#10b981",
   statusWaiting: "#f59e0b",
   statusFailed: "#ef4444",
+  statusRunningBorder: "rgba(16,185,129,0.3)",
+  statusWaitingBorder: "rgba(245,158,11,0.3)",
+  statusFailedBorder: "rgba(239,68,68,0.3)",
+  statusRunningTint: "rgba(16,185,129,0.12)",
+  statusWaitingTint: "rgba(245,158,11,0.12)",
+  statusFailedTint: "rgba(239,68,68,0.12)",
+
+  // Controls
+  borderControl: "rgba(255,255,255,0.08)",
+  controlHoverBg: "rgba(255,255,255,0.08)",
 
   // Button rest state
   buttonBg: "rgba(255,255,255,0.04)",
@@ -85,6 +97,12 @@ export const glass = {
     backdropFilter: "blur(16px) saturate(180%)",
     WebkitBackdropFilter: "blur(16px) saturate(180%)",
     border: "1px solid rgba(16, 185, 129, 0.2)",
+  },
+  // Controls: buttons, inactive tabs, pills — idle state glass presence
+  control: {
+    background: "rgba(255, 255, 255, 0.05)",
+    backdropFilter: "blur(8px) saturate(140%)",
+    WebkitBackdropFilter: "blur(8px) saturate(140%)",
   },
   // Heavy overlay: management panel backdrop, modals
   overlay: {

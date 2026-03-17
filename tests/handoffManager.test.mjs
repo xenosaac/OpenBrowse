@@ -46,6 +46,7 @@ function makeServices(overrides = {}) {
     clearedRunStates,
     capturedPages,
     services: {
+      pendingCancellations: new Set(),
       browserKernel: {
         getSession: async (id) => sessionsMap[id] ?? null,
         capturePageModel: async (session) => {

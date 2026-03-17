@@ -52,6 +52,7 @@ function createTestServices(planner, pageModelOverride) {
     },
     scheduler: new IntervalWatchScheduler(async () => {}),
     securityPolicy: new DefaultApprovalPolicy(),
+    pendingCancellations: new Set(),
     workflowLogStore,
     descriptor: {
       phase: "phase3",

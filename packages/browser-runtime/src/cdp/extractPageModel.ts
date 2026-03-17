@@ -630,6 +630,89 @@ export const EXTRACT_PAGE_MODEL_SCRIPT = `
     if (elements.length >= 300) break;
   }
 
+  // --- Same-origin iframe element extraction ---
+  var allIframes = document.querySelectorAll('iframe');
+  var sameOriginFrameIndex = 0;
+  var MAX_IFRAME_ELEMENTS = 50;
+  var MAX_SAME_ORIGIN_IFRAMES = 3;
+
+  for (var fi = 0; fi < allIframes.length && sameOriginFrameIndex < MAX_SAME_ORIGIN_IFRAMES && elements.length < 300; fi++) {
+    var iframe = allIframes[fi];
+    if (!isVisible(iframe)) continue;
+
+    var iframeDoc;
+    try {
+      iframeDoc = iframe.contentDocument;
+      if (!iframeDoc || !iframeDoc.body) continue;
+    } catch (e) {
+      continue; // cross-origin security error
+    }
+
+    var iframeRect = iframe.getBoundingClientRect();
+    var framePrefix = 'frame' + sameOriginFrameIndex;
+    var iframeElCount = 0;
+
+    var iframeAllEls = querySelectorAllDeep(iframeDoc, INTERACTIVE_SELECTOR);
+
+    for (var ic = 0; ic < iframeAllEls.length; ic++) {
+      iframeAllEls[ic].removeAttribute(targetAttr);
+    }
+
+    for (var ik = 0; ik < iframeAllEls.length; ik++) {
+      if (elements.length >= 300) break;
+      if (iframeElCount >= MAX_IFRAME_ELEMENTS) break;
+
+      var iel = iframeAllEls[ik];
+      if (!isVisible(iel)) continue;
+
+      var iRole = getRole(iel);
+      var iIsActionable = actionableRoles.has(iRole) || actionableTags.has(iel.tagName)
+        || iel.hasAttribute('onclick') || iel.hasAttribute('tabindex');
+      var iTargetId = framePrefix + '_el_' + (iframeElCount++);
+
+      iel.setAttribute(targetAttr, iTargetId);
+
+      var iRect = iel.getBoundingClientRect();
+      // Bounding box: iframe element coords are relative to iframe viewport,
+      // add iframe position to get page-relative coordinates
+      var iAdjX = iRect.left + iframeRect.left;
+      var iAdjY = iRect.top + iframeRect.top;
+      var iBv = iRect.width > 0 && iRect.height > 0
+        && iAdjY < window.innerHeight && (iAdjY + iRect.height) > 0
+        && iAdjX < window.innerWidth && (iAdjX + iRect.width) > 0;
+
+      var iLabel = getLabel(iel);
+      var iInnerText = (iel.innerText || '').trim().slice(0, 40);
+      var iText = (iInnerText && iInnerText !== iLabel) ? iInnerText : undefined;
+
+      elements.push({
+        id: iTargetId,
+        role: iRole,
+        label: iLabel,
+        text: iText,
+        isActionable: iIsActionable,
+        iframeIndex: sameOriginFrameIndex,
+        href: iel.tagName === 'A' ? iel.getAttribute('href') || undefined : undefined,
+        inputType: iel.tagName === 'INPUT' ? (iel.type || 'text') : undefined,
+        disabled: iel.disabled || iel.getAttribute('aria-disabled') === 'true' || undefined,
+        readonly: iel.readOnly || undefined,
+        checked: (iel.type === 'checkbox' || iel.type === 'radio') ? !!iel.checked : (iel.getAttribute('aria-checked') === 'true' ? true : undefined),
+        selected: iel.getAttribute('aria-selected') === 'true' ? true : undefined,
+        expanded: iel.getAttribute('aria-expanded') === 'true' ? true : (iel.getAttribute('aria-expanded') === 'false' ? false : undefined),
+        value: iel.value || undefined,
+        boundingVisible: iBv,
+        boundingBox: {
+          x: Math.round(iAdjX),
+          y: Math.round(iAdjY),
+          width: Math.round(iRect.width),
+          height: Math.round(iRect.height)
+        }
+      });
+    }
+
+    sameOriginFrameIndex++;
+  }
+
   // Detect focused element among enumerated elements
   var focusedElementId = undefined;
   var active = document.activeElement;

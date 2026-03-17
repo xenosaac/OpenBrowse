@@ -12,7 +12,15 @@ export type BrowserActionType =
   | "hover"
   | "keyboard_shortcut"
   | "pressKey"
-  | "screenshot";
+  | "screenshot"
+  | "go_back"
+  | "read_text"
+  | "wait_for_text"
+  | "wait_for_navigation"
+  | "save_note"
+  | "upload_file"
+  | "open_in_new_tab"
+  | "switch_tab";
 
 export type BrowserActionFailureClass =
   | "element_not_found"
@@ -87,6 +95,7 @@ export interface PageElementModel {
   keyShortcuts?: string;
   landmark?: string;
   inShadowDom?: boolean;
+  iframeIndex?: number;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }
@@ -143,6 +152,7 @@ export interface BrowserAction {
   value?: string;
   description: string;
   interactionHint?: string;
+  clearFirst?: boolean;
 }
 
 export interface BrowserActionResult {
@@ -152,4 +162,5 @@ export interface BrowserActionResult {
   summary: string;
   failureClass?: BrowserActionFailureClass;
   screenshotBase64?: string;
+  extractedText?: string;
 }

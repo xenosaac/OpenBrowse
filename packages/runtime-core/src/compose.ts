@@ -200,7 +200,8 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
     browserProfileStore: params.browserProfileStore,
     cookieContainerStore: params.cookieContainerStore,
     standaloneTabStore: params.standaloneTabStore,
-    chatBridgeStateStore: params.chatBridgeStateStore
+    chatBridgeStateStore: params.chatBridgeStateStore,
+    pendingCancellations: new Set<string>()
   };
 
   return services;

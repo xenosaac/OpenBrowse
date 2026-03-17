@@ -95,6 +95,35 @@ const HIGH_KEYWORDS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Approval gate calibration (T24) — reduce false positives
+// ---------------------------------------------------------------------------
+
+/** Action types that never modify page state — always low risk. */
+const READ_ONLY_ACTIONS = new Set<string>([
+  "read_text", "wait_for_text", "screenshot", "go_back",
+  "scroll", "wait", "hover", "extract", "focus"
+]);
+
+/** URL/description patterns that indicate transactional navigation. */
+const TRANSACTIONAL_NAV_PATTERNS = [
+  "checkout", "/payment", "/pay/", "/billing",
+  "/order/confirm", "/place-order", "/purchase"
+];
+
+/**
+ * "submit" and "confirm" are context-dependent — they only signal risk
+ * when the description also contains transactional context (form, order, etc.).
+ * Without context, "submit the word CRANE" on a Wordle game is harmless.
+ */
+const CONTEXT_DEPENDENT_KEYWORDS = new Set(["submit", "confirm"]);
+
+/** Context patterns that make context-dependent keywords genuinely risky. */
+const TRANSACTIONAL_CONTEXT = [
+  "form", "order", "payment", "account", "registration", "application",
+  "checkout", "cart", "billing", "survey", "request", "booking", "reservation"
+];
+
+// ---------------------------------------------------------------------------
 // Risk CLASS keyword sets — used by classifyRiskClass() (orthogonal to level)
 // ---------------------------------------------------------------------------
 
@@ -140,11 +169,25 @@ function detectRiskClasses(action: BrowserAction): RiskClass[] {
 }
 
 function collectApprovalReasons(run: TaskRun, action: BrowserAction): string[] {
+  // Read-only actions produce no reasons (except strict mode)
+  if (READ_ONLY_ACTIONS.has(action.type)) {
+    if (run.metadata.approval_mode === "strict") {
+      return ["this run is configured for strict approval mode"];
+    }
+    return [];
+  }
+
   const text = normalizeActionText(action);
   const reasons = new Set<string>();
 
   if (action.type === "click" || action.type === "select") {
-    if (FINALIZE_KEYWORDS.some((kw) => text.includes(kw))) {
+    // Strong finalize keywords (not context-dependent) always trigger
+    if (FINALIZE_KEYWORDS.some((kw) => text.includes(kw) && !CONTEXT_DEPENDENT_KEYWORDS.has(kw))) {
+      reasons.add("this looks like a finalizing action");
+    }
+    // Context-dependent keywords ("submit", "confirm") only trigger with transactional context
+    if ([...CONTEXT_DEPENDENT_KEYWORDS].some((kw) => text.includes(kw)) &&
+        TRANSACTIONAL_CONTEXT.some((ctx) => text.includes(ctx))) {
       reasons.add("this looks like a finalizing action");
     }
 
@@ -200,15 +243,36 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
   }
 
   classifyRisk(run: TaskRun, action: BrowserAction): RiskLevel {
+    // Read-only actions never modify page state — always low risk
+    if (READ_ONLY_ACTIONS.has(action.type)) {
+      return "low";
+    }
+
     const text = normalizeActionText(action);
+
+    // Navigate actions are low risk unless URL/description matches transactional patterns
+    if (action.type === "navigate") {
+      if (!TRANSACTIONAL_NAV_PATTERNS.some((p) => text.includes(p))) {
+        return "low";
+      }
+    }
 
     // Critical: financial transactions, payment data
     if (CRITICAL_KEYWORDS.some((kw) => text.includes(kw))) {
       return "critical";
     }
 
-    // High: irreversible actions, sensitive credentials
-    if (HIGH_KEYWORDS.some((kw) => text.includes(kw))) {
+    // High: strong keywords (not context-dependent) always trigger
+    const hasStrongHigh = HIGH_KEYWORDS.some(
+      (kw) => text.includes(kw) && !CONTEXT_DEPENDENT_KEYWORDS.has(kw)
+    );
+    if (hasStrongHigh) {
+      return "high";
+    }
+
+    // High: context-dependent keywords ("submit", "confirm") only with transactional context
+    const hasContextKw = [...CONTEXT_DEPENDENT_KEYWORDS].some((kw) => text.includes(kw));
+    if (hasContextKw && TRANSACTIONAL_CONTEXT.some((ctx) => text.includes(ctx))) {
       return "high";
     }
 

@@ -12,6 +12,12 @@ export type RiskClassPolicy = "always_ask" | "auto_approve" | "default";
 /** Map of risk class → approval policy. Missing keys default to "default". */
 export type RiskClassPolicies = Partial<Record<RiskClass, RiskClassPolicy>>;
 
+/** A labeled data item extracted by the planner during task execution. */
+export interface ExtractedDataItem {
+  label: string;
+  value: string;
+}
+
 /** A compact record of a single browser action taken during a run. Stored in RunCheckpoint.actionHistory. */
 export interface RunActionRecord {
   step: number;
@@ -23,6 +29,7 @@ export interface RunActionRecord {
   targetUrl?: string;
   targetId?: string;
   typedText?: string;
+  extractedText?: string;
   createdAt: string;
 }
 
@@ -48,6 +55,7 @@ export interface RunHandoffArtifact {
   suspensionQuestion?: string;
   notes: string[];
   outcome?: string;
+  extractedData?: ExtractedDataItem[];
   pageModelSnapshot?: PageModel;
   screenshotBase64?: string;
 }
@@ -110,6 +118,8 @@ export interface RunCheckpoint {
   totalSoftFailures?: number;
   /** How many times each URL has been visited during this run. */
   urlVisitCounts?: Record<string, number>;
+  /** Planner scratchpad — keyed notes saved via browser_save_note for cross-page context. */
+  plannerNotes?: Array<{ key: string; value: string }>;
   /** Lightweight snapshot of the last captured page model for recovery context. */
   lastPageModelSnapshot?: {
     title: string;
@@ -118,6 +128,12 @@ export interface RunCheckpoint {
     formValues?: Record<string, string>;
     scrollY?: number;
   };
+  /** Tabs opened by the agent during this run. Index 0 = primary tab. */
+  openedTabs?: Array<{ index: number; sessionId: string; url?: string; title?: string }>;
+  /** Which tab the agent is currently operating on (index into openedTabs). Defaults to 0. */
+  activeTabIndex?: number;
+  /** How many consecutive successful actions produced no visible change in page content. */
+  unchangedPageActions?: number;
   /** Injected when a run resumes after crash/restart. Cleared after the first planner step post-recovery. */
   recoveryContext?: {
     recoveredAt: string;
@@ -140,6 +156,7 @@ export interface RunSuspension {
 export interface RunOutcome {
   status: Extract<TaskStatus, "completed" | "failed" | "cancelled">;
   summary: string;
+  extractedData?: ExtractedDataItem[];
   finishedAt: string;
 }
 
@@ -197,5 +214,6 @@ export interface PlannerDecision<TAction = unknown> {
   clarificationRequest?: ClarificationRequest;
   approvalRequest?: ApprovalRequest;
   completionSummary?: string;
+  extractedData?: ExtractedDataItem[];
   failureSummary?: string;
 }

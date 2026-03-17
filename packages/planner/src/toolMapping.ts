@@ -38,6 +38,7 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
       properties: {
         ref: { type: "string", description: "The element ID to type into (e.g. el_3)" },
         text: { type: "string", description: "The text to type" },
+        clear_first: { type: "boolean", description: "If true, select all existing text in the field before typing (replaces content instead of appending). Use when the field already has a value you want to replace." },
         description: { type: "string", description: "Why you are typing this" }
       },
       required: ["ref", "text", "description"]
@@ -106,21 +107,85 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
-    name: "browser_screenshot",
-    description: "Capture a screenshot of the current page. Use when you need to see the visual layout.",
+    name: "browser_go_back",
+    description: "Navigate back to the previous page (like pressing the browser back button). Use after visiting a page to return to search results or a previous page.",
     input_schema: {
       type: "object" as const,
-      properties: {},
-      required: []
+      properties: {
+        description: { type: "string", description: "Why you are going back" }
+      },
+      required: ["description"]
+    }
+  },
+  {
+    name: "browser_read_text",
+    description: "Read the full text content (up to 2000 chars) from a specific element and its children. Use when you need to read detailed content from a particular section, paragraph, article body, search result, or any element whose text was truncated in the element list.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The element ID to read text from (e.g. el_5)" },
+        description: { type: "string", description: "What content you expect to find" }
+      },
+      required: ["ref", "description"]
+    }
+  },
+  {
+    name: "browser_wait_for_text",
+    description: "Wait for specific text to appear on the page. Use after actions that trigger dynamic content loading (submitting a search, clicking a navigation link on an SPA, submitting a form). More reliable than browser_wait because it returns as soon as the text appears instead of waiting a fixed duration.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        text: { type: "string", description: "The text to wait for on the page (case-sensitive substring match)" },
+        timeout: { type: "number", description: "Maximum time to wait in milliseconds (default 5000)" },
+        description: { type: "string", description: "Why you are waiting for this text" }
+      },
+      required: ["text", "description"]
+    }
+  },
+  {
+    name: "browser_wait_for_navigation",
+    description: "Wait for the page URL to change (navigation to a new page). Use after submitting a form, clicking a login button, or any action that should redirect to a different URL. More reliable than browser_wait because it returns as soon as the URL changes instead of waiting a fixed duration.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        timeout: { type: "number", description: "Maximum time to wait in milliseconds (default 10000)" },
+        description: { type: "string", description: "Why you expect navigation to occur" }
+      },
+      required: ["description"]
+    }
+  },
+  {
+    name: "browser_save_note",
+    description: "Save a note to your scratchpad for later reference. Use this to record intermediate findings, extracted data, or context you'll need on a future page (e.g. search results, prices, names, URLs to visit next). Notes persist across page navigations and appear in your context on every subsequent step. Limit: 20 notes. Same key overwrites (upsert). Oldest evicted if full. Prefer updating existing notes over creating new ones.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        key: { type: "string", description: "A short label for this note (e.g. 'Site 1 price', 'Top 3 results', 'Login URL')" },
+        value: { type: "string", description: "The note content — the information to remember" },
+        description: { type: "string", description: "Why you are saving this note" }
+      },
+      required: ["key", "value", "description"]
     }
   },
   {
     name: "task_complete",
-    description: "Mark the task as successfully completed.",
+    description: "Mark the task as successfully completed. When the task involved finding, extracting, or looking up information, include the results in extracted_data as labeled key-value pairs.",
     input_schema: {
       type: "object" as const,
       properties: {
-        summary: { type: "string", description: "A summary of what was accomplished" }
+        summary: { type: "string", description: "A summary of what was accomplished" },
+        extracted_data: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string", description: "Label for this data item (e.g. 'Top result', 'Price', 'Email')" },
+              value: { type: "string", description: "The extracted value" }
+            },
+            required: ["label", "value"]
+          },
+          description: "Structured data extracted during the task. Use for search results, extracted fields, looked-up values, etc."
+        }
       },
       required: ["summary"]
     }
@@ -134,6 +199,53 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
         reason: { type: "string", description: "Why the task cannot be completed" }
       },
       required: ["reason"]
+    }
+  },
+  {
+    name: "browser_upload_file",
+    description: "Upload a file to a file input (<input type=\"file\">) element. This will ask the user to provide the file path, then set the file on the input element. Use when you see a file input element (type=\"file\") on the page that needs a file attached.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The element ID of the file input (e.g. el_5)" },
+        description: { type: "string", description: "Describe what file is being requested (e.g. 'Resume PDF for job application', 'Profile photo')" }
+      },
+      required: ["ref", "description"]
+    }
+  },
+  {
+    name: "browser_open_in_new_tab",
+    description: "Open a URL in a new browser tab. Use when you need to check a second source without losing your current page (e.g. compare prices across sites, look up reference info while filling a form). The new tab is visible to the user. You must use browser_switch_tab to switch to it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "The URL to open in the new tab" },
+        description: { type: "string", description: "Why you are opening this in a new tab" }
+      },
+      required: ["url", "description"]
+    }
+  },
+  {
+    name: "browser_switch_tab",
+    description: "Switch to a different browser tab that you previously opened. After switching, your subsequent actions will operate on the new tab. Use the tab_index from the open tabs list shown in your context.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tab_index: { type: "number", description: "The index of the tab to switch to (0 = original tab, 1+ = tabs you opened)" },
+        description: { type: "string", description: "Why you are switching to this tab" }
+      },
+      required: ["tab_index", "description"]
+    }
+  },
+  {
+    name: "browser_screenshot",
+    description: "Request a screenshot of the current page. The screenshot will be shown to you on your next step as visual context. Use when you need to see the page layout, verify visual state after an action, or when text extraction doesn't give you enough context to understand the page.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        description: { type: "string", description: "Why you need to see the page visually" }
+      },
+      required: ["description"]
     }
   },
   {
@@ -173,11 +285,17 @@ export interface ToolInput {
   direction?: string;
   key?: string;
   duration?: number;
+  timeout?: number;
+  clear_first?: boolean;
   description?: string;
   summary?: string;
   reason?: string;
   question?: string;
   options?: Array<{ label: string; summary?: string }>;
+  extracted_data?: Array<Record<string, unknown>>;
+  tab_index?: number;
+  // Note: 'key' is used by both browser_press_key (keyboard key) and browser_save_note (note label).
+  // The mapping function disambiguates by tool name.
 }
 
 export function mapToolCallToDecision(
@@ -227,7 +345,8 @@ export function mapToolCallToDecision(
           type: "type",
           targetId: input.ref,
           value: input.text,
-          description: input.description ?? "Type text"
+          description: input.description ?? "Type text",
+          clearFirst: input.clear_first === true ? true : undefined
         }
       };
 
@@ -302,12 +421,115 @@ export function mapToolCallToDecision(
         }
       };
 
-    case "task_complete":
+    case "browser_go_back":
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "go_back",
+          description: input.description ?? "Go back to previous page"
+        }
+      };
+
+    case "browser_read_text":
+      if (!input.ref) return fail("browser_read_text called without ref");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "read_text",
+          targetId: input.ref,
+          description: input.description ?? "Read element text"
+        }
+      };
+
+    case "browser_wait_for_text":
+      if (!input.text) return fail("browser_wait_for_text called without text");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "wait_for_text",
+          value: input.text,
+          description: input.description ?? "Wait for text",
+          interactionHint: String(input.timeout ?? 5000)
+        }
+      };
+
+    case "browser_wait_for_navigation":
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "wait_for_navigation",
+          description: input.description ?? "Wait for navigation",
+          interactionHint: String(input.timeout ?? 10000)
+        }
+      };
+
+    case "browser_upload_file":
+      if (!input.ref) return fail("browser_upload_file called without ref");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "upload_file",
+          targetId: input.ref,
+          description: input.description ?? "Upload file"
+        }
+      };
+
+    case "browser_open_in_new_tab":
+      if (!input.url) return fail("browser_open_in_new_tab called without url");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "open_in_new_tab",
+          value: input.url,
+          description: input.description ?? "Open in new tab"
+        }
+      };
+
+    case "browser_switch_tab":
+      if (input.tab_index === undefined || input.tab_index === null) return fail("browser_switch_tab called without tab_index");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "switch_tab",
+          value: String(input.tab_index),
+          description: input.description ?? "Switch tab"
+        }
+      };
+
+    case "browser_save_note":
+      if (!input.key) return fail("browser_save_note called without key");
+      if (!input.value) return fail("browser_save_note called without value");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "save_note",
+          value: input.value,
+          description: input.description ?? "Save note",
+          interactionHint: input.key
+        }
+      };
+
+    case "task_complete": {
+      const extractedData = Array.isArray(input.extracted_data)
+        ? input.extracted_data
+            .filter((item: Record<string, unknown>) => typeof item.label === "string" && typeof item.value === "string")
+            .map((item: Record<string, unknown>) => ({ label: item.label as string, value: item.value as string }))
+        : undefined;
       return {
         type: "task_complete",
         reasoning,
-        completionSummary: input.summary ?? reasoning
+        completionSummary: input.summary ?? reasoning,
+        extractedData: extractedData && extractedData.length > 0 ? extractedData : undefined
       };
+    }
 
     case "task_failed":
       return {

@@ -29,7 +29,7 @@ const categoryColors: Record<string, string> = {
   booking: colors.emerald,
   monitor: colors.statusRunning,
   travel: "#0ea5e9",
-  shopping: "#f59e0b",
+  shopping: colors.statusWaiting,
   productivity: colors.emerald
 };
 
@@ -169,7 +169,7 @@ export function DemoPanel({ onStarted }: Props) {
       )}
 
       {demos.length === 0 && packs.length === 0 && (
-        <p style={{ color: "#9090a8" }}>No demo flows or task packs registered.</p>
+        <p style={{ color: colors.textSecondary }}>No demo flows or task packs registered.</p>
       )}
     </div>
   );
@@ -178,12 +178,12 @@ export function DemoPanel({ onStarted }: Props) {
 const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     fontSize: "1rem",
-    color: "#e5e7eb",
+    color: colors.textPrimary,
     margin: "0 0 4px"
   },
   sectionHint: {
     fontSize: "0.82rem",
-    color: "#9090a8",
+    color: colors.textSecondary,
     margin: "0 0 12px"
   },
   card: {
@@ -191,7 +191,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     padding: "12px 16px",
     marginBottom: 8,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderSubtle,
     boxShadow: shadows.glassSubtle
   } as React.CSSProperties,
   row: {
@@ -200,7 +200,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8
   },
   badge: {
-    color: "#ffffff",
+    color: colors.textWhite,
     fontSize: "0.7rem",
     padding: "2px 6px",
     borderRadius: 4,
@@ -255,7 +255,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   description: {
     fontSize: "0.85rem",
-    color: "#9090a8",
+    color: colors.textSecondary,
     margin: "6px 0"
   },
   actions: {
@@ -266,7 +266,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   button: {
     background: colors.emerald,
-    color: "#ffffff",
+    color: colors.textWhite,
     border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 8,
     padding: "6px 16px",
@@ -280,15 +280,15 @@ const styles: Record<string, React.CSSProperties> = {
   intervalInput: {
     ...glass.input,
     width: 56,
-    border: "1px solid " + colors.borderGlass,
+    border: "1px solid " + colors.borderDefault,
     borderRadius: 8,
     padding: "4px 6px",
-    color: "#f5f5ff",
+    color: colors.textBright,
     fontSize: "0.85rem",
     textAlign: "center" as const
   } as React.CSSProperties,
   intervalLabel: {
     fontSize: "0.8rem",
-    color: "#9090a8"
+    color: colors.textSecondary
   }
 };

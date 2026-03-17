@@ -194,17 +194,35 @@ export class OpenBrowseRuntime {
 
     if (!run.checkpoint.pendingClarificationId) return run;
 
+    // Check if this clarification was for a file upload before resuming
+    // (resumeFromClarification preserves pendingBrowserAction via checkpoint spread)
+    const pendingUpload = run.checkpoint.pendingBrowserAction?.type === "upload_file"
+      ? run.checkpoint.pendingBrowserAction
+      : undefined;
+
     const resumedRun = this.services.orchestrator.resumeFromClarification(run, {
       requestId: run.checkpoint.pendingClarificationId,
       runId: run.id,
       answer: message.text,
       respondedAt: message.createdAt
     });
+
+    // If this was a file upload clarification, set the file path from user's answer
+    // and pass the upload action as pendingAction for execution on resume
+    let pendingAction: BrowserAction | undefined;
+    if (pendingUpload) {
+      pendingAction = {
+        ...pendingUpload,
+        value: message.text.trim(),
+      };
+      resumedRun.checkpoint.pendingBrowserAction = undefined;
+    }
+
     await this.services.runCheckpointStore.save(resumedRun);
     await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
       channel: message.channel
     });
-    return doResume(resumedRun);
+    return doResume(resumedRun, pendingAction);
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
@@ -259,7 +277,17 @@ export class OpenBrowseRuntime {
   private async failUnexpectedRun(run: TaskRun, error: unknown): Promise<TaskRun> {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[runtime] Unexpected run failure for ${run.id}:`, message);
-    const failedRun = this.services.orchestrator.failRun(run, message);
+
+    // Load the latest checkpoint — the run may already have been cancelled by
+    // cancelTrackedRun (e.g. browser tab closed). Using the stale in-memory
+    // `run` would overwrite "cancelled" with "failed".
+    const latest = await this.services.runCheckpointStore.load(run.id);
+    if (latest && (latest.status === "completed" || latest.status === "cancelled" || latest.status === "failed")) {
+      return latest;
+    }
+
+    const base = latest ?? run;
+    const failedRun = this.services.orchestrator.failRun(base, message);
     await this.services.runCheckpointStore.save(failedRun);
     await this.logWorkflowEvent(failedRun.id, "run_failed", failedRun.outcome?.summary ?? "Failed", {
       reason: message
@@ -395,6 +423,10 @@ export async function cancelTrackedRun(
   runId: string,
   summary = "Run cancelled by user."
 ): Promise<TaskRun | null> {
+  // Signal cooperative cancellation immediately — the planner loop's
+  // synchronous isCancelled() check will see this before any I/O.
+  services.pendingCancellations.add(runId);
+
   const run = await services.runCheckpointStore.load(runId);
   if (!run) return null;
 
