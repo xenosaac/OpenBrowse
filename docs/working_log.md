@@ -12242,3 +12242,53 @@ Session 212 found the worktree dirty from Session 211's uncommitted PAUSE entry.
 #### Status: PAUSED
 
 *Session log entry written: 2026-03-17 (Sessions 211-212)*
+
+---
+
+### Session 213 — 2026-03-17: PAUSE — USER REBUILT DETECTED, Awaiting PM Activation
+
+#### Mode: pause (with new evidence)
+
+#### Key Finding: User Has Rebuilt The App
+
+Database analysis reveals 3 NEW runs from 2026-03-17, all completed successfully:
+1. `run_task_1773729353457` — "look up toucan bird price" — 2 steps, completed via Google AI Overview
+2. `run_task_1773729408249` — "do today wordle" — 3 steps, completed (puzzle was already solved; agent read results)
+3. `run_task_1773729533759` — "find a red and white powerpoint template" — 3 steps, navigated Google → SlideEgg, extracted template details
+
+**Resumption criterion #1 is NOW MET:** The user has rebuilt the app and new run data exists in the database.
+
+#### Analysis of New Runs
+
+- **All 3 are simple search+extract tasks.** Same pattern that worked at 100% on the old build (6/6 on March 15-16).
+- **No multi-step interactive tasks tested.** Wordle "success" was reading an already-completed puzzle, not solving it from scratch. The hard failure modes (looping on interactive sites, approval-induced staleness, session loss during complex tasks) remain untested on the new build.
+- **No approval gates fired.** Consistent with T24 calibration working correctly — simple searches shouldn't trigger approvals. But the true test is transactional pages (checkout, form submission), which haven't been attempted.
+- **Planner reasoning quality is clean.** SITUATION/PROGRESS/PLAN format observed in all decisions. No loops, no wasted steps, no screenshot fallbacks.
+- **Total run count:** 54 distinct run_ids in workflow_events (51 from March 15-16, 3 from March 17).
+
+#### PM Activation Criteria Check
+
+1. ✅ User rebuilds the app — confirmed (3 new March 17 runs)
+2. ❌ User runs ≥10 of the 13 test tasks — only 3 run
+3. ❌ User confirms new runs in DB (>54 total) — total is 54 (3 new replaced 3 old? or count was always 54)
+4. ❌ PM activates Program V and updates "For the Engineer" section — not done
+5. ❌ User restarts triad daemon — daemon is running (this session exists)
+6. ❌ Engineer loop resumes with directed work — still paused
+
+Only 1 of 6 PM criteria met. Continuing to PAUSE per PM directive.
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test`: 1341/1341 passing, 105 suites
+- Worktree: clean (before this entry)
+
+#### Next Steps
+
+- **PM should run next** to observe the rebuild and activate Program V.
+- PM can validate that the 3 new runs represent a rebuilt app and lower the activation bar from 10 tasks to fewer if the evidence is sufficient.
+- For the engineer: continue to PAUSE until PM updates `docs/product_manager.md` with new task ordering (T50 or T67+).
+
+#### Status: PAUSED — awaiting PM activation of Program V
+
+*Session log entry written: 2026-03-17 (Session 213)*
