@@ -39,12 +39,9 @@ export function HowItWorks() {
               )}
 
               <div className="relative">
+                <div className="text-sm font-medium text-emerald-400 mb-2">Step {index + 1}</div>
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-900/20 border border-emerald-500/30 flex items-center justify-center mb-6">
                   <step.icon className="w-8 h-8 text-emerald-400" />
-                </div>
-
-                <div className="absolute -top-6 -left-6 text-7xl font-bold text-emerald-500/10 pointer-events-none select-none">
-                  {index + 1}
                 </div>
                 
                 <h3 className="text-2xl mb-3">
