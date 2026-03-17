@@ -2,6 +2,7 @@ import type {
   BrowserAction,
   BrowserActionResult,
   ClarificationResponse,
+  ExtractedDataItem,
   PageModel,
   PlannerDecision,
   RunActionRecord,
@@ -10,6 +11,19 @@ import type {
 } from "@openbrowse/contracts";
 import type { ClarificationPolicy } from "./ClarificationPolicy.js";
 import { assertTransition } from "./RunStateMachine.js";
+
+/**
+ * Extracts partial results from a run's checkpoint when the run fails.
+ * Converts plannerNotes (key/value scratchpad entries) into ExtractedDataItem format
+ * so they can be surfaced in the failure outcome. Excludes internal notes like "progress".
+ */
+export function extractPartialResults(run: TaskRun): ExtractedDataItem[] {
+  const notes = run.checkpoint.plannerNotes;
+  if (!notes || notes.length === 0) return [];
+  return notes
+    .filter(n => n.key !== "progress")
+    .map(n => ({ label: n.key, value: n.value }));
+}
 
 export interface TaskOrchestratorDeps {
   clarificationPolicy: ClarificationPolicy;
@@ -190,6 +204,7 @@ export class TaskOrchestrator {
     if (decision.type === "task_failed") {
       assertTransition(run.status, "failed");
       const failureSummary = decision.failureSummary ?? decision.reasoning;
+      const partialData = extractPartialResults(run);
 
       return {
         ...run,
@@ -207,6 +222,7 @@ export class TaskOrchestrator {
         outcome: {
           status: "failed",
           summary: failureSummary,
+          ...(partialData.length > 0 ? { extractedData: partialData } : {}),
           finishedAt: updatedAt
         },
         suspension: undefined
@@ -344,6 +360,7 @@ export class TaskOrchestrator {
 
   failRun(run: TaskRun, summary: string, finishedAt = new Date().toISOString()): TaskRun {
     assertTransition(run.status, "failed");
+    const partialData = extractPartialResults(run);
 
     return {
       ...run,
@@ -361,6 +378,7 @@ export class TaskOrchestrator {
       outcome: {
         status: "failed",
         summary,
+        ...(partialData.length > 0 ? { extractedData: partialData } : {}),
         finishedAt
       },
       suspension: undefined

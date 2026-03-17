@@ -11289,3 +11289,62 @@ Reason: Worktree clean, no unfinished task. PM directs T59 → T60 → T61 (Prog
 - Re-testing remains the #1 PM priority (user action).
 
 *Session log entry written: 2026-03-17 (Session 179)*
+
+---
+
+### Session 180 — 2026-03-17: T61 — Partial Result Delivery on Task Failure (Program S)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T59 → T60 → T61 (Program S). T59 done (Session 178), T60 done (Session 179). T61 is next: surface partial results (extractedData, plannerNotes) when a task fails. Currently failure messages show only the error — all intermediate data accumulated via save_note is invisible. Making even failed runs useful builds trust.
+
+#### Plan
+
+1. **`packages/orchestrator/src/TaskOrchestrator.ts`**: In both `failRun` and the `task_failed` decision path of `applyDecision`, carry forward `checkpoint.plannerNotes` as `RunOutcome.extractedData` when the outcome has no extractedData of its own. This lets the existing renderer extractedData display work automatically.
+2. **`apps/desktop/src/renderer/components/App.tsx`**: When building the outcome message for failed runs, also check `run.checkpoint.plannerNotes` and include them in the message content as "Partial results" if present and the outcome has no extractedData.
+3. **`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`**: Allow extractedData display and export buttons on error-tone messages (currently only shown when hasExtracted is true regardless of tone, but verify).
+4. **Tests**: Unit tests for plannerNotes-to-extractedData carry-forward in orchestrator.
+5. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Commit.
+
+#### Implementation
+
+**`packages/orchestrator/src/TaskOrchestrator.ts`** — Core logic:
+- Added `extractPartialResults(run)` exported pure function: converts `checkpoint.plannerNotes` (key/value scratchpad entries) into `ExtractedDataItem[]` format. Filters out internal "progress" notes (used for sub-goal tracking, not user-facing data).
+- Updated `failRun()`: calls `extractPartialResults()` and includes result as `outcome.extractedData` when non-empty.
+- Updated `applyDecision()` for `task_failed`: same carry-forward — plannerNotes become extractedData on the failure outcome.
+- Both paths use spread conditional: `...(partialData.length > 0 ? { extractedData: partialData } : {})` — no extractedData field when there's nothing to show.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Renderer labeling:
+- Changed the heading for extractedData table from always "## Results" to context-aware: "## Partial results" when `tone === "error"`, "## Results" when `tone === "success"`.
+- No other renderer changes needed — the existing `hasExtracted` check and Copy/JSON/CSV buttons already work tone-agnostically.
+
+**`tests/task-orchestrator.test.mjs`** — 7 new tests (58 → 65):
+- extractPartialResults: no plannerNotes → empty array
+- extractPartialResults: empty plannerNotes → empty array
+- extractPartialResults: converts key/value to label/value format
+- extractPartialResults: filters out "progress" notes
+- failRun: carries forward plannerNotes as extractedData
+- failRun: no extractedData when no plannerNotes exist
+- applyPlannerDecision task_failed: carries forward plannerNotes (with progress filtered)
+
+**Behavior:**
+- Before: Failed task messages showed only the error summary. All intermediate data from save_note was invisible to the user.
+- After: Failed tasks that accumulated plannerNotes during execution show them as "Partial results" in the same table format as successful completions, with Copy/JSON/CSV export. Users can now see what the agent found before it failed. The Retry button still appears alongside partial results.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/task-orchestrator.test.mjs` — 65/65 pass (was 58, +7 new)
+- `node --test tests/*.test.mjs` — 1283/1283 pass (was 1276, +7 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program S is now complete. T59 (export), T60 (templates), T61 (partial results) are all done.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-S complete. All PM tasks T1-T61 done (T50/T53 blocked on rebuild).
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 180)*
