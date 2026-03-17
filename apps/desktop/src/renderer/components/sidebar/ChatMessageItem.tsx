@@ -53,7 +53,7 @@ const styles: Record<string, React.CSSProperties> = {
   chatAvatarUser: {
     width: 26, height: 26, borderRadius: 999,
     display: "grid", placeItems: "center",
-    background: "rgba(255,255,255,0.08)", color: colors.textPrimary,
+    background: colors.controlHoverBg, color: colors.textPrimary,
     flexShrink: 0, fontSize: "0.7rem"
   },
   chatActionIcon: {

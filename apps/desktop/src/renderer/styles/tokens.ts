@@ -44,6 +44,10 @@ export const colors = {
   statusWaitingTint: "rgba(245,158,11,0.12)",
   statusFailedTint: "rgba(239,68,68,0.12)",
 
+  // Controls
+  borderControl: "rgba(255,255,255,0.08)",
+  controlHoverBg: "rgba(255,255,255,0.08)",
+
   // Button rest state
   buttonBg: "rgba(255,255,255,0.04)",
   buttonBorder: "rgba(255,255,255,0.1)",

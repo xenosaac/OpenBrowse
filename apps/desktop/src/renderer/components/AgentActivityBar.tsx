@@ -11,7 +11,7 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
   if (!run || run.status !== "running") return null;
 
   return (
-    <div style={barStyles.bar}>
+    <div className="ob-glass-panel" style={barStyles.bar}>
       <span style={barStyles.dot} />
       <span style={barStyles.label}>Agent active</span>
       {recentAction && (
@@ -35,6 +35,7 @@ export function AgentActivityBar({ run, recentAction, onCancel }: AgentActivityB
 const barStyles: Record<string, React.CSSProperties> = {
   bar: {
     ...glass.panel,
+    position: "relative" as const,
     display: "flex",
     alignItems: "center",
     gap: 8,

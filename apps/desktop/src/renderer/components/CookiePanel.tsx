@@ -132,7 +132,7 @@ const styles: Record<string, React.CSSProperties> = {
   } as React.CSSProperties,
   refreshBtn: {
     ...glass.control,
-    border: `1px solid rgba(255,255,255,0.08)`,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",
@@ -142,7 +142,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   clearBtn: {
     ...glass.control,
-    border: `1px solid rgba(255,255,255,0.08)`,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "7px 14px",

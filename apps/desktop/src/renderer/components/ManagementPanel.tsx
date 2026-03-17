@@ -312,7 +312,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   subTabBtn: {
     ...glass.control,
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary,
     borderRadius: 8,
     padding: "6px 14px",
