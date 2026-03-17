@@ -9282,3 +9282,50 @@ Currently, closing and reopening OpenBrowse loses all pin state and tab order. T
 - PM guidance: focus on user-visible browser value.
 
 *Session log entry written: 2026-03-16 (Session 151)*
+
+---
+
+### Session 152 — 2026-03-16: T41 — Agent Working Indicator in Tab Bar (Program N)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Session 151 completed T40 (persist tab/pin state). PM ordering: T39 → T40 → T41 → T42. T39 and T40 are done. T41 is next (P2). Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+When the agent is executing a task, the tab shows its favicon (if loaded) regardless of run status. The `getTabStatusDot` function already computes a pulsing emerald dot for running tabs, but the rendering logic always prefers the favicon when one exists. Users glance at tabs and need visual feedback that the agent is working.
+
+#### Plan
+
+1. **`TabBar.tsx`**: Modify the tab content rendering to show the animated pulsing dot (8px emerald) INSTEAD of the favicon when the tab's associated run is actively running (`dot.animate === true`). When the run completes/fails/cancels, revert to showing the favicon. Pure CSS animation (existing `ob-pulse` keyframes).
+2. Run typecheck.
+3. Run tests.
+4. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Modified tab content rendering:
+- Changed the favicon vs. dot conditional: now checks `favicon && !dot.animate` instead of just `favicon`.
+- When `dot.animate` is true (run status = "running"), the pulsing emerald dot (8px, CSS `ob-pulse` animation) renders INSTEAD of the favicon, even if a favicon exists.
+- When the run completes/fails/cancels, `dot.animate` becomes false, and the favicon renders normally again.
+- For standalone tabs (no associated run), behavior is unchanged — favicon shows when available.
+- Pure CSS animation via existing `ob-pulse` keyframes. No JS intervals.
+
+**Behavior:**
+- Tab with active agent run → shows pulsing 8px emerald dot instead of favicon.
+- Run completes/fails/cancels → dot disappears, favicon returns.
+- Standalone tabs and tabs with no active run → unchanged (show favicon or static dot).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — pure renderer UI conditional change)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T42 (task history panel) — PM Program N, P3.
+- PM guidance: focus on user-visible browser value.
+
+*Session log entry written: 2026-03-16 (Session 152)*
