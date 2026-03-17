@@ -3,11 +3,19 @@ import type { TaskRun } from "@openbrowse/contracts";
 import type { BrowserShellTabDescriptor } from "../../shared/runtime";
 import { runtimeEventBus, type RuntimeEvent } from "../lib/eventBus";
 
+interface ClosedTabEntry {
+  url: string;
+  title: string;
+}
+
+const MAX_CLOSED_TAB_STACK = 20;
+
 export function useBrowserTabs() {
   const [shellTabs, setShellTabs] = useState<BrowserShellTabDescriptor[]>([]);
   const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
   const [tabFavicons, setTabFavicons] = useState<Record<string, string>>({});
   const [pinnedTabs, setPinnedTabs] = useState<Set<string>>(new Set());
+  const [closedTabStack, setClosedTabStack] = useState<ClosedTabEntry[]>([]);
 
   const refreshTabs = useCallback(async () => {
     try {
@@ -76,6 +84,17 @@ export function useBrowserTabs() {
   }, []);
 
   const closeTab = useCallback(async (groupId: string) => {
+    // Push to closed tab stack before closing (for undo)
+    setShellTabs(current => {
+      const tab = current.find(t => t.groupId === groupId);
+      if (tab && tab.url && tab.url !== "about:blank") {
+        setClosedTabStack(stack => {
+          const next = [{ url: tab.url, title: tab.title || tab.url }, ...stack];
+          return next.slice(0, MAX_CLOSED_TAB_STACK);
+        });
+      }
+      return current;
+    });
     return window.openbrowse.closeBrowserGroup(groupId);
   }, []);
 
@@ -130,6 +149,17 @@ export function useBrowserTabs() {
     });
   }, []);
 
+  const reopenClosedTab = useCallback(async (): Promise<BrowserShellTabDescriptor | null> => {
+    let entry: ClosedTabEntry | undefined;
+    setClosedTabStack(stack => {
+      if (stack.length === 0) return stack;
+      [entry] = stack;
+      return stack.slice(1);
+    });
+    if (!entry) return null;
+    return window.openbrowse.browserNewTab(entry.url);
+  }, []);
+
   // Sorted tabs: pinned first (preserving relative order), then unpinned
   const sortedTabs = [...shellTabs].sort((a, b) => {
     const ap = pinnedTabs.has(a.groupId) ? 0 : 1;
@@ -138,8 +168,8 @@ export function useBrowserTabs() {
   });
 
   return {
-    shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs,
+    shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs, closedTabStack,
     refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload,
-    pinTab, unpinTab, togglePinTab, moveTab
+    pinTab, unpinTab, togglePinTab, moveTab, reopenClosedTab
   };
 }

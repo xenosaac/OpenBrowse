@@ -9396,3 +9396,64 @@ Past task results are only visible by scrolling through the chat log. Users need
 *Session log entry written: 2026-03-16 (Session 153)*
 
 *Session log entry written: 2026-03-16 (Session 152)*
+
+---
+
+### Session 154 — 2026-03-16: Undo Close Tab (Cmd+Shift+T) (Self-Directed)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Program N complete (T39-T42 done). All PM Programs A-N complete. PM guidance: "self-directed features should remain browser-visible work." Undo close tab (Cmd+Shift+T) is a standard browser feature every power user expects. Fits one iteration.
+
+#### Context
+
+When a user accidentally closes a tab, there is no way to reopen it. Every major browser supports Cmd+Shift+T (or Ctrl+Shift+T) to reopen the most recently closed tab. This is a high-value daily-use feature that is currently missing.
+
+#### Plan
+
+1. **`useBrowserTabs.ts`**: Add `closedTabStack` state (LIFO, cap at 20 entries storing `{ url, title }`). In `closeTab` flow, push the closed tab's URL/title before closing. Add `reopenClosedTab()` that pops the stack and opens a new tab with that URL.
+2. **`useKeyboardShortcuts.ts`**: Add `onReopenClosedTab` handler. Wire Cmd+Shift+T.
+3. **`App.tsx`**: Wire `reopenClosedTab` to the keyboard shortcut hook. Add "Reopen Closed Tab" to hamburger menu with Cmd+Shift+T hint, grayed when stack is empty.
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Closed tab stack:
+- Added `ClosedTabEntry` interface (`{ url, title }`) and `MAX_CLOSED_TAB_STACK = 20`.
+- Added `closedTabStack` state (LIFO array).
+- `closeTab()` now reads the current tab's URL/title via `setShellTabs` updater before closing. Pushes to stack (skips `about:blank` tabs). Stack capped at 20.
+- Added `reopenClosedTab()`: pops the top entry from the stack and opens a new tab with that URL via `browserNewTab`. Returns the new tab descriptor or null if stack is empty.
+- Exported `closedTabStack` and `reopenClosedTab` in return value.
+
+**`apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts`** — New shortcut:
+- Added `onReopenClosedTab` to `KeyboardShortcutsParams`.
+- Cmd+Shift+T handler (checked before Cmd+T to prevent conflict).
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wiring:
+- Added `handleReopenClosedTab` callback that pops the stack, opens the tab, and selects it.
+- Wired `onReopenClosedTab` to the keyboard shortcuts hook.
+- Added "Reopen Closed Tab" to hamburger dropdown menu (after "New Session") with ⌘⇧T shortcut hint. Grayed out when stack is empty.
+
+**Behavior:**
+- Close a tab → its URL/title saved to a LIFO stack (up to 20 entries).
+- Press Cmd+Shift+T → most recently closed tab reopens and becomes active.
+- Repeat Cmd+Shift+T → reopens progressively older closed tabs.
+- Hamburger menu → "Reopen Closed Tab" with keyboard shortcut hint. Disabled when no closed tabs exist.
+- `about:blank` tabs are not saved to the stack (they have no meaningful URL).
+- Stack is session-local (cleared on app restart) — same as Chrome/Safari behavior.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — pure renderer state + keyboard shortcut wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM guidance: self-directed features should remain browser-visible work.
+- Remaining candidates: tab drag between windows, keyboard shortcut customization, reader mode, full-page screenshot.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 154)*
