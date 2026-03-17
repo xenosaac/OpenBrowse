@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import type { TaskRun, TaskStatus } from "@openbrowse/contracts";
+import type { TaskRun, TaskStatus, WorkflowEvent } from "@openbrowse/contracts";
 import { colors, glass } from "../styles/tokens";
+import { formatTimelineEvent } from "../lib/timelineFormat";
 
 const STATUS_FILTERS: Array<{ key: TaskStatus | "all"; label: string }> = [
   { key: "all", label: "All" },
@@ -49,6 +50,9 @@ export function TaskHistoryPanel() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [timelineEvents, setTimelineEvents] = useState<WorkflowEvent[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +66,23 @@ export function TaskHistoryPanel() {
     });
     return () => { cancelled = true; };
   }, []);
+
+  function toggleTimeline(runId: string) {
+    if (expandedRunId === runId) {
+      setExpandedRunId(null);
+      setTimelineEvents([]);
+      return;
+    }
+    setExpandedRunId(runId);
+    setTimelineLoading(true);
+    setTimelineEvents([]);
+    window.openbrowse.listLogs(runId).then((events) => {
+      setTimelineEvents(events);
+      setTimelineLoading(false);
+    }).catch(() => {
+      setTimelineLoading(false);
+    });
+  }
 
   const filtered = runs.filter((r) => {
     if (filter !== "all" && r.status !== filter) return false;
@@ -108,31 +129,90 @@ export function TaskHistoryPanel() {
         </p>
       ) : (
         <div style={styles.list}>
-          {filtered.map((run) => (
-            <div key={run.id} style={styles.card} className="ob-card">
-              <div style={styles.row}>
-                <div style={styles.goalGroup}>
-                  <span
-                    style={{
-                      ...styles.statusDot,
-                      background: statusColors[run.status] ?? colors.textMuted,
-                    }}
-                  />
-                  <span style={styles.statusLabel}>
-                    {statusLabels[run.status] ?? run.status}
-                  </span>
+          {filtered.map((run) => {
+            const isExpanded = expandedRunId === run.id;
+            return (
+              <div key={run.id}>
+                <div
+                  style={{
+                    ...styles.card,
+                    cursor: "pointer",
+                    ...(isExpanded ? { borderColor: colors.borderControl } : {}),
+                  }}
+                  className="ob-card"
+                  onClick={() => toggleTimeline(run.id)}
+                >
+                  <div style={styles.row}>
+                    <div style={styles.goalGroup}>
+                      <span
+                        style={{
+                          ...styles.statusDot,
+                          background: statusColors[run.status] ?? colors.textMuted,
+                        }}
+                      />
+                      <span style={styles.statusLabel}>
+                        {statusLabels[run.status] ?? run.status}
+                      </span>
+                    </div>
+                    <div style={styles.rowRight}>
+                      <span style={styles.timestamp}>{formatTimestamp(run.updatedAt)}</span>
+                      <span style={styles.expandIcon}>{isExpanded ? "▾" : "▸"}</span>
+                    </div>
+                  </div>
+                  <p style={styles.goal}>{run.goal}</p>
+                  {run.outcome?.summary && (
+                    <p style={styles.outcome}>{run.outcome.summary}</p>
+                  )}
+                  {!run.outcome?.summary && run.checkpoint.stopReason && (
+                    <p style={styles.stopReason}>{run.checkpoint.stopReason}</p>
+                  )}
                 </div>
-                <span style={styles.timestamp}>{formatTimestamp(run.updatedAt)}</span>
+
+                {isExpanded && (
+                  <div style={styles.timelineContainer}>
+                    {timelineLoading ? (
+                      <p style={styles.timelineEmpty}>Loading steps...</p>
+                    ) : timelineEvents.length === 0 ? (
+                      <p style={styles.timelineEmpty}>No workflow events recorded.</p>
+                    ) : (
+                      <div style={styles.timeline}>
+                        {timelineEvents.map((event) => {
+                          const entry = formatTimelineEvent(
+                            event.type,
+                            event.summary,
+                            event.createdAt,
+                            event.payload,
+                          );
+                          return (
+                            <div key={event.id} style={styles.timelineStep}>
+                              <span
+                                style={{
+                                  ...styles.timelineDot,
+                                  background: entry.color,
+                                }}
+                              />
+                              <div style={styles.timelineContent}>
+                                <div style={styles.timelineHeader}>
+                                  <span style={{ ...styles.timelineLabel, color: entry.color }}>
+                                    {entry.label}
+                                  </span>
+                                  <span style={styles.timelineTime}>{entry.time}</span>
+                                </div>
+                                <div style={styles.timelineSummary}>{entry.summary}</div>
+                                {entry.url && (
+                                  <div style={styles.timelineUrl}>{entry.url}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <p style={styles.goal}>{run.goal}</p>
-              {run.outcome?.summary && (
-                <p style={styles.outcome}>{run.outcome.summary}</p>
-              )}
-              {!run.outcome?.summary && run.checkpoint.stopReason && (
-                <p style={styles.stopReason}>{run.checkpoint.stopReason}</p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -196,6 +276,12 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 8,
   },
+  rowRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+  },
   goalGroup: {
     display: "flex",
     alignItems: "center",
@@ -213,6 +299,10 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     textTransform: "uppercase",
     letterSpacing: "0.04em",
+  },
+  expandIcon: {
+    fontSize: "0.78rem",
+    color: colors.textMuted,
   },
   timestamp: {
     fontSize: "0.78rem",
@@ -236,5 +326,69 @@ const styles: Record<string, React.CSSProperties> = {
     color: colors.statusFailed,
     margin: "4px 0 0",
     lineHeight: 1.35,
+  },
+  timelineContainer: {
+    marginLeft: 20,
+    marginTop: 2,
+    marginBottom: 4,
+    paddingLeft: 14,
+    borderLeft: `2px solid ${colors.borderDefault}`,
+  },
+  timelineEmpty: {
+    color: colors.textSecondary,
+    fontSize: "0.82rem",
+    padding: "8px 0",
+  },
+  timeline: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+  },
+  timelineStep: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "5px 0",
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    marginTop: 4,
+    flexShrink: 0,
+  },
+  timelineContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+  timelineHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  timelineLabel: {
+    fontSize: "0.74rem",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.03em",
+  },
+  timelineTime: {
+    fontSize: "0.72rem",
+    color: colors.textMuted,
+    flexShrink: 0,
+  },
+  timelineSummary: {
+    fontSize: "0.82rem",
+    color: colors.textPrimary,
+    lineHeight: 1.35,
+    overflowWrap: "break-word",
+  },
+  timelineUrl: {
+    fontSize: "0.72rem",
+    color: colors.textMuted,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 };

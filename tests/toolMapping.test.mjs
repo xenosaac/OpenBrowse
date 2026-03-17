@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 20 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 20);
+  it("defines exactly 21 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 21);
   });
 
   it("has unique tool names", () => {
@@ -40,7 +40,7 @@ describe("BROWSER_TOOLS", () => {
       "browser_go_back", "browser_read_text", "browser_wait_for_text",
       "browser_wait_for_navigation", "browser_save_note", "browser_upload_file",
       "browser_open_in_new_tab", "browser_switch_tab", "browser_screenshot",
-      "task_complete", "task_failed", "ask_user"
+      "schedule_recurring", "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -605,6 +605,74 @@ describe("mapToolCallToDecision — browser_switch_tab", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — schedule_recurring
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — schedule_recurring", () => {
+  it("maps to schedule_recurring action with goal, interval, and startUrl", () => {
+    const result = mapToolCallToDecision(
+      "schedule_recurring",
+      { goal: "Check iPhone price on Amazon", interval_minutes: 60, start_url: "https://amazon.com/dp/B12345", description: "Monitor price hourly" },
+      "user wants price monitoring",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "schedule_recurring");
+    assert.equal(result.action.value, "Check iPhone price on Amazon");
+    assert.equal(result.action.description, "Monitor price hourly");
+    assert.equal(result.reasoning, "user wants price monitoring");
+    const hint = JSON.parse(result.action.interactionHint);
+    assert.equal(hint.intervalMinutes, 60);
+    assert.equal(hint.startUrl, "https://amazon.com/dp/B12345");
+  });
+
+  it("omits startUrl from hint when not provided", () => {
+    const result = mapToolCallToDecision(
+      "schedule_recurring",
+      { goal: "Check weather", interval_minutes: 1440, description: "Daily check" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.type, "schedule_recurring");
+    const hint = JSON.parse(result.action.interactionHint);
+    assert.equal(hint.intervalMinutes, 1440);
+    assert.equal(hint.startUrl, undefined);
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision(
+      "schedule_recurring",
+      { goal: "Watch page", interval_minutes: 240 },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.description, "Schedule recurring watch");
+  });
+
+  it("fails when goal is missing", () => {
+    const result = mapToolCallToDecision(
+      "schedule_recurring",
+      { interval_minutes: 60, description: "Monitor" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without goal"));
+  });
+
+  it("fails when interval_minutes is missing", () => {
+    const result = mapToolCallToDecision(
+      "schedule_recurring",
+      { goal: "Check price", description: "Monitor" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without interval_minutes"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -854,6 +922,18 @@ describe("mapToolCallToDecision — missing required fields", () => {
     assert.equal(result.failureSummary, "browser_switch_tab called without tab_index");
   });
 
+  it("schedule_recurring without goal returns task_failed", () => {
+    const result = mapToolCallToDecision("schedule_recurring", { interval_minutes: 60 }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "schedule_recurring called without goal");
+  });
+
+  it("schedule_recurring without interval_minutes returns task_failed", () => {
+    const result = mapToolCallToDecision("schedule_recurring", { goal: "Check" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "schedule_recurring called without interval_minutes");
+  });
+
   it("browser_navigate with empty string url returns task_failed", () => {
     const result = mapToolCallToDecision("browser_navigate", { url: "" }, "r", "run_1");
     assert.equal(result.type, "task_failed");
@@ -904,6 +984,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_upload_file", { ref: "r" }],
       ["browser_open_in_new_tab", { url: "https://example.com" }],
       ["browser_switch_tab", { tab_index: 0 }],
+      ["schedule_recurring", { goal: "Check price", interval_minutes: 60 }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

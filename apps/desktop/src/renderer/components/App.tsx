@@ -11,6 +11,7 @@ import type {
 import { runtimeEventBus } from "../lib/eventBus";
 import { ipc } from "../lib/ipc";
 import { normalizeUrl } from "../lib/url";
+import { classifyFailure } from "../lib/classifyFailure";
 import type { ChatMessage } from "../types/chat";
 import { useAgentRuns } from "../hooks/useAgentRuns";
 import { useBrowserTabs } from "../hooks/useBrowserTabs";
@@ -29,7 +30,10 @@ import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel } from "./ManagementPanel";
 import { FindBar } from "./chrome/FindBar";
 import { loadKeybindingOverrides } from "./KeyboardShortcutsPanel";
+import { SetupWizard } from "./SetupWizard";
+import { UpdateBanner } from "./UpdateBanner";
 import type { KeyBindingOverrides } from "../lib/keybindings";
+import { isSetupNeeded } from "../lib/setupWizard";
 
 declare global {
   interface Window {
@@ -150,6 +154,44 @@ declare global {
       enterSplitView: (leftId: string, rightId: string) => Promise<{ ok: boolean }>;
       exitSplitView: () => Promise<{ ok: boolean }>;
       setSplitViewBounds: (leftBounds: { x: number; y: number; width: number; height: number }, rightBounds: { x: number; y: number; width: number; height: number }) => Promise<{ ok: boolean }>;
+
+      // File export
+      saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }) => Promise<{ ok: boolean }>;
+
+      // Task templates
+      listTemplates: () => Promise<Array<{ id: string; name: string; goal: string; createdAt: string }>>;
+      saveTemplate: (template: { goal: string; name?: string }) => Promise<{ id: string; name: string; goal: string; createdAt: string }>;
+      deleteTemplate: (templateId: string) => Promise<{ ok: boolean }>;
+
+      // Watch scheduler
+      listWatches: () => Promise<Array<{
+        id: string;
+        intent: { id: string; goal: string; metadata?: Record<string, string> };
+        intervalMinutes: number;
+        active: boolean;
+        createdAt: string;
+        nextRunAt: string;
+        lastTriggeredAt?: string;
+        lastCompletedAt?: string;
+        consecutiveFailures: number;
+        lastError?: string;
+        backoffUntil?: string;
+      }>>;
+      registerWatch: (params: { goal: string; startUrl?: string; intervalMinutes: number }) => Promise<{ watchId: string }>;
+      unregisterWatch: (watchId: string) => Promise<{ ok: boolean }>;
+
+      // Setup wizard
+      isSetupDismissed: () => Promise<boolean>;
+      dismissSetup: () => Promise<{ ok: boolean }>;
+
+      // Auto-update check
+      checkForUpdate: () => Promise<{
+        available: boolean;
+        currentVersion: string;
+        latestVersion: string;
+        releaseUrl: string;
+        releaseName: string;
+      }>;
     };
   }
 }
@@ -176,6 +218,30 @@ export function App() {
   // ---- Keybinding overrides ----
   const [keybindingOverrides, setKeybindingOverrides] = useState<KeyBindingOverrides>({});
   useEffect(() => { void loadKeybindingOverrides().then(setKeybindingOverrides); }, []);
+
+  // ---- Setup wizard state ----
+  const [setupDismissed, setSetupDismissed] = useState<boolean | null>(null);
+  useEffect(() => {
+    void window.openbrowse.isSetupDismissed().then(setSetupDismissed).catch(() => setSetupDismissed(false));
+  }, []);
+  const showSetupWizard = isSetupNeeded(agentRuns.settings, setupDismissed);
+
+  // ---- Auto-update check state ----
+  const [updateInfo, setUpdateInfo] = useState<{
+    available: boolean;
+    latestVersion: string;
+    releaseUrl: string;
+    releaseName: string;
+  } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void window.openbrowse.checkForUpdate()
+        .then((info) => { if (info.available) setUpdateInfo(info); })
+        .catch(() => {});
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ---- Find-in-page state ----
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -778,9 +844,14 @@ export function App() {
       const tone: ChatMessage["tone"] = run.outcome.status === "completed" ? "success" : "error";
       const msgId = `outcome:${run.id}`;
       let content = run.outcome!.summary;
+      if (tone === "error") {
+        const classified = classifyFailure(content);
+        content = `**${classified.userMessage}** ${classified.suggestion}\n\n_${content}_`;
+      }
       const ed = run.outcome!.extractedData;
       if (ed && ed.length > 0) {
-        content += "\n\n## Results\n\n| Label | Value |\n|---|---|\n"
+        const heading = tone === "error" ? "## Partial results" : "## Results";
+        content += "\n\n" + heading + "\n\n| Label | Value |\n|---|---|\n"
           + ed.map((item) => `| ${item.label.replace(/\|/g, "\\|")} | ${item.value.replace(/\|/g, "\\|")} |`).join("\n");
       }
       const outcomeMsg: ChatMessage = {
@@ -892,6 +963,9 @@ export function App() {
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("taskHistory")}>
         Task History
       </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("watches")}>
+        Watches
+      </button>
       <div style={styles.dropdownSeparator} />
       <button
         className="ob-dropdown-item"
@@ -968,7 +1042,17 @@ export function App() {
 
   // ---- Step 1.8: JSX with extracted components ----
   return (
-    <div style={styles.app}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw" }}>
+      {/* Update banner */}
+      {updateInfo && updateInfo.available && !updateDismissed && (
+        <UpdateBanner
+          latestVersion={updateInfo.latestVersion}
+          releaseUrl={updateInfo.releaseUrl}
+          releaseName={updateInfo.releaseName}
+          onDismiss={() => setUpdateDismissed(true)}
+        />
+      )}
+    <div style={{ ...styles.app, flex: 1, minHeight: 0 }}>
       {/* Sidebar */}
       <aside
         className="ob-glass-panel"
@@ -1002,6 +1086,9 @@ export function App() {
           onRetryTask={(goal: string) => void submitChatTask(goal)}
           onResumeRun={handleResumeRun}
           onDismissRun={handleDismissRun}
+          onSaveTemplate={(goal: string) => {
+            void ipc.templates.save({ goal });
+          }}
         />
       </aside>
 
@@ -1179,12 +1266,33 @@ export function App() {
             onClose={layout.closeManagement}
             keybindingOverrides={keybindingOverrides}
             onKeybindingOverridesChanged={setKeybindingOverrides}
+            onRunTemplate={(goal) => {
+              layout.closeManagement();
+              void submitChatTask(goal);
+            }}
           />
         )}
 
         {/* Hamburger dropdown menu — rendered via portal to escape NavBar stacking context */}
         {menuContent}
       </section>
+
+      {/* First-launch setup wizard */}
+      {showSetupWizard && (
+        <SetupWizard
+          onComplete={async (settings) => {
+            await window.openbrowse.saveSettings(settings);
+            await window.openbrowse.dismissSetup();
+            setSetupDismissed(true);
+            await agentRuns.refresh();
+          }}
+          onSkip={async () => {
+            await window.openbrowse.dismissSetup();
+            setSetupDismissed(true);
+          }}
+        />
+      )}
+    </div>
     </div>
   );
 }

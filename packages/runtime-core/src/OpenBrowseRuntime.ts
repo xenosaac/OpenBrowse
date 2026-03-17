@@ -1,7 +1,7 @@
 import { StubBrowserKernel } from "@openbrowse/browser-runtime";
 import type { BrowserAction, BrowserSession, PageModel, TaskIntent, TaskMessage, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import { TelegramChatBridge, StubChatBridge } from "@openbrowse/chat-bridge";
-import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
+import { createWorkflowEvent, appendWorkflowEvent, shouldNotifyTaskStart } from "./workflowEvents.js";
 import { HandoffManager } from "./HandoffManager.js";
 import { SessionManager } from "./SessionManager.js";
 import { CancellationController } from "./CancellationController.js";
@@ -234,7 +234,7 @@ export class OpenBrowseRuntime {
     await this.logWorkflowEvent(runningRun.id, "run_created", `Task started: ${intent.goal}`, {
       source: intent.source
     });
-    if (intent.source === "telegram" || intent.source === "scheduler") {
+    if (shouldNotifyTaskStart(intent.source)) {
       void this.services.chatBridge.send({
         channel: "telegram",
         runId: runningRun.id,

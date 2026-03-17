@@ -14,9 +14,12 @@ import { HistoryPanel } from "./HistoryPanel";
 import { CookiePanel } from "./CookiePanel";
 import { TaskHistoryPanel } from "./TaskHistoryPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
+import { WatchesPanel } from "./WatchesPanel";
+import { TemplatesPanel } from "./TemplatesPanel";
+import { AnalyticsPanel } from "./AnalyticsPanel";
 import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "analytics" | "shortcuts" | "watches" | "templates";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -36,6 +39,7 @@ interface Props {
   onClose: () => void;
   keybindingOverrides: KeyBindingOverrides;
   onKeybindingOverridesChanged: (overrides: KeyBindingOverrides) => void;
+  onRunTemplate?: (goal: string) => void;
 }
 
 const TABS: { key: ManagementTab; label: string }[] = [
@@ -47,7 +51,10 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "history", label: "History" },
   { key: "cookies", label: "Cookies" },
   { key: "taskHistory", label: "Task History" },
+  { key: "analytics", label: "Analytics" },
   { key: "shortcuts", label: "Shortcuts" },
+  { key: "watches", label: "Watches" },
+  { key: "templates", label: "Templates" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -67,7 +74,8 @@ export function ManagementPanel({
   onStartDemo,
   onClose,
   keybindingOverrides,
-  onKeybindingOverridesChanged
+  onKeybindingOverridesChanged,
+  onRunTemplate
 }: Props) {
   const [activeTab, setActiveTab] = useState<ManagementTab>(initialTab);
   const [sessionsSubTab, setSessionsSubTab] = useState<SessionsSubTab>("tasks");
@@ -175,12 +183,18 @@ export function ManagementPanel({
 
           {activeTab === "taskHistory" && <TaskHistoryPanel />}
 
+          {activeTab === "analytics" && <AnalyticsPanel />}
+
           {activeTab === "shortcuts" && (
             <KeyboardShortcutsPanel
               overrides={keybindingOverrides}
               onOverridesChanged={onKeybindingOverridesChanged}
             />
           )}
+
+          {activeTab === "watches" && <WatchesPanel />}
+
+          {activeTab === "templates" && <TemplatesPanel onRunTemplate={onRunTemplate} />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

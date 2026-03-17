@@ -805,7 +805,7 @@ test("plannerLoop fails after MAX_CONSECUTIVE_IDENTICAL_ACTIONS identical action
 // --- plannerLoop: URL visit count stuck detection ---
 
 test("plannerLoop fails when URL visit count exceeds MAX_URL_VISITS_BEFORE_FAIL", async () => {
-  // MAX_URL_VISITS_BEFORE_FAIL = 12. Pre-populate urlVisitCounts at the limit.
+  // MAX_URL_VISITS_BEFORE_FAIL = 8 (T52). Pre-populate urlVisitCounts at the limit.
   const decisions = [
     { type: "browser_action", reasoning: "Click", action: { type: "click", targetId: "btn_1", description: "Click" } },
   ];
@@ -816,7 +816,7 @@ test("plannerLoop fails when URL visit count exceeds MAX_URL_VISITS_BEFORE_FAIL"
   const handoff = makeHandoff();
   const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
 
-  const run = makeRun({ urlVisitCounts: { "https://example.com": 12 } });
+  const run = makeRun({ urlVisitCounts: { "https://example.com": 8 } });
   const result = await executor.plannerLoop(run, makeSession());
 
   assert.equal(result.status, "failed");
@@ -1287,6 +1287,131 @@ test("plannerLoop save_note handles missing key and value gracefully", async () 
   const runWithNotes = savedRuns.find(r => r.checkpoint.plannerNotes && r.checkpoint.plannerNotes.length > 0);
   assert.ok(runWithNotes, "Should have saved a note with default key");
   assert.deepStrictEqual(runWithNotes.checkpoint.plannerNotes, [{ key: "note", value: "" }]);
+});
+
+// --- plannerLoop: schedule_recurring interception ---
+
+test("plannerLoop schedule_recurring registers watch via scheduler and does NOT hit kernel", async () => {
+  const registeredWatches = [];
+  const { services, savedRuns, appendedEvents } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "User wants hourly price check",
+        action: {
+          type: "schedule_recurring",
+          value: "Check iPhone price on Amazon",
+          description: "Set up hourly price monitor",
+          interactionHint: JSON.stringify({ intervalMinutes: 60, startUrl: "https://amazon.com/dp/B12345" })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  // Track executeAction calls — schedule_recurring should NOT hit the kernel
+  let executeActionCalled = false;
+  services.browserKernel.executeAction = async () => {
+    executeActionCalled = true;
+    return { ok: true, summary: "Should not be called" };
+  };
+
+  // Mock scheduler
+  services.scheduler = {
+    registerWatch: async (intent, intervalMinutes) => {
+      registeredWatches.push({ intent, intervalMinutes });
+      return "watch_123";
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(executeActionCalled, false, "schedule_recurring should not call browserKernel.executeAction");
+
+  // Verify watch was registered
+  assert.equal(registeredWatches.length, 1);
+  assert.equal(registeredWatches[0].intent.goal, "Check iPhone price on Amazon (start at https://amazon.com/dp/B12345)");
+  assert.equal(registeredWatches[0].intent.source, "scheduler");
+  assert.equal(registeredWatches[0].intent.metadata.startUrl, "https://amazon.com/dp/B12345");
+  assert.equal(registeredWatches[0].intervalMinutes, 60);
+
+  // Verify event was logged
+  assert.ok(appendedEvents.some(e => e.type === "browser_action_executed" && e.summary.includes("Check iPhone price")));
+});
+
+test("plannerLoop schedule_recurring without startUrl omits it from intent", async () => {
+  const registeredWatches = [];
+  const { services } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Daily check",
+        action: {
+          type: "schedule_recurring",
+          value: "Check weather forecast",
+          description: "Set up daily weather check",
+          interactionHint: JSON.stringify({ intervalMinutes: 1440 })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  services.scheduler = {
+    registerWatch: async (intent, intervalMinutes) => {
+      registeredWatches.push({ intent, intervalMinutes });
+      return "watch_456";
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  assert.equal(registeredWatches.length, 1);
+  assert.equal(registeredWatches[0].intent.goal, "Check weather forecast");
+  assert.equal(registeredWatches[0].intent.metadata.startUrl, undefined);
+  assert.equal(registeredWatches[0].intervalMinutes, 1440);
+});
+
+test("plannerLoop schedule_recurring handles scheduler failure gracefully", async () => {
+  const { services } = makeServices({
+    decisions: [
+      {
+        type: "browser_action",
+        reasoning: "Monitor",
+        action: {
+          type: "schedule_recurring",
+          value: "Check stock",
+          description: "Monitor stock",
+          interactionHint: JSON.stringify({ intervalMinutes: 60 })
+        },
+      },
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  services.scheduler = {
+    registerWatch: async () => {
+      throw new Error("Scheduler unavailable");
+    },
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  // Should NOT crash — run continues after failed watch registration
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
 });
 
 // --- T26: Graceful session cleanup on tab close ---
@@ -1899,4 +2024,86 @@ test("plannerLoop does NOT increment unchangedPageActions after failed actions",
   // After second action (succeeded): lastActionOk = true but only one successful → count should be low
   const maxUnchanged = Math.max(...savedRuns.map(r => r.checkpoint.unchangedPageActions ?? 0));
   assert.ok(maxUnchanged <= 1, `Expected unchangedPageActions <= 1 after failed actions, got ${maxUnchanged}`);
+});
+
+// --- T51: Hard stagnation kill at 8 unchanged page actions ---
+
+test("plannerLoop hard-kills run when unchangedPageActions reaches 8 (T51)", async () => {
+  // 10 click actions with identical page content. The counter should reach 8
+  // (after 9 page model captures: first has no baseline, 2nd-9th increment 1-8).
+  // At count=8 the hard kill fires, so the run should fail before all 10 actions complete.
+  const decisions = [];
+  const executeResults = [];
+  for (let i = 0; i < 10; i++) {
+    decisions.push({
+      type: "browser_action",
+      action: { type: "click", targetId: `el_${i}`, description: `Click ${i}` },
+      reasoning: `Attempt ${i}`,
+    });
+    executeResults.push({ ok: true, summary: `Clicked ${i}` });
+  }
+  decisions.push({ type: "task_complete", reasoning: "Done" });
+
+  // 11 page models (1 more than actions), all with identical visibleText
+  const capturePageModels = Array.from({ length: 11 }, () => {
+    const pm = makePageModel();
+    pm.visibleText = "Identical content that never changes";
+    return pm;
+  });
+
+  const { services } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "failed");
+  assert.ok(
+    result.outcome.summary.includes("Page not responding to actions"),
+    `Expected "Page not responding to actions" in: "${result.outcome.summary}"`
+  );
+  // The counter should have reached exactly 8
+  assert.ok(
+    result.outcome.summary.includes("8"),
+    `Expected "8" in summary: "${result.outcome.summary}"`
+  );
+});
+
+test("plannerLoop does NOT hard-kill at 7 unchanged page actions (no false positive)", async () => {
+  // 7 successful actions with same content, then content changes, then task completes.
+  // Counter reaches 7 (below threshold of 8), then resets on content change.
+  const decisions = [];
+  const executeResults = [];
+  for (let i = 0; i < 7; i++) {
+    decisions.push({
+      type: "browser_action",
+      action: { type: "click", targetId: `el_${i}`, description: `Click ${i}` },
+      reasoning: `Attempt ${i}`,
+    });
+    executeResults.push({ ok: true, summary: `Clicked ${i}` });
+  }
+  // One more action after content changes
+  decisions.push({
+    type: "browser_action",
+    action: { type: "click", targetId: "el_final", description: "Click final" },
+    reasoning: "Final click",
+  });
+  executeResults.push({ ok: true, summary: "Clicked final" });
+  decisions.push({ type: "task_complete", reasoning: "Done" });
+
+  // 9 page models total: first 8 have same content, 9th has different content
+  const capturePageModels = [];
+  for (let i = 0; i < 8; i++) {
+    const pm = makePageModel();
+    pm.visibleText = "Same old content";
+    capturePageModels.push(pm);
+  }
+  // 9th page model: content changes
+  const pmChanged = makePageModel();
+  pmChanged.visibleText = "New content after refresh";
+  capturePageModels.push(pmChanged);
+
+  const { services } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed", "Run should complete, not be killed by stagnation");
 });

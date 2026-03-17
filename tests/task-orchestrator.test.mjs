@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { TaskOrchestrator, DefaultClarificationPolicy } from "../packages/orchestrator/dist/index.js";
+import { TaskOrchestrator, DefaultClarificationPolicy, extractPartialResults } from "../packages/orchestrator/dist/index.js";
 
 // --- Helpers ---
 
@@ -928,4 +928,94 @@ test("full lifecycle: create → start → observe → decide → record → com
 
   assert.equal(run.status, "completed");
   assert.equal(run.outcome.summary, "Search completed");
+});
+
+// ── Partial results on failure (T61) ──
+
+test("extractPartialResults: returns empty array when no plannerNotes", () => {
+  const run = { checkpoint: { notes: [], summary: "" } };
+  assert.deepEqual(extractPartialResults(run), []);
+});
+
+test("extractPartialResults: returns empty array when plannerNotes is empty", () => {
+  const run = { checkpoint: { notes: [], summary: "", plannerNotes: [] } };
+  assert.deepEqual(extractPartialResults(run), []);
+});
+
+test("extractPartialResults: converts plannerNotes to ExtractedDataItem format", () => {
+  const run = {
+    checkpoint: {
+      notes: [],
+      summary: "",
+      plannerNotes: [
+        { key: "price", value: "$99.00" },
+        { key: "source", value: "Amazon.com" },
+      ],
+    },
+  };
+  const result = extractPartialResults(run);
+  assert.deepEqual(result, [
+    { label: "price", value: "$99.00" },
+    { label: "source", value: "Amazon.com" },
+  ]);
+});
+
+test("extractPartialResults: filters out progress notes", () => {
+  const run = {
+    checkpoint: {
+      notes: [],
+      summary: "",
+      plannerNotes: [
+        { key: "progress", value: "Step 3 of 5: Found price" },
+        { key: "price", value: "$49.00" },
+      ],
+    },
+  };
+  const result = extractPartialResults(run);
+  assert.equal(result.length, 1);
+  assert.deepEqual(result[0], { label: "price", value: "$49.00" });
+});
+
+test("failRun carries forward plannerNotes as extractedData on failure outcome", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+  run.checkpoint.plannerNotes = [
+    { key: "flight_price", value: "$320 round trip" },
+    { key: "airline", value: "Alaska Airlines" },
+  ];
+  const failed = o.failRun(run, "Navigation timeout");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.outcome.summary, "Navigation timeout");
+  assert.ok(failed.outcome.extractedData);
+  assert.equal(failed.outcome.extractedData.length, 2);
+  assert.deepEqual(failed.outcome.extractedData[0], { label: "flight_price", value: "$320 round trip" });
+  assert.deepEqual(failed.outcome.extractedData[1], { label: "airline", value: "Alaska Airlines" });
+});
+
+test("failRun has no extractedData when no plannerNotes exist", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+  const failed = o.failRun(run, "Stuck in loop");
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.outcome.extractedData, undefined);
+});
+
+test("applyPlannerDecision task_failed carries forward plannerNotes as extractedData", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+  run.checkpoint.plannerNotes = [
+    { key: "result_1", value: "Found 3 listings" },
+    { key: "progress", value: "Checked 2 of 5 sites" },
+  ];
+  const failed = o.applyPlannerDecision(run, {
+    type: "task_failed",
+    reasoning: "Cannot proceed",
+    failureSummary: "Site requires login",
+  });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.outcome.summary, "Site requires login");
+  assert.ok(failed.outcome.extractedData);
+  // progress is filtered out
+  assert.equal(failed.outcome.extractedData.length, 1);
+  assert.deepEqual(failed.outcome.extractedData[0], { label: "result_1", value: "Found 3 listings" });
 });

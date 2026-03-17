@@ -257,6 +257,115 @@ describe("IntervalWatchScheduler — backoff", () => {
   });
 });
 
+describe("IntervalWatchScheduler — onChanged callback", () => {
+  test("fires on registerWatch", async () => {
+    let changeCount = 0;
+    const scheduler = new IntervalWatchScheduler(async () => {}, {
+      ...FAST_POLICY,
+      onChanged: () => { changeCount++; },
+    });
+    await scheduler.registerWatch(makeIntent(), 1);
+    assert.equal(changeCount, 1);
+    await scheduler.dispose();
+  });
+
+  test("fires on unregisterWatch", async () => {
+    let changeCount = 0;
+    const scheduler = new IntervalWatchScheduler(async () => {}, {
+      ...FAST_POLICY,
+      onChanged: () => { changeCount++; },
+    });
+    const id = await scheduler.registerWatch(makeIntent(), 1);
+    changeCount = 0; // reset after register
+    await scheduler.unregisterWatch(id);
+    assert.equal(changeCount, 1);
+    await scheduler.dispose();
+  });
+
+  test("fires on updateWatchData", async () => {
+    let changeCount = 0;
+    const scheduler = new IntervalWatchScheduler(async () => {}, {
+      ...FAST_POLICY,
+      onChanged: () => { changeCount++; },
+    });
+    const id = await scheduler.registerWatch(makeIntent(), 1);
+    changeCount = 0;
+    scheduler.updateWatchData(id, [{ label: "Price", value: "$100" }]);
+    assert.equal(changeCount, 1);
+    await scheduler.dispose();
+  });
+
+  test("setOnChanged replaces the callback", async () => {
+    let firstCount = 0;
+    let secondCount = 0;
+    const scheduler = new IntervalWatchScheduler(async () => {}, {
+      ...FAST_POLICY,
+      onChanged: () => { firstCount++; },
+    });
+    scheduler.setOnChanged(() => { secondCount++; });
+    await scheduler.registerWatch(makeIntent(), 1);
+    assert.equal(firstCount, 0);
+    assert.equal(secondCount, 1);
+    await scheduler.dispose();
+  });
+});
+
+describe("IntervalWatchScheduler — getWatchData / updateWatchData", () => {
+  test("returns undefined for new watch", async () => {
+    const scheduler = new IntervalWatchScheduler(async () => {}, FAST_POLICY);
+    const id = await scheduler.registerWatch(makeIntent(), 1);
+    assert.equal(scheduler.getWatchData(id), undefined);
+    await scheduler.dispose();
+  });
+
+  test("returns undefined for unknown watchId", async () => {
+    const scheduler = new IntervalWatchScheduler(async () => {}, FAST_POLICY);
+    assert.equal(scheduler.getWatchData("nonexistent"), undefined);
+    await scheduler.dispose();
+  });
+
+  test("stores and retrieves data", async () => {
+    const scheduler = new IntervalWatchScheduler(async () => {}, FAST_POLICY);
+    const id = await scheduler.registerWatch(makeIntent(), 1);
+    const data = [{ label: "Price", value: "$100" }, { label: "Vol", value: "1M" }];
+    scheduler.updateWatchData(id, data);
+    assert.deepEqual(scheduler.getWatchData(id), data);
+    await scheduler.dispose();
+  });
+
+  test("overwrites previous data", async () => {
+    const scheduler = new IntervalWatchScheduler(async () => {}, FAST_POLICY);
+    const id = await scheduler.registerWatch(makeIntent(), 1);
+    scheduler.updateWatchData(id, [{ label: "Price", value: "$100" }]);
+    scheduler.updateWatchData(id, [{ label: "Price", value: "$200" }]);
+    assert.deepEqual(scheduler.getWatchData(id), [{ label: "Price", value: "$200" }]);
+    await scheduler.dispose();
+  });
+
+  test("no-op for unknown watchId", async () => {
+    const scheduler = new IntervalWatchScheduler(async () => {}, FAST_POLICY);
+    // Should not throw
+    scheduler.updateWatchData("nonexistent", [{ label: "a", value: "b" }]);
+    assert.equal(scheduler.getWatchData("nonexistent"), undefined);
+    await scheduler.dispose();
+  });
+});
+
+describe("IntervalWatchScheduler — dispatch passes watchId", () => {
+  test("dispatch callback receives watchId", async () => {
+    let receivedWatchId;
+    const scheduler = new IntervalWatchScheduler(
+      async (_intent, watchId) => { receivedWatchId = watchId; },
+      FAST_POLICY
+    );
+    const registeredId = await scheduler.registerWatch(makeIntent(), 1);
+
+    await waitFor(async () => receivedWatchId !== undefined);
+    assert.equal(receivedWatchId, registeredId);
+    await scheduler.dispose();
+  });
+});
+
 describe("IntervalWatchScheduler — multiple watches", () => {
   test("independent watches track separately", async () => {
     const dispatched = { a: 0, b: 0 };

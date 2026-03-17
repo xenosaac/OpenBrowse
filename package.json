@@ -20,7 +20,8 @@
     "native:rebuild": "pnpm --dir apps/desktop run native:rebuild",
     "repair:env": "node ./scripts/openbrowse-env.mjs --repair",
     "test": "pnpm run build:packages && node --experimental-specifier-resolution=node --test tests/*.test.mjs",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "validate": "pnpm run build:packages && pnpm --dir apps/desktop run validate"
   },
   "engines": {
     "node": ">=22"

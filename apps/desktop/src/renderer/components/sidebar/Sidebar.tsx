@@ -35,6 +35,7 @@ interface Props {
   onRetryTask: (goal: string) => void;
   onResumeRun: (run: TaskRun | null) => Promise<void>;
   onDismissRun: (runId: string) => Promise<void>;
+  onSaveTemplate?: (goal: string) => void;
 }
 
 export function Sidebar(props: Props) {
@@ -43,7 +44,7 @@ export function Sidebar(props: Props) {
     messages, chatInput, chatBusy,
     runs, runtime, globalActionEvents, suspendedRuns,
     onToggleSessionList, onNewSession, onSwitchSession, onDeleteSession, onClearChat,
-    onChatInputChange, onSubmitTask, onRetryTask, onResumeRun, onDismissRun
+    onChatInputChange, onSubmitTask, onRetryTask, onResumeRun, onDismissRun, onSaveTemplate
   } = props;
 
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -115,7 +116,7 @@ export function Sidebar(props: Props) {
           </div>
         )}
         {messages.map((message) => (
-          <ChatMessageItem key={message.id} message={message} onRetry={onRetryTask} />
+          <ChatMessageItem key={message.id} message={message} onRetry={onRetryTask} onSaveTemplate={onSaveTemplate} />
         ))}
         {sessionSuspendedRuns.length > 0 && (
           <div style={styles.questionsSection}>
@@ -145,10 +146,10 @@ export function Sidebar(props: Props) {
 }
 
 const SUGGESTIONS = [
-  "Search Google for the top noise-cancelling headphones",
-  "Go to Wikipedia and summarize the article on Electron",
-  "Open Hacker News and extract the top 5 story titles",
-  "Compare flight prices on Google Flights from SFO to NYC",
+  "Find the cheapest flight from SNA to SEA in April",
+  "Play today's Wordle",
+  "Compare AirPods prices across Amazon, Best Buy, and Walmart",
+  "Look up the weather forecast for this week",
 ];
 
 const styles: Record<string, React.CSSProperties> = {
