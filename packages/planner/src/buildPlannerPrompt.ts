@@ -135,6 +135,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
         line += ` options=[${el.options.map(o => `"${o.value}"${o.label !== o.value ? ` (${o.label})` : ""}`).join(", ")}]`;
       }
       if (el.inShadowDom) line += " (shadow)";
+      if (el.iframeIndex !== undefined) line += ` (iframe[${el.iframeIndex}])`;
       if (!el.boundingVisible && el.isActionable) line += " (off-screen)";
       if (el.isActionable) line += " *";
       return line;
@@ -162,8 +163,9 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
     : "";
 
   // --- Iframes ---
+  const hasIframeElements = pageModel.elements.some(el => el.iframeIndex !== undefined);
   const iframeHint = pageModel.iframeCount && pageModel.iframeCount > 0
-    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page. Content inside iframes is NOT visible in the element list below.${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Sources: ${pageModel.iframeSources.join(", ")}` : ""} If the information you need is not visible, it may be inside an iframe — try navigating directly to the iframe source URL.`
+    ? `\n** IFRAMES DETECTED: ${pageModel.iframeCount} iframe(s) on this page.${hasIframeElements ? " Same-origin iframe elements are included below — their IDs start with \"frame0_\", \"frame1_\", etc. You can interact with them normally (click, type, read_text)." : ""}${pageModel.iframeSources && pageModel.iframeSources.length > 0 ? ` Cross-origin iframe sources: ${pageModel.iframeSources.join(", ")}.` : ""}${!hasIframeElements ? " Content inside iframes is NOT visible in the element list. If the information you need is not visible, try navigating directly to the iframe source URL." : " For cross-origin iframe content not listed below, navigate directly to the iframe source URL."}`
     : "";
 
   // --- Active dialog ---

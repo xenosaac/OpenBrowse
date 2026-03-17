@@ -47,6 +47,24 @@ test("validateElementTargetId: rejects trailing characters", () => {
   assert.throws(() => validateElementTargetId("el_5_extra"), /Invalid element target ID/);
 });
 
+// --- Frame-prefixed element IDs (iframe support) ---
+
+test("validateElementTargetId: accepts frame0_el_0", () => {
+  assert.equal(validateElementTargetId("frame0_el_0"), 0);
+});
+
+test("validateElementTargetId: accepts frame2_el_15", () => {
+  assert.equal(validateElementTargetId("frame2_el_15"), 15);
+});
+
+test("validateElementTargetId: rejects frameX_el_5 (non-numeric frame index)", () => {
+  assert.throws(() => validateElementTargetId("frameX_el_5"), /Invalid element target ID/);
+});
+
+test("validateElementTargetId: rejects frame0_5 (missing el_ prefix)", () => {
+  assert.throws(() => validateElementTargetId("frame0_5"), /Invalid element target ID/);
+});
+
 // --- validateUrl ---
 
 test("validateUrl: accepts http URL", () => {

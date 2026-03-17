@@ -20,6 +20,7 @@ export interface RawPageModelResult {
     inputType?: string;
     disabled?: boolean;
     readonly?: boolean;
+    iframeIndex?: number;
     boundingVisible?: boolean;
     boundingBox?: { x: number; y: number; width: number; height: number };
   }>;

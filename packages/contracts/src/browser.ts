@@ -92,6 +92,7 @@ export interface PageElementModel {
   keyShortcuts?: string;
   landmark?: string;
   inShadowDom?: boolean;
+  iframeIndex?: number;
   boundingVisible?: boolean;
   boundingBox?: { x: number; y: number; width: number; height: number };
 }
