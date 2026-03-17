@@ -135,6 +135,10 @@ const api = {
   saveKeybindings: (entries: Array<{ key: string; value: string }>): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke("keybindings:save", entries),
 
+  // File export
+  saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("file:save-extracted", params),
+
   // Watch scheduler
   listWatches: (): Promise<Array<{
     id: string;

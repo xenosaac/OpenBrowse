@@ -1,4 +1,5 @@
-import { app, ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { app, dialog, ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
@@ -431,6 +432,19 @@ export function registerIpcHandlers(
 
   register("browser:save-pdf", async (_event, sessionId: string) => {
     return browserShell.saveAsPdf(sessionId);
+  });
+
+  // --- File export ---
+  register("file:save-extracted", async (_event, params: { data: string; defaultName: string; format: "json" | "csv" }) => {
+    const ext = params.format === "json" ? "json" : "csv";
+    const filterName = params.format === "json" ? "JSON" : "CSV";
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      defaultPath: path.join(app.getPath("downloads"), `${params.defaultName}.${ext}`),
+      filters: [{ name: filterName, extensions: [ext] }]
+    });
+    if (canceled || !filePath) return { ok: false };
+    await fs.promises.writeFile(filePath, params.data, "utf-8");
+    return { ok: true };
   });
 
   register("run:handoff", async (_event, runId: string) => {
