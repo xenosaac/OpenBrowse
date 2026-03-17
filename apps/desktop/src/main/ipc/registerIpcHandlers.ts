@@ -191,6 +191,11 @@ export function registerIpcHandlers(
     return listAllRuns(services);
   });
 
+  register("runs:listRecent", async (_event, limit?: number) => {
+    const all = await listAllRuns(services);
+    return all.slice(0, limit ?? 50);
+  });
+
   register("runs:get", async (_event, runId: string) => {
     return services.runCheckpointStore.load(runId);
   });

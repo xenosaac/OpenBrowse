@@ -12,8 +12,9 @@ import { WorkflowLog } from "./WorkflowLog";
 import { BookmarkPanel } from "./BookmarkPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { CookiePanel } from "./CookiePanel";
+import { TaskHistoryPanel } from "./TaskHistoryPanel";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -41,6 +42,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "bookmarks", label: "Bookmarks" },
   { key: "history", label: "History" },
   { key: "cookies", label: "Cookies" },
+  { key: "taskHistory", label: "Task History" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -163,6 +165,8 @@ export function ManagementPanel({
           {activeTab === "history" && <HistoryPanel />}
 
           {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
+
+          {activeTab === "taskHistory" && <TaskHistoryPanel />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />
