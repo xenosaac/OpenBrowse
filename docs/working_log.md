@@ -10704,3 +10704,69 @@ Reason: Worktree clean, no unfinished task. All PM tasks T1-T49 done. All Progra
 *Session log entry written: 2026-03-17 (Session 171)*
 
 *Session log entry written: 2026-03-16 (Session 167)*
+
+---
+
+### Session 172 — 2026-03-17: T51 + T52 — Hard Stagnation Kill + Reduce URL Visit Cap
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM tasks T1-T49 done. All Programs A-P complete. PM explicitly directs "T51 → T52 → wait for T50 data." T51 adds a hard kill at 8 unchanged-page actions (Session 169 added soft warning at 3). T52 reduces MAX_URL_VISITS_BEFORE_FAIL from 12 to 8. Both are small, independent reliability improvements that directly address the #1 failure class (stuck loops).
+
+#### Plan
+
+**T51 — Hard stagnation kill:**
+1. Add `MAX_UNCHANGED_PAGE_ACTIONS = 8` constant in `RunExecutor.ts`.
+2. After incrementing `unchangedPageActions` (line ~157), check if >= 8. If so, call `failStuck` with "Page not responding to actions" message.
+3. Add test: 10 actions with identical page content → run fails with stagnation message.
+4. Add test: 7 actions with identical content then content changes → run completes (no false positive at 7).
+
+**T52 — Reduce URL visit cap:**
+1. Change `MAX_URL_VISITS_BEFORE_FAIL` from 12 to 8 in `RunExecutor.ts`.
+2. Update the existing URL visit test to use the new threshold.
+
+Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**T51 — Hard stagnation kill at 8 unchanged page actions:**
+
+**`packages/runtime-core/src/RunExecutor.ts`** — New constant and hard kill:
+- Added `MAX_UNCHANGED_PAGE_ACTIONS = 8` constant.
+- After incrementing `unchangedPageActions` in the content change detection block, added a hard kill check: if `unchangedPageActions >= MAX_UNCHANGED_PAGE_ACTIONS`, calls `failStuck` with message "Page not responding to actions: N consecutive actions had no visible effect."
+- This fires before the planner is called, so the run fails immediately when the threshold is reached — no more budget wasted.
+
+**`tests/runExecutor.test.mjs`** — 2 new tests:
+- "plannerLoop hard-kills run when unchangedPageActions reaches 8 (T51)" — 10 actions with identical visibleText, verifies run fails with "Page not responding to actions" message containing "8".
+- "plannerLoop does NOT hard-kill at 7 unchanged page actions (no false positive)" — 7 actions with same content, then content changes, then task completes normally.
+
+**T52 — Reduce URL visit cap from 12 to 8:**
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Changed constant:
+- `MAX_URL_VISITS_BEFORE_FAIL` changed from `12` to `8`.
+- The Wordle 13-visit failure and Session 168's analysis confirm 12 is too generous. 8 gives the planner enough retries for legitimate SPA flows (which increment the URL counter on actual navigations, not SPA in-page transitions thanks to Session 140's fix).
+
+**`tests/runExecutor.test.mjs`** — Updated existing test:
+- "plannerLoop fails when URL visit count exceeds MAX_URL_VISITS_BEFORE_FAIL" — updated pre-populated count from 12 to 8 to match new threshold.
+
+**Behavior:**
+- T51: Before this fix, the planner could take up to 50 actions on a page that never visibly changed, wasting the entire step budget. Session 169's soft warning at 3 unchanged actions told the planner to try something different, but there was no hard stop. Now the run fails at 8 unchanged actions with a clear message, saving 42 wasted steps in the worst case.
+- T52: Before this fix, the planner could visit the same URL 12 times before the stuck detector killed the run. Now the cap is 8, which is still generous enough for legitimate navigation patterns but catches stuck loops ~33% earlier.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 62/62 pass (was 60, +2 new)
+- `node --test tests/*.test.mjs` — 1208/1208 pass (was 1206, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T51 and T52 are complete. Both directly address the #1 failure class (stuck loops).
+- T50 (vision cost measurement) depends on user rebuild — cannot proceed without running app.
+- T53 (approval-gate page-context awareness) depends on post-rebuild test evidence.
+- Re-testing remains the #1 PM priority (user action).
+- All PM Programs (A-P) are still complete. All PM tasks T1-T53 status: T1-T49 done, T50 waiting for rebuild, T51-T52 done, T53 waiting for rebuild.
+
+*Session log entry written: 2026-03-17 (Session 172)*
