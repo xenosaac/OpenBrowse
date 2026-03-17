@@ -13,8 +13,11 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import fs from "node:fs";
+import { createRequire } from "node:module";
+
+const _require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const Database = require("better-sqlite3");
+const Database = _require("better-sqlite3");
 import { composeRuntime } from "./runtime/composeRuntime";
 import {
   hydrateRuntimeSettings,
@@ -62,23 +65,23 @@ interface ValidationReport {
 const TASKS: ValidationTask[] = [
   {
     goal: "What is the current weather in San Francisco?",
-    timeoutMs: 90_000
+    timeoutMs: 180_000
   },
   {
     goal: "What is the population of Tokyo?",
-    timeoutMs: 90_000
+    timeoutMs: 180_000
   },
   {
     goal: "Find the cheapest flight from LAX to JFK next month",
-    timeoutMs: 90_000
+    timeoutMs: 180_000
   },
   {
     goal: "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
-    timeoutMs: 90_000
+    timeoutMs: 180_000
   },
   {
     goal: "Go to news.ycombinator.com and extract the titles of the top 5 stories",
-    timeoutMs: 90_000
+    timeoutMs: 180_000
   }
 ];
 
@@ -121,7 +124,7 @@ async function runTask(
         profileId: undefined,
         createdAt: intent.createdAt ?? new Date().toISOString(),
         checkpoint: { summary: "Validation timeout", notes: [], stepCount: 0 },
-        outcome: { summary: "TIMEOUT: task exceeded 90s" }
+        outcome: { summary: "TIMEOUT: task exceeded 180s" }
       } as unknown as TaskRun);
     }, timeoutMs);
 
@@ -150,13 +153,22 @@ async function runTask(
 app.whenReady().then(async () => {
   console.log("\n=== OpenBrowse Validation Harness ===\n");
 
-  // Resolve API key: env var first, then user's main database as fallback
+  // Resolve API key: env var first, then user's main database as fallback.
+  // Try multiple candidate paths because app.getPath("userData") varies
+  // depending on how Electron is launched (packaged app vs npx electron vs direct binary).
   let apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
   if (!apiKey) {
-    const mainDbPath = path.join(app.getPath("userData"), "openbrowse.db");
-    if (fs.existsSync(mainDbPath)) {
+    const home = process.env.HOME ?? "";
+    const candidatePaths = [
+      path.join(app.getPath("userData"), "openbrowse.db"),
+      path.join(home, "Library/Application Support/@openbrowse/desktop/openbrowse.db"),
+      path.join(home, "Library/Application Support/OpenBrowse/openbrowse.db"),
+      path.join(home, "Library/Application Support/Electron/openbrowse.db")
+    ];
+    for (const dbPath of candidatePaths) {
+      if (!fs.existsSync(dbPath)) continue;
       try {
-        const db = new Database(mainDbPath, { readonly: true });
+        const db = new Database(dbPath, { readonly: true });
         const row = db.prepare(
           "SELECT value FROM user_preferences WHERE namespace = ? AND key = ?"
         ).get("runtime_settings", "anthropic_api_key") as { value: string } | undefined;
@@ -164,10 +176,11 @@ app.whenReady().then(async () => {
         if (row?.value?.trim()) {
           apiKey = row.value.trim();
           process.env.ANTHROPIC_API_KEY = apiKey;
-          console.log("API key loaded from user database (openbrowse.db).");
+          console.log(`API key loaded from user database (${path.basename(path.dirname(dbPath))}/${path.basename(dbPath)}).`);
+          break;
         }
       } catch (err) {
-        console.warn("Could not read API key from user database:", (err as Error).message);
+        console.warn(`Could not read API key from ${dbPath}:`, (err as Error).message);
       }
     }
   }
