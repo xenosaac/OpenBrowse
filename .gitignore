@@ -33,3 +33,6 @@ docs/*
 
 # Figma Design Files ignored for now.
 UI_Design_Figma/
+
+# Validation harness output (committed manually per T77)
+validation-results.json

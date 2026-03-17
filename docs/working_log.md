@@ -13006,3 +13006,86 @@ PM scope: "on launch, check GitHub Releases for newer version. Show update-avail
 - Once the GitHub repo is published, update the owner/repo in `registerIpcHandlers.ts` from `openbrowse/openbrowse` to the actual repo
 
 *Session log entry written: 2026-03-17 (Session 238)*
+
+---
+
+### Session 239 — 2026-03-17: T76 — Headless Validation Harness (Program X)
+
+#### Mode: feature (PM-directed — Program X: Automated Validation Pipeline)
+
+PM activated Program X at line 1473 of product_manager.md. T76 is P0: build a headless validation harness that runs 5 predefined tasks against the real planner and real browser, writes results to JSON. This removes the dependency on manual user testing for core validation signals.
+
+#### Plan
+
+1. Create `apps/desktop/src/main/validate.ts` — Electron entry point that:
+   - Creates a hidden BrowserWindow (no UI needed)
+   - Composes the runtime with real browser kernel + real planner, no Telegram
+   - Auto-approves all actions (no approval gates blocking validation)
+   - Runs 5 predefined tasks sequentially with 90s timeout each
+   - Uses `bootstrapRunDetached` + cancellation for clean timeout handling
+   - Writes results to `validation-results.json`
+   - Prints summary table and exits
+2. Add `scripts/build-validate.cjs` — esbuild-based build for the validate entry (electron-vite's `lib.entry` doesn't support multi-entry; separate esbuild build is cleaner)
+3. Add `validate` script to `apps/desktop/package.json`
+4. Add `validate` script to root `package.json`
+5. Add `validation-results.json` to `.gitignore`
+6. Run typecheck + tests
+7. Update this log and commit
+
+#### Implementation
+
+**Validation harness (`apps/desktop/src/main/validate.ts`):**
+- Standalone Electron main process entry — creates a hidden `BrowserWindow` (no UI, no preload)
+- Composes the runtime via `composeRuntime()` with real browser kernel + real planner, Telegram disabled
+- Uses a separate database (`validate.db` in userData) to avoid mixing with user data
+- Auto-approves all risk classes via `DefaultApprovalPolicy` — tasks don't hang on approval gates
+- Requires `ANTHROPIC_API_KEY` env var — exits early with clear error if missing
+- Runs 5 predefined tasks sequentially (PM-specified):
+  1. "What is the current weather in San Francisco?" (simple search+extract)
+  2. "What is the population of Tokyo?" (simple search+extract)
+  3. "Find the cheapest flight from LAX to JFK next month" (multi-step navigation)
+  4. "Go to wikipedia.org and find the featured article of the day..." (multi-step + extraction)
+  5. "Go to news.ycombinator.com and extract the titles of the top 5 stories" (list extraction)
+- Each task gets a 90-second timeout with clean cancellation via `cancelTrackedRun`
+- `runTask()` wraps `bootstrapRunDetached` + Promise + timeout — on timeout, cancels the run, waits 1s for propagation, loads final state
+- Writes `validation-results.json` to project root with PM-specified shape: `{ timestamp, tasks: [...], summary: { total, passed, failed, rate } }`
+- Prints live progress and summary table to stdout
+- Exits with code 0 if any tasks pass, 1 if all fail
+
+**Build script (`apps/desktop/scripts/build-validate.cjs`):**
+- electron-vite's `lib.entry` doesn't support multiple entries (tested — only produces one output)
+- Uses esbuild (available via pnpm store, installed as vite dependency) to bundle `validate.ts`
+- Same externalization pattern as electron-vite: `electron`, `@openbrowse/*`, `better-sqlite3`, `@anthropic-ai/sdk`, `grammy`
+- Outputs to `out/validate/main.mjs` (separate from the main build output)
+
+**Scripts:**
+- `pnpm run validate` (root): builds workspace packages then runs desktop validate
+- `pnpm run validate` (desktop): `node scripts/build-validate.cjs && npx electron out/validate/main.mjs`
+- Usage: `ANTHROPIC_API_KEY=sk-... pnpm run validate`
+
+**Files changed:**
+- `apps/desktop/src/main/validate.ts` — new: validation harness entry point (275 lines)
+- `apps/desktop/scripts/build-validate.cjs` — new: esbuild build script for validate entry
+- `apps/desktop/package.json` — added `validate` script
+- `package.json` — added `validate` script
+- `.gitignore` — added `validation-results.json`
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1389/1389 pass (unchanged — no test logic changed)
+- `node scripts/build-validate.cjs`: produces `out/validate/main.mjs` (9.6KB)
+- Compiled output verified: all key imports (`bootstrapRunDetached`, `cancelTrackedRun`, `shutdownRuntime`, `DefaultApprovalPolicy`) correctly externalized
+- Cannot run full validation in this environment (requires Electron process + Claude API key)
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T77: Validation report analysis** — run `ANTHROPIC_API_KEY=sk-... pnpm run validate`, commit `validation-results.json`, PM analyzes results
+- The validate script should work immediately after `pnpm install` — no additional setup beyond API key
+- If the harness fails to start, check: (1) API key is valid, (2) workspace packages are built (`pnpm run build:packages`), (3) `better-sqlite3` native module is built for Electron's Node version
+- Estimated cost per validation run: ~$0.50-1.50 (5 tasks × ~$0.10-0.30 each)
+- Future: could add `--task` flag to run a single task, `--timeout` to customize, `--tasks-file` to load custom task lists
+
+*Session log entry written: 2026-03-17 (Session 239)*
