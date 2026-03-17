@@ -324,6 +324,15 @@ export function App() {
     }
   }, [browserTabs.reopenClosedTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
 
+  const handleDuplicateTab = useCallback(async (groupId: string) => {
+    const tab = await browserTabs.duplicateTab(groupId);
+    if (tab) {
+      selection.selectGroup(tab.groupId);
+      selection.setForegroundRunId(tab.runId);
+      selection.setMainPanel("browser");
+    }
+  }, [browserTabs.duplicateTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
+
   const handleNavigate = useCallback(async (input: string) => {
     const url = normalizeUrl(input);
     if (selection.activeBrowserTab && selection.mainPanel === "browser") {
@@ -895,6 +904,7 @@ export function App() {
             onToggleSidebar={layout.toggleSidebar}
             onPinTab={browserTabs.pinTab}
             onUnpinTab={browserTabs.unpinTab}
+            onDuplicateTab={(groupId: string) => void handleDuplicateTab(groupId)}
             onMoveTab={browserTabs.moveTab}
           />
           <div style={styles.chromeSeparator} />

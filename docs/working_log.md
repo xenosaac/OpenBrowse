@@ -9457,3 +9457,58 @@ When a user accidentally closes a tab, there is no way to reopen it. Every major
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 154)*
+
+---
+
+### Session 155 — 2026-03-16: Duplicate Tab (Self-Directed)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Programs A-N all complete (T39-T42 done). PM guidance: "self-directed features should remain browser-visible work." Duplicate Tab is a standard browser context menu feature (right-click → Duplicate Tab) that every major browser supports. Missing from the current context menu (which only has Pin/Unpin and Close Tab). Fits one iteration.
+
+#### Context
+
+The tab context menu currently has only two items: "Pin/Unpin Tab" and "Close Tab". Every major browser (Chrome, Firefox, Safari) includes "Duplicate Tab" in the right-click context menu. This opens a new tab navigated to the same URL as the source tab. The existing `browserNewTab(url)` API already accepts an optional URL, making this trivial to wire.
+
+#### Plan
+
+1. **`useBrowserTabs.ts`**: Add `duplicateTab(groupId)` that finds the tab by groupId, gets its URL, and calls `browserNewTab(url)`.
+2. **`TabBar.tsx`**: Add `onDuplicateTab` prop. Add "Duplicate Tab" to the context menu between Pin/Unpin and Close.
+3. **`App.tsx`**: Wire `onDuplicateTab` to the TabBar using the hook's duplicateTab + selection.
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — New duplicateTab function:
+- Added `duplicateTab(groupId)`: finds the tab by groupId in shellTabs, reads its URL, and calls `browserNewTab(url)`. Returns the new tab descriptor or null if the source tab has no URL or is `about:blank`.
+- Exported in return value.
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Context menu addition:
+- Added `onDuplicateTab: (groupId: string) => void` to Props interface.
+- Added "Duplicate Tab" button to the context menu between "Pin/Unpin Tab" and the separator/Close Tab.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wiring:
+- Added `handleDuplicateTab(groupId)` callback that calls `browserTabs.duplicateTab(groupId)`, then selects the new tab.
+- Passed `onDuplicateTab` prop to `<TabBar>`.
+
+**Behavior:**
+- Right-click any tab → "Duplicate Tab" opens a new tab navigated to the same URL.
+- The new tab becomes active immediately.
+- Works for both standalone tabs and run-associated tabs (duplicates the URL, not the run).
+- `about:blank` tabs cannot be duplicated (no-op).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — pure renderer context menu + callback wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM guidance: self-directed features should remain browser-visible work.
+- Remaining candidates: reader mode, full-page screenshot, keyboard shortcut customization, tab drag between windows.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 155)*
