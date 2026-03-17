@@ -555,6 +555,23 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  // --- Setup Wizard ---
+  register("setup:isDismissed", async () => {
+    const pref = await services.preferenceStore.get("setup", "dismissed");
+    return pref?.value === "true";
+  });
+
+  register("setup:dismiss", async () => {
+    await services.preferenceStore.upsert({
+      id: "pref_setup_dismissed",
+      namespace: "setup",
+      key: "dismissed",
+      value: "true",
+      capturedAt: new Date().toISOString()
+    });
+    return { ok: true };
+  });
+
   // --- Watch Scheduler ---
 
   const watchesJsonPath = path.join(app.getPath("userData"), "watches.json");

@@ -12865,3 +12865,75 @@ No code changes required. The build config from T71 already targets both `dmg` a
 - **Distribution note:** The `.dmg` at `/tmp/openbrowse-release/OpenBrowse-0.1.0-arm64.dmg` is ready for local distribution. For external distribution, Apple notarization requires a Developer ID certificate.
 
 *Session log entry written: 2026-03-17 (Session 236)*
+
+---
+
+### Session 237 — 2026-03-17: T74 — First-Launch Setup Wizard (Option D third increment)
+
+#### Mode: feature (PM-directed — Option D packaging)
+
+Sessions 235-236 completed T71 (.app bundle) and T72 (DMG build). T73 (app icon) requires graphic design capabilities. T74 (first-launch wizard) is the next implementable code task.
+
+PM scope: "first-launch wizard (API key, Telegram bot, default homepage)"
+
+#### Plan
+
+1. Add IPC handlers for reading/writing a `setup_dismissed` preference flag
+2. Expose these via the preload bridge
+3. Create `SetupWizard.tsx` — full-screen overlay with API key, Telegram token, and Telegram chat ID fields
+4. Integrate into `App.tsx` — show when settings loaded, API key empty, and setup not dismissed
+5. Add a pure function `isSetupNeeded` for testability
+6. Write tests for `isSetupNeeded`
+7. Run typecheck + tests, commit
+
+#### Implementation
+
+**Pure function `isSetupNeeded` (`packages/runtime-core/src/isSetupNeeded.ts`):**
+- Three conditions: settings loaded, not dismissed, no API key
+- Also duplicated in `apps/desktop/src/renderer/lib/setupWizard.ts` (renderer can't tree-shake runtime-core barrel)
+- Runtime-core version is used for testing; renderer version is used at runtime
+
+**Setup wizard component (`apps/desktop/src/renderer/components/SetupWizard.tsx`):**
+- Full-screen overlay with glass styling matching app design tokens
+- Two sections: Anthropic API key (required) and Telegram bot (optional)
+- "Get Started" button (enabled only when API key is entered) saves settings and dismisses
+- "Skip for now" button dismisses without saving settings
+- Footnote reminds users settings are accessible from the hamburger menu
+
+**IPC + persistence:**
+- Two new IPC handlers: `setup:isDismissed` (reads `setup.dismissed` preference) and `setup:dismiss` (writes it)
+- Uses existing `PreferenceStore` with namespace `"setup"`, key `"dismissed"`, value `"true"`
+- Preload bridge: `isSetupDismissed()` and `dismissSetup()`
+
+**App.tsx integration:**
+- Loads `setupDismissed` flag on mount via `window.openbrowse.isSetupDismissed()`
+- Computes `showSetupWizard` via `isSetupNeeded(agentRuns.settings, setupDismissed)`
+- Renders `<SetupWizard>` overlay when needed — positioned above all other content (z-index 10000)
+- On complete: saves settings via existing `saveSettings`, dismisses setup, refreshes runtime
+- On skip: just dismisses setup
+
+**Files changed:**
+- `packages/runtime-core/src/isSetupNeeded.ts` — new: pure function
+- `packages/runtime-core/src/index.ts` — export new module
+- `apps/desktop/src/renderer/lib/setupWizard.ts` — new: renderer-local copy of `isSetupNeeded`
+- `apps/desktop/src/renderer/components/SetupWizard.tsx` — new: setup wizard UI component
+- `apps/desktop/src/renderer/components/App.tsx` — imports, state, integration, Window type declarations
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — 2 new IPC handlers
+- `apps/desktop/src/preload/index.ts` — 2 new preload methods
+- `tests/isSetupNeeded.test.mjs` — new: 9 tests
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1375/1375 pass (was 1366, +9 new)
+- `isSetupNeeded` tests: 9/9 pass — covers null loading, dismissed, API key present, empty, whitespace
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T73: App icon** — create `icon.icns` for `resources/` (currently uses default Electron icon)
+- Phase 1 user testing remains blocked — user has not tested beyond 3 simple searches
+- Option D packaging is now complete for code-implementable tasks (T71 .app, T72 .dmg, T74 wizard). Only T73 (graphic design) remains.
+
+*Session log entry written: 2026-03-17 (Session 237)*
