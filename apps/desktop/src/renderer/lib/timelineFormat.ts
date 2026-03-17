@@ -30,6 +30,7 @@ const EVENT_LABELS: Record<string, string> = {
   recovery_failed: "Recovery failed",
   recovery_skipped: "Recovery skipped",
   handoff_written: "Handoff written",
+  screenshot_captured: "Screenshot",
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -50,6 +51,7 @@ const EVENT_COLORS: Record<string, string> = {
   recovery_failed: "#ef4444",
   recovery_skipped: "#6b7280",
   handoff_written: "#6b7280",
+  screenshot_captured: "#8b5cf6",
 };
 
 const TERMINAL_TYPES = new Set([
@@ -64,9 +66,22 @@ export function formatTimelineEvent(
   createdAt: string,
   payload: Record<string, string>,
 ): TimelineEntry {
+  let enrichedSummary = summary;
+
+  if (type === "planner_decision" && payload.inputTokens && payload.outputTokens) {
+    enrichedSummary += ` (${payload.inputTokens} in / ${payload.outputTokens} out)`;
+  }
+
+  if (type === "screenshot_captured" && payload.base64Bytes) {
+    const tokens = estimateImageTokens(Number(payload.base64Bytes));
+    if (tokens > 0) {
+      enrichedSummary += ` (~${tokens} tokens)`;
+    }
+  }
+
   return {
     label: EVENT_LABELS[type] ?? type.replace(/_/g, " "),
-    summary,
+    summary: enrichedSummary,
     color: EVENT_COLORS[type] ?? "#6b7280",
     time: formatTime(createdAt),
     url: payload.url || payload.targetUrl || undefined,
@@ -85,4 +100,26 @@ function formatTime(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/**
+ * Minimal vision token estimator (same formula as @openbrowse/planner estimateImageTokens).
+ * Inlined to avoid pulling the planner package into the renderer bundle.
+ */
+function estimateImageTokens(base64Length: number): number {
+  if (base64Length <= 0) return 0;
+  const fileBytes = Math.floor((base64Length * 3) / 4);
+  // JPEG quality 60 ~0.4 bytes/pixel
+  const estimatedPixels = fileBytes / 0.4;
+  // Assume 3:2 aspect ratio
+  const height = Math.round(Math.sqrt(estimatedPixels / 1.5));
+  const width = Math.round(height * 1.5);
+  if (width <= 0 || height <= 0) return 0;
+  const maxLongEdge = 1568;
+  const scale = Math.min(1, maxLongEdge / Math.max(width, height));
+  const w = Math.round(width * scale);
+  const h = Math.round(height * scale);
+  const tilesX = Math.ceil(w / 768);
+  const tilesY = Math.ceil(h / 768);
+  return 85 + tilesX * tilesY * 170;
 }
