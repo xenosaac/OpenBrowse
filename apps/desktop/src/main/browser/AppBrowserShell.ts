@@ -72,6 +72,24 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     this.viewManager?.clearViewportBounds();
   }
 
+  // ---- Split view ----
+
+  enterSplitView(leftId: string, rightId: string): void {
+    this.viewManager?.showSplit(leftId, rightId);
+  }
+
+  exitSplitView(): void {
+    this.viewManager?.exitSplit();
+  }
+
+  setSplitBounds(leftBounds: BrowserViewportBounds, rightBounds: BrowserViewportBounds): void {
+    this.viewManager?.setSplitBounds(leftBounds, rightBounds);
+  }
+
+  isSplitView(): boolean {
+    return this.viewManager?.isSplit() ?? false;
+  }
+
   destroyAll(): void {
     this.viewManager?.destroyAll();
   }

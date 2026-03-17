@@ -26,6 +26,11 @@ interface Props {
   onReload?: () => void;
   downloads?: DownloadEntry[];
   onDismissDownload?: (id: string) => void;
+  /** Secondary tab displayed in the right split pane. null = no split. */
+  splitTab?: BrowserShellTabDescriptor | null;
+  /** Called when the user drags the split divider. ratio = fraction for left pane (0.2–0.8). */
+  onSplitRatioChange?: (ratio: number) => void;
+  splitRatio?: number;
 }
 
 function errorCodeToMessage(code: number): string {
@@ -43,10 +48,13 @@ function errorCodeToMessage(code: number): string {
   }
 }
 
-export function BrowserPanel({ activeTab, covered, loadError, onReload, downloads = [], onDismissDownload }: Props) {
+export function BrowserPanel({ activeTab, covered, loadError, onReload, downloads = [], onDismissDownload, splitTab, onSplitRatioChange, splitRatio = 0.5 }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const leftViewportRef = useRef<HTMLDivElement | null>(null);
+  const rightViewportRef = useRef<HTMLDivElement | null>(null);
   const [reloadHover, setReloadHover] = useState(false);
   const [dismissHoverId, setDismissHoverId] = useState<string | null>(null);
+  const [draggingSplit, setDraggingSplit] = useState(false);
 
   // Auto-dismiss completed/cancelled downloads after 5 seconds
   useEffect(() => {
@@ -64,6 +72,8 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload, download
   const visibleDownloads = downloads.filter(d => d.state === "progressing" || d.state === "completed" || d.state === "interrupted");
 
   useEffect(() => {
+    if (splitTab) return; // Split mode handles its own show/hide
+
     if (covered || !activeTab) {
       void window.openbrowse.hideBrowserSession();
       if (!activeTab) void window.openbrowse.clearBrowserViewport();
@@ -92,10 +102,11 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload, download
 
     void showAndBindViewport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab?.id, covered, loadError]);
+  }, [activeTab?.id, covered, loadError, splitTab]);
 
-  // Keep viewport bounds in sync with element size changes.
+  // Keep viewport bounds in sync with element size changes (single view mode).
   useEffect(() => {
+    if (splitTab) return; // Split mode uses its own effect
     const updateViewport = async () => {
       const element = viewportRef.current;
       if (!element) return;
@@ -118,7 +129,89 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload, download
       observer.disconnect();
       window.removeEventListener("resize", updateViewport);
     };
-  }, []);
+  }, [splitTab]);
+
+  // Split view: show two views side by side
+  useEffect(() => {
+    if (!splitTab || !activeTab || covered) {
+      if (splitTab) void window.openbrowse.exitSplitView();
+      return;
+    }
+    if (loadError) {
+      void window.openbrowse.exitSplitView();
+      return;
+    }
+
+    const enterSplit = async () => {
+      await window.openbrowse.enterSplitView(activeTab.id, splitTab.id);
+      // Send initial bounds
+      const lEl = leftViewportRef.current;
+      const rEl = rightViewportRef.current;
+      if (lEl && rEl) {
+        const lr = lEl.getBoundingClientRect();
+        const rr = rEl.getBoundingClientRect();
+        await window.openbrowse.setSplitViewBounds(
+          { x: lr.left, y: lr.top, width: lr.width, height: lr.height },
+          { x: rr.left, y: rr.top, width: rr.width, height: rr.height }
+        );
+      }
+    };
+    void enterSplit();
+
+    return () => {
+      void window.openbrowse.exitSplitView();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.id, splitTab?.id, covered, loadError]);
+
+  // Split view: keep bounds in sync on resize
+  useEffect(() => {
+    if (!splitTab) return;
+
+    const updateSplitBounds = async () => {
+      const lEl = leftViewportRef.current;
+      const rEl = rightViewportRef.current;
+      if (!lEl || !rEl) return;
+      const lr = lEl.getBoundingClientRect();
+      const rr = rEl.getBoundingClientRect();
+      await window.openbrowse.setSplitViewBounds(
+        { x: lr.left, y: lr.top, width: lr.width, height: lr.height },
+        { x: rr.left, y: rr.top, width: rr.width, height: rr.height }
+      );
+    };
+
+    const observer = new ResizeObserver(() => void updateSplitBounds());
+    if (leftViewportRef.current) observer.observe(leftViewportRef.current);
+    if (rightViewportRef.current) observer.observe(rightViewportRef.current);
+    window.addEventListener("resize", updateSplitBounds);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateSplitBounds);
+    };
+  }, [splitTab]);
+
+  // Split divider drag handler
+  useEffect(() => {
+    if (!draggingSplit) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = leftViewportRef.current?.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const ratio = Math.max(0.2, Math.min(0.8, (e.clientX - rect.left) / rect.width));
+      onSplitRatioChange?.(ratio);
+    };
+
+    const handleMouseUp = () => setDraggingSplit(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [draggingSplit, onSplitRatioChange]);
 
   if (!activeTab) {
     return (
@@ -160,7 +253,18 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload, download
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", minHeight: 0 }}>
-      <div ref={viewportRef} style={{ ...styles.viewport, flex: 1 }} />
+      {splitTab ? (
+        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+          <div ref={leftViewportRef} style={{ ...styles.viewport, flex: `${splitRatio} 1 0%` }} />
+          <div
+            style={styles.splitDivider}
+            onMouseDown={(e) => { e.preventDefault(); setDraggingSplit(true); }}
+          />
+          <div ref={rightViewportRef} style={{ ...styles.viewport, flex: `${1 - splitRatio} 1 0%` }} />
+        </div>
+      ) : (
+        <div ref={viewportRef} style={{ ...styles.viewport, flex: 1 }} />
+      )}
       {visibleDownloads.length > 0 && (
         <div style={styles.downloadBar}>
           {visibleDownloads.map(dl => {
@@ -222,6 +326,13 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%",
     minHeight: 0,
     background: colors.bgBase
+  },
+  splitDivider: {
+    width: 4,
+    cursor: "col-resize",
+    background: colors.borderSubtle,
+    flexShrink: 0,
+    transition: "background 150ms ease",
   },
   emptyState: {
     display: "grid",

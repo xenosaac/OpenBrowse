@@ -47,6 +47,14 @@ const api = {
   clearBrowserViewport: () => ipcRenderer.invoke("browser:viewport:clear"),
   closeBrowserGroup: (groupId: string): Promise<TaskRun | null> => ipcRenderer.invoke("browser:close-group", groupId),
 
+  // Split view
+  enterSplitView: (leftId: string, rightId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:enter", { leftId, rightId }),
+  exitSplitView: (): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:exit"),
+  setSplitViewBounds: (leftBounds: BrowserViewportBounds, rightBounds: BrowserViewportBounds): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:split-view:set-bounds", { leftBounds, rightBounds }),
+
   // Browser navigation
   browserNewTab: (url?: string): Promise<BrowserShellTabDescriptor> =>
     ipcRenderer.invoke("browser:new-tab", url),
