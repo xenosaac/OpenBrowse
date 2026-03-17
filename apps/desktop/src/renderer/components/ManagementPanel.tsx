@@ -13,8 +13,10 @@ import { BookmarkPanel } from "./BookmarkPanel";
 import { HistoryPanel } from "./HistoryPanel";
 import { CookiePanel } from "./CookiePanel";
 import { TaskHistoryPanel } from "./TaskHistoryPanel";
+import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
+import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -32,6 +34,8 @@ interface Props {
   onCancelRun?: (runId: string) => void;
   onStartDemo: (run?: TaskRun | null) => Promise<void>;
   onClose: () => void;
+  keybindingOverrides: KeyBindingOverrides;
+  onKeybindingOverridesChanged: (overrides: KeyBindingOverrides) => void;
 }
 
 const TABS: { key: ManagementTab; label: string }[] = [
@@ -43,6 +47,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "history", label: "History" },
   { key: "cookies", label: "Cookies" },
   { key: "taskHistory", label: "Task History" },
+  { key: "shortcuts", label: "Shortcuts" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -60,7 +65,9 @@ export function ManagementPanel({
   onSelectRun,
   onCancelRun,
   onStartDemo,
-  onClose
+  onClose,
+  keybindingOverrides,
+  onKeybindingOverridesChanged
 }: Props) {
   const [activeTab, setActiveTab] = useState<ManagementTab>(initialTab);
   const [sessionsSubTab, setSessionsSubTab] = useState<SessionsSubTab>("tasks");
@@ -167,6 +174,13 @@ export function ManagementPanel({
           {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
 
           {activeTab === "taskHistory" && <TaskHistoryPanel />}
+
+          {activeTab === "shortcuts" && (
+            <KeyboardShortcutsPanel
+              overrides={keybindingOverrides}
+              onOverridesChanged={onKeybindingOverridesChanged}
+            />
+          )}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

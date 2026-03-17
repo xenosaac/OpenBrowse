@@ -495,4 +495,15 @@ export function registerIpcHandlers(
   register("cookies:remove-all", async (_event, sessionId: string) => {
     await browserShell.removeAllCookies(sessionId);
   });
+
+  // --- Keybinding Preferences ---
+  register("keybindings:get", async () => {
+    const entries = await services.preferenceStore.list("keybindings");
+    return entries.map((e) => ({ key: e.key, value: e.value }));
+  });
+
+  register("keybindings:save", async (_event, entries: Array<{ key: string; value: string }>) => {
+    await services.preferenceStore.saveNamespaceSettings("keybindings", entries);
+    return { ok: true };
+  });
 }

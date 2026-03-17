@@ -28,6 +28,8 @@ import { AgentActivityBar } from "./AgentActivityBar";
 import { BrowserPanel } from "./BrowserPanel";
 import { ManagementPanel } from "./ManagementPanel";
 import { FindBar } from "./chrome/FindBar";
+import { loadKeybindingOverrides } from "./KeyboardShortcutsPanel";
+import type { KeyBindingOverrides } from "../lib/keybindings";
 
 declare global {
   interface Window {
@@ -130,6 +132,10 @@ declare global {
       listCookies: (sessionId: string) => Promise<unknown[]>;
       removeCookie: (sessionId: string, url: string, name: string) => Promise<void>;
       removeAllCookies: (sessionId: string) => Promise<void>;
+
+      // Keybinding preferences
+      getKeybindings: () => Promise<Array<{ key: string; value: string }>>;
+      saveKeybindings: (entries: Array<{ key: string; value: string }>) => Promise<{ ok: boolean }>;
     };
   }
 }
@@ -152,6 +158,10 @@ export function App() {
   const layout = useUILayout();
   const addressBarRef = useRef<HTMLInputElement | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // ---- Keybinding overrides ----
+  const [keybindingOverrides, setKeybindingOverrides] = useState<KeyBindingOverrides>({});
+  useEffect(() => { void loadKeybindingOverrides().then(setKeybindingOverrides); }, []);
 
   // ---- Find-in-page state ----
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -718,6 +728,7 @@ export function App() {
     activeBrowserTab: selection.activeBrowserTab,
     mainPanel: selection.mainPanel,
     addressBarRef,
+    keybindingOverrides,
     onNewTab: () => void handleNewTab(),
     onCloseTab: () => { if (selection.activeBrowserTab) void handleCloseTab(selection.activeBrowserTab); },
     onReopenClosedTab: () => void handleReopenClosedTab(),
@@ -1037,6 +1048,8 @@ export function App() {
               }
             }}
             onClose={layout.closeManagement}
+            keybindingOverrides={keybindingOverrides}
+            onKeybindingOverridesChanged={setKeybindingOverrides}
           />
         )}
 

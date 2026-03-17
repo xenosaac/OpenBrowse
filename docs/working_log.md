@@ -9682,3 +9682,111 @@ Currently the agent operates in a single browser tab. Many real tasks require vi
 - T45 adds a settings panel for rebinding keyboard shortcuts + PreferenceStore persistence.
 
 *Session log entry written: 2026-03-16 (Session 157)*
+
+---
+
+### Session 158 — 2026-03-16: T45 — Keyboard Shortcut Customization Panel (Program O)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. T43 (file upload) and T44 (multi-tab) completed in Sessions 156-157. PM doc says T45 is next and final task in Program O. T45 adds a settings panel for viewing and rebinding keyboard shortcuts with PreferenceStore persistence. P3 power-user feature that signals product maturity. Framework maturity checklist satisfied.
+
+#### Context
+
+OpenBrowse has 12+ keyboard shortcuts (Cmd+T, Cmd+W, Cmd+Shift+T, Cmd+F, Cmd+L, Cmd+R, Cmd+[, Cmd+], Cmd+=, Cmd+-, Cmd+0) all hardcoded in `useKeyboardShortcuts.ts`. Power users expect to rebind shortcuts. T45 adds:
+1. A default keybinding registry mapping action IDs to default key combos.
+2. A `KeyboardShortcutsPanel` component in the Settings/Configuration area showing all bindings with edit capability.
+3. IPC + PreferenceStore persistence for custom keybindings under the `keybindings` namespace.
+4. Refactored `useKeyboardShortcuts` to read from a config object (defaults + user overrides).
+
+#### Plan
+
+1. **`apps/desktop/src/renderer/lib/keybindings.ts`**: Define `KeyBinding` type, `DEFAULT_KEYBINDINGS` registry, key display helpers, key-combo matching logic.
+2. **`apps/desktop/src/preload/index.ts`**: Add `getKeybindings()` and `saveKeybindings()` IPC calls.
+3. **`apps/desktop/src/main/ipc/registerIpcHandlers.ts`**: Add `keybindings:get` and `keybindings:save` handlers using PreferenceStore.
+4. **`apps/desktop/src/renderer/components/KeyboardShortcutsPanel.tsx`**: New component listing all shortcuts with current bindings and "Edit" button per row. Click triggers a key-capture modal.
+5. **`apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts`**: Refactor to accept a keybinding config and match against it instead of hardcoded key checks.
+6. **`apps/desktop/src/renderer/components/ManagementPanel.tsx`**: Add "Shortcuts" tab wiring to `KeyboardShortcutsPanel`.
+7. **`apps/desktop/src/renderer/components/App.tsx`**: Load keybindings on mount, pass to hook, wire panel.
+8. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/keybindings.ts`** — New module (keybinding registry + utilities):
+- `KeyCombo` interface: `key` (lowercased), `meta?`, `ctrl?`, `shift?`, `alt?`.
+- `KeyBindingDef` interface: `id`, `label`, `category`, `requiresBrowserTab`, `defaultCombo`.
+- `DEFAULT_KEYBINDINGS`: 11 bindable actions across 4 categories (tabs, navigation, view, tools).
+- `resolveBindings(overrides)`: merges defaults with user overrides into a `Map<string, KeyCombo>`.
+- `matchesCombo(e, combo)`: checks if a `KeyboardEvent` matches a `KeyCombo` (case-insensitive, strict modifier match).
+- `formatCombo(combo)`: human-readable display (e.g., `⌘⇧T`) with special key mapping.
+- `eventToCombo(e)`: converts a KeyboardEvent to a KeyCombo for the capture UI. Returns null for bare modifiers or no-modifier presses.
+- `serialiseOverrides` / `deserialiseOverrides`: round-trip overrides to/from PreferenceStore entries.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — New IPC handlers:
+- `keybindings:get`: reads all entries from PreferenceStore under `keybindings` namespace.
+- `keybindings:save`: writes entries via `saveNamespaceSettings("keybindings", entries)`.
+
+**`apps/desktop/src/preload/index.ts`** — New preload methods:
+- `getKeybindings()`: invokes `keybindings:get`.
+- `saveKeybindings(entries)`: invokes `keybindings:save`.
+
+**`apps/desktop/src/renderer/components/KeyboardShortcutsPanel.tsx`** — New component:
+- Lists all 11 shortcuts grouped by category (Tabs, Navigation, View, Tools).
+- Each row shows the action label and current binding in a clickable button.
+- Click a binding → enters capture mode (listens for next keydown with modifier). Press the new combo to reassign. Press Escape to cancel.
+- Custom bindings shown in emerald color with a reset (↺) button per row.
+- "Reset All" button clears all overrides. "Save" button persists to PreferenceStore.
+- If the captured combo matches the default, the override is removed (clean state).
+- Exports `loadKeybindingOverrides()` for App.tsx to call on mount.
+
+**`apps/desktop/src/renderer/hooks/useKeyboardShortcuts.ts`** — Refactored:
+- Now accepts `keybindingOverrides` in params.
+- Uses `resolveBindings(overrides)` to build effective bindings (memoised).
+- Iterates `DEFAULT_KEYBINDINGS` + resolved combos instead of hardcoded if/else chain.
+- `matchesCombo` does the key matching. `ACTION_HANDLERS` maps action IDs to callback prop names.
+- `requiresBrowserTab` check replaces the old inline `mainPanel !== "browser"` guard.
+
+**`apps/desktop/src/renderer/components/ManagementPanel.tsx`** — New tab:
+- Added `"shortcuts"` to `ManagementTab` union.
+- Added "Shortcuts" tab in the tab bar (between Task History and Runtime).
+- Added `keybindingOverrides` and `onKeybindingOverridesChanged` props.
+- Renders `KeyboardShortcutsPanel` when the "Shortcuts" tab is active.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wiring:
+- Added `keybindingOverrides` state, loaded from PreferenceStore on mount via `loadKeybindingOverrides()`.
+- Added `getKeybindings` and `saveKeybindings` to the Window type declaration.
+- Passes `keybindingOverrides` to `useKeyboardShortcuts`.
+- Passes `keybindingOverrides` and `setKeybindingOverrides` to `ManagementPanel`.
+
+**`tests/keybindings.test.mjs`** — 24 new tests:
+- keybindings registry (3 tests): 11 entries, unique IDs, valid categories.
+- resolveBindings (3 tests): defaults, overrides, non-overridden preservation.
+- matchesCombo (6 tests): exact match, wrong key, missing modifier, extra modifier, shift combo, case-insensitive.
+- formatCombo (4 tests): simple meta+key, meta+shift, special key display, ctrl+alt.
+- eventToCombo (5 tests): bare modifier null, no modifier null, meta+key, meta+shift+key, omits false modifiers.
+- serialise/deserialise round-trip (3 tests): full round-trip, malformed skip, empty input.
+
+**Behavior:**
+- Manage → Shortcuts shows all 11 keyboard shortcuts grouped by category.
+- Click any binding → capture mode: press a new key combo to reassign.
+- Custom bindings shown in emerald, with per-row reset and global "Reset All".
+- "Save" persists to SQLite via PreferenceStore. Loaded on app startup.
+- All keyboard shortcuts respect custom bindings immediately (no restart needed).
+- Matching the default combo removes the override (clean state, no unnecessary persistence).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/keybindings.test.mjs` — 24/24 pass
+- `node --test tests/*.test.mjs` — 1170/1170 pass (was 1146, +24 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program O is now complete (T43 file upload, T44 multi-tab, T45 keyboard shortcuts all done).
+- PM guidance: "After T45, self-directed features should remain browser-visible or capability work."
+- Good candidates: reader mode, print-to-PDF improvements, tab grouping, split view.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 158)*
