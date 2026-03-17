@@ -12,6 +12,7 @@ import type {
 import type { AttachSessionOptions, BrowserKernel } from "./BrowserKernel.js";
 import { CdpClient } from "./cdp/CdpClient.js";
 import { DISMISS_COOKIE_BANNER_SCRIPT } from "./cdp/dismissCookieBanner.js";
+import { INJECT_ANNOTATION_OVERLAY_SCRIPT, REMOVE_ANNOTATION_OVERLAY_SCRIPT } from "./cdp/annotationOverlay.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
 import { mapRawToPageModel, type RawPageModelResult } from "./mapRawToPageModel.js";
 import { navigateWithRetry } from "./navigateRetry.js";
@@ -306,12 +307,33 @@ export class ElectronBrowserKernel implements BrowserKernel {
     const managed = this.sessions.get(browserSession.id);
     if (!managed) return null;
     try {
+      // Inject element annotation overlay before capture
+      try {
+        await managed.cdp.evaluate(INJECT_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Overlay injection failed — capture without annotations
+      }
+
       const result = await managed.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: 60
       }) as { data: string };
+
+      // Remove overlay after capture
+      try {
+        await managed.cdp.evaluate(REMOVE_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Overlay removal failed — non-critical, will be cleaned up on next page model capture
+      }
+
       return result.data;
     } catch {
+      // Ensure overlay is removed even if screenshot capture fails
+      try {
+        await managed.cdp.evaluate(REMOVE_ANNOTATION_OVERLAY_SCRIPT);
+      } catch {
+        // Best effort cleanup
+      }
       return null;
     }
   }
