@@ -14,6 +14,7 @@ import { CdpClient } from "./cdp/CdpClient.js";
 import { DISMISS_COOKIE_BANNER_SCRIPT } from "./cdp/dismissCookieBanner.js";
 import { EXTRACT_PAGE_MODEL_SCRIPT } from "./cdp/extractPageModel.js";
 import { mapRawToPageModel, type RawPageModelResult } from "./mapRawToPageModel.js";
+import { navigateWithRetry } from "./navigateRetry.js";
 import { classifyFailure, parseKeyboardShortcut, validateElementTargetId, validateScrollDirection, validateUrl } from "./validation.js";
 
 export interface EmbeddedViewProvider {
@@ -314,10 +315,13 @@ export class ElectronBrowserKernel implements BrowserKernel {
         case "navigate": {
           if (action.value) {
             const safeUrl = validateUrl(action.value);
-            await Promise.race([
-              wc.loadURL(safeUrl),
-              rejectAfterTimeout(NAVIGATION_TIMEOUT_MS, `Navigation to ${safeUrl} timed out after ${NAVIGATION_TIMEOUT_MS}ms`)
-            ]);
+            await navigateWithRetry(
+              () => Promise.race([
+                wc.loadURL(safeUrl),
+                rejectAfterTimeout(NAVIGATION_TIMEOUT_MS, `Navigation to ${safeUrl} timed out after ${NAVIGATION_TIMEOUT_MS}ms`)
+              ]),
+              classifyFailure
+            );
           }
           managed.cdp.invalidateContext();
           break;

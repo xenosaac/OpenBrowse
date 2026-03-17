@@ -8671,3 +8671,63 @@ Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T29, P
 - All PM-directed tasks (T23-T29, Programs A-J) remain complete.
 
 *Session log entry written: 2026-03-16 (Session 141)*
+
+---
+
+### Session 142 — 2026-03-16: T31 — Navigate Retry with Backoff for Transient Failures
+
+#### Mode: framework
+
+Rationale: Worktree clean, no unfinished task. T30 (soft failure classification) was completed in Session 141. PM directs T31 next: navigate retry with backoff. Navigation errors are the #1 failure class (31% of 35 failures = 11 runs). ERR_ABORTED, navigation timeout, and DNS failures are often transient. A single automatic retry at the infrastructure level catches transient failures before they reach the planner. This is the single most impactful reliability fix available.
+
+#### Plan
+
+1. Create `packages/browser-runtime/src/navigateRetry.ts` with an exported `navigateWithRetry` function that wraps a navigation attempt with one retry on transient failure classes (`network_error`, `navigation_timeout`). 2s delay between attempts. Pure function, no Electron dependency — testable under Node.
+2. Update `ElectronBrowserKernel.ts` navigate case to use `navigateWithRetry`.
+3. Export from `index.ts`.
+4. Write tests in `tests/navigateRetry.test.mjs` — at least 3: retry succeeds, retry fails, non-retryable skips retry.
+5. Run typecheck + tests.
+6. Update this log and commit.
+
+#### Implementation
+
+**`packages/browser-runtime/src/navigateRetry.ts`** — New file. Exported `navigateWithRetry` pure function:
+- Takes `loadFn` (async navigation function), `classifyFn` (error classifier), and optional `retryDelayMs` (default 2000ms)
+- On first failure: classifies the error. If `network_error` or `navigation_timeout`, waits `retryDelayMs` then retries once. Otherwise re-throws immediately.
+- If retry also fails, throws the retry error (most recent failure message).
+- Pure function with no Electron dependency — fully testable under Node.
+
+**`packages/browser-runtime/src/ElectronBrowserKernel.ts`** — Navigate case now uses `navigateWithRetry`:
+- Old: `await Promise.race([wc.loadURL(safeUrl), rejectAfterTimeout(...)])`
+- New: `await navigateWithRetry(() => Promise.race([wc.loadURL(safeUrl), rejectAfterTimeout(...)]), classifyFailure)`
+- Effect: transient navigation failures (ERR_ABORTED, DNS resolution, timeouts) are automatically retried once with 2s backoff. Non-transient failures (validation_error, etc.) fail immediately. Caller (outer catch) never knows about the retry — it just sees success or failure.
+
+**`packages/browser-runtime/src/index.ts`** — Added `export * from "./navigateRetry.js"`.
+
+**`tests/navigateRetry.test.mjs`** — 7 tests:
+- "succeeds on first attempt without retrying" — loadFn called once
+- "retries once on network_error and succeeds" — ERR_ABORTED triggers retry, second attempt succeeds
+- "retries once on navigation_timeout and succeeds" — timeout triggers retry, second attempt succeeds
+- "throws retry error when both attempts fail with network_error" — both fail, retry error thrown, callCount=2
+- "does NOT retry on validation_error" — non-transient, callCount=1
+- "does NOT retry on interaction_failed" — non-transient, callCount=1
+- "waits the specified delay before retrying" — verifies ≥40ms elapsed with 50ms configured delay
+
+#### Verification
+
+- `pnpm --filter @openbrowse/browser-runtime build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/navigateRetry.test.mjs` — 7/7 pass
+- `node --test tests/*.test.mjs` — 1128/1128 pass (was 1121, +7 new, no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T31 complete. Navigation errors (the #1 failure class, 31% of 35 database failures) now get one automatic retry with 2s backoff. ERR_ABORTED, DNS resolution failures, and navigation timeouts that are transient will be caught transparently.
+- Combined with T30 (Session 141), the runtime safety nets are now aligned: retryable failures are retried once, and if they persist, they properly count toward soft failure limits.
+- Next PM-directed task: T32 (dialog-aware planner guidance) — P2 prompt-only. When `pageModel.activeDialog` is truthy, add guidance to address the dialog first.
+- After T32: T33 (planner note cap transparency), T34 (validation_error as soft failure).
+- Program K is now 2/5 complete (T30 ✓, T31 ✓). T32-T34 are P2 — lower urgency.
+
+*Session log entry written: 2026-03-16 (Session 142)*
