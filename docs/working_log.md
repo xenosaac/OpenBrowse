@@ -8484,3 +8484,51 @@ Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29
 - PM Program I results should still be re-validated after user re-tests multi-step tasks.
 
 *Session log entry written: 2026-03-16 (Session 137)*
+
+---
+
+### Session 138 — 2026-03-16: T28 — Authentication and Login Flow Handling
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM directs T27 → T28 → T29 (Program J — Planner Reasoning Depth). T27 is done (Session 137). T28 is next: add "Authentication Flows" section to planner system prompt so the planner can guide users through login flows instead of guessing credentials or getting confused by OAuth redirects. Prompt-only change, zero runtime risk.
+
+#### Plan
+
+1. In `buildPlannerPrompt.ts`, add an "Authentication Flows" section to the system prompt (after "Browser Guidelines", before "Error Recovery").
+2. Content per PM T28 spec: recognize login pages, NEVER guess credentials, use ask_user for credentials and 2FA, handle OAuth redirects, report failed logins.
+3. Add at least 2 new tests in `planner-prompt.test.mjs`: one for section presence, one for NEVER-guess-credentials rule.
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Added "Authentication Flows" section to the system prompt (after "Browser Guidelines", before "Error Recovery"):
+- Recognize login/signin pages by password inputs, "Sign in"/"Log in" buttons, or URLs containing /login, /signin, /auth
+- NEVER guess, auto-fill, or fabricate credentials — ALWAYS use ask_user for username and password
+- After submitting credentials, use wait_for_navigation (login forms redirect after success)
+- If 2FA/MFA code entry appears, use ask_user to request the code
+- If OAuth popup/redirect occurs, follow the redirect (session carries auth state)
+- If login fails (wrong password message), use ask_user to inform user and request corrected credentials — do not retry same credentials
+
+**`tests/planner-prompt.test.mjs`** — Added 2 tests:
+- "T28: system prompt includes Authentication Flows section" — verifies section header, login/signin recognition, ask_user for credentials, wait_for_navigation, 2FA/MFA, OAuth references
+- "T28: system prompt explicitly forbids guessing credentials" — verifies the NEVER guess/auto-fill/fabricate credentials rule
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 189/189 pass (+2 new)
+- `node --test tests/*.test.mjs` — 1117/1117 pass (was 1115, +2 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T28 complete. PM directs T29 (page-type strategy hints) next.
+- T29 adds conditional strategy guidance based on existing `pageModel.pageType` in the user prompt.
+- After T29: Program J complete. PM should re-validate with user re-testing.
+- Auth-dependent tasks are now unblocked for user testing.
+
+*Session log entry written: 2026-03-16 (Session 138)*

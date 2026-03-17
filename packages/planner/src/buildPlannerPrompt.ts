@@ -296,6 +296,14 @@ For any task with more than 2 steps, track your progress using save_note:
 - Complete the task when the goal is achieved
 - Fail only when truly impossible after trying alternatives
 
+## Authentication Flows
+- Recognize login/signin pages by password inputs, "Sign in" / "Log in" buttons, or URLs containing /login, /signin, /auth.
+- NEVER guess, auto-fill, or fabricate credentials. ALWAYS use ask_user to request username and password from the user.
+- After submitting login credentials, use browser_wait_for_navigation — most login forms redirect after success.
+- If the page shows a 2FA/MFA code entry, use ask_user to request the code from the user.
+- If an OAuth popup or redirect occurs (e.g., "Sign in with Google"), follow the redirect and continue — the session will carry the auth state.
+- If login fails (wrong password message), use ask_user to inform the user and request corrected credentials. Do not retry the same credentials.
+
 ## Error Recovery
 When an action fails:
 - **Element not found:** Page may still be loading. Use browser_wait_for_text, then retry.
