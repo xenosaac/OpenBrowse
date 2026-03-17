@@ -10232,4 +10232,72 @@ Reason: Worktree clean, no unfinished task. PM ordering: T47 is next after T46. 
 - The planner prompt now describes on-demand screenshots. The planner system prompt's "Visual Context" section tells the planner to call `browser_screenshot` when needed.
 - Cost impact: most planner steps now have zero screenshot cost. Only steps where the planner explicitly requests visual context incur the ~1000-2000 token image cost.
 
+---
+
+### Session 165 — 2026-03-16: T49 — Visual Element Annotation Overlay (Program P)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM ordering: T49 is next after T47 in Program P. T49 draws numbered `el_N` labels on screenshots so the planner can correlate visual elements with actionable element IDs. This amplifies vision accuracy — without annotations, the planner sees a page but doesn't know which `el_N` corresponds to which visual element. Framework maturity checklist satisfied — 1180/1180 tests passing.
+
+#### Plan
+
+1. **New file `packages/browser-runtime/src/cdp/annotationOverlay.ts`**: Export two JS script strings — `INJECT_ANNOTATION_OVERLAY_SCRIPT` (injects overlay with el_N badges at bounding boxes) and `REMOVE_ANNOTATION_OVERLAY_SCRIPT` (removes overlay). Cap at 50 elements.
+2. **`packages/browser-runtime/src/ElectronBrowserKernel.ts`**: Modify `captureScreenshot` to inject overlay before capture, capture, then remove overlay. All wrapped in try-catch for graceful degradation.
+3. **`packages/browser-runtime/src/BrowserKernel.ts`**: No changes needed (interface unchanged).
+4. **Tests**: At least 2 tests per PM acceptance criteria (annotation injection + cleanup).
+5. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**New file `packages/browser-runtime/src/cdp/annotationOverlay.ts`** — Two inline JS scripts:
+
+`INJECT_ANNOTATION_OVERLAY_SCRIPT`:
+- Creates a fixed-position overlay container (`__openbrowse_annotation_overlay__`) with z-index 2147483647 and `pointer-events: none`.
+- Queries all elements with `data-openbrowse-target-id` attribute (set during page model extraction).
+- For each visible, in-viewport element (up to 50), creates a small badge div with the element's `el_N` ID.
+- Badge styling: bold 9px monospace, white text on semi-transparent red background, positioned at the element's top-left corner via `getBoundingClientRect`.
+- Returns `{ injected: count }`.
+- Idempotent: removes any previous overlay before injecting.
+
+`REMOVE_ANNOTATION_OVERLAY_SCRIPT`:
+- Removes the overlay container by ID.
+- Returns `{ removed: true/false }`.
+
+**`packages/browser-runtime/src/ElectronBrowserKernel.ts`** — Modified `captureScreenshot`:
+- Before CDP `Page.captureScreenshot`, injects the annotation overlay via `cdp.evaluate(INJECT_ANNOTATION_OVERLAY_SCRIPT)`.
+- After capture, removes the overlay via `cdp.evaluate(REMOVE_ANNOTATION_OVERLAY_SCRIPT)`.
+- Both inject and remove are wrapped in try-catch — overlay failure degrades gracefully (screenshot still captured, or removed on error path).
+- Overlay removal also happens in the outer catch (screenshot capture failure) to ensure cleanup.
+
+**`tests/annotationOverlay.test.mjs`** — 12 new tests:
+- INJECT_ANNOTATION_OVERLAY_SCRIPT (8 tests): exports string, IIFE pattern, uses target-id attribute, caps at 50, fixed overlay with max z-index and pointer-events:none, stable container ID, skips zero-size/off-viewport elements, returns injection count.
+- REMOVE_ANNOTATION_OVERLAY_SCRIPT (4 tests): exports string, IIFE pattern, targets same container ID, returns removal status.
+
+**Behavior:**
+- When the planner requests a screenshot via `browser_screenshot`, the runtime calls `captureScreenshot` which now:
+  1. Injects numbered `el_N` badges on all interactive elements (up to 50).
+  2. Captures the JPEG screenshot with badges visible.
+  3. Removes the badges.
+- The planner sees a screenshot with element labels overlaid, allowing it to correlate visual positions with actionable `el_N` IDs from the page model.
+- Badge cap of 50 prevents visual clutter on element-heavy pages.
+- The overlay never persists in the visible page — it exists only during the screenshot capture moment.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/annotationOverlay.test.mjs` — 12/12 pass
+- `node --test tests/*.test.mjs` — 1192/1192 pass (was 1180, +12 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM ordering: T48 (tab group persistence) is next — P3 polish.
+- Vision integration (Program P) is now functionally complete: T46 (multimodal infrastructure), T47 (on-demand screenshots), T49 (element annotations).
+- The planner now has full visual page understanding with labeled elements when it requests a screenshot.
+- Future improvement: if annotation badges overlap on dense pages, could add collision avoidance or offset logic.
+
+*Session log entry written: 2026-03-16 (Session 165)*
+
 *Session log entry written: 2026-03-16 (Session 163)*
