@@ -5,6 +5,7 @@ import {
   createWorkflowEventId,
   createWorkflowEvent,
   appendWorkflowEvent,
+  shouldNotifyTaskStart,
 } from "../packages/runtime-core/dist/workflowEvents.js";
 
 // --- createWorkflowEventId ---
@@ -119,4 +120,22 @@ test("appendWorkflowEvent propagates store errors", async () => {
     () => appendWorkflowEvent(mockStore, mockEventBus, event),
     { message: "DB write failed" }
   );
+});
+
+// --- shouldNotifyTaskStart (T58) ---
+
+test("shouldNotifyTaskStart returns true for telegram source", () => {
+  assert.equal(shouldNotifyTaskStart("telegram"), true);
+});
+
+test("shouldNotifyTaskStart returns false for scheduler source", () => {
+  assert.equal(shouldNotifyTaskStart("scheduler"), false);
+});
+
+test("shouldNotifyTaskStart returns false for desktop source", () => {
+  assert.equal(shouldNotifyTaskStart("desktop"), false);
+});
+
+test("shouldNotifyTaskStart returns false for undefined source", () => {
+  assert.equal(shouldNotifyTaskStart(undefined), false);
 });

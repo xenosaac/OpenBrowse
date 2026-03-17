@@ -11082,4 +11082,58 @@ Reason: Worktree clean, no unfinished task. PM directs T54 → T55 → T56 (Prog
 - Re-testing remains the #1 PM priority (user action).
 - Possible next work: self-directed features or reliability improvements guided by new failure evidence post-rebuild.
 
+---
+
+### Session 177 — 2026-03-17: T58 — Suppress "Task Started" Telegram Notification for Watch-Triggered Runs
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T57 → T58 → T56 (Program R completion). T57 was implicitly fixed in Session 176 (onChanged callback auto-persists on any watch change including RunExecutor's registerWatch). T56 done (Session 176). T58 is next: suppress "Task started" Telegram notification for scheduler-triggered runs. Currently `initializeTask` sends "⚙ Task started" for both `telegram` and `scheduler` sources (line 237 of OpenBrowseRuntime.ts). A watch firing every 30 minutes generates 48 noisy start+result notification pairs per day.
+
+#### Plan
+
+1. **`packages/runtime-core/src/OpenBrowseRuntime.ts`**: In `initializeTask`, change condition to only send "Task started" for `intent.source === "telegram"`, excluding `scheduler`. The workflow event log still records the event locally.
+2. **Test**: Add a test verifying scheduler-source runs do NOT send "Task started" via chatBridge, while telegram-source runs still do.
+3. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/workflowEvents.ts`** — Extracted `shouldNotifyTaskStart` pure function:
+- Added `shouldNotifyTaskStart(source: string | undefined): boolean` — returns `true` only for `source === "telegram"`. Scheduler, desktop, and undefined sources return `false`.
+- Placed here (not in `OpenBrowseRuntime.ts`) because `OpenBrowseRuntime.ts` chains to Electron imports via `@openbrowse/browser-runtime`, making it untestable under Node. `workflowEvents.ts` has no Electron deps.
+
+**`packages/runtime-core/src/OpenBrowseRuntime.ts`** — Use extracted function:
+- Changed `if (intent.source === "telegram" || intent.source === "scheduler")` to `if (shouldNotifyTaskStart(intent.source))`.
+- Imported `shouldNotifyTaskStart` from `./workflowEvents.js`.
+- Effect: scheduler-triggered runs no longer send "⚙ Task started" Telegram notifications. The workflow event log still records `run_created` locally for all sources.
+
+**`tests/workflowEvents.test.mjs`** — 4 new tests:
+- "shouldNotifyTaskStart returns true for telegram source" — the only source that should notify.
+- "shouldNotifyTaskStart returns false for scheduler source" — the T58 fix.
+- "shouldNotifyTaskStart returns false for desktop source" — desktop tasks don't notify via Telegram.
+- "shouldNotifyTaskStart returns false for undefined source" — edge case.
+
+**Behavior:**
+- Before: Watch-triggered runs sent both "⚙ Task started" and `[Watch]` result notification to Telegram. A watch firing every 30 minutes produced 48 start+result pairs per day.
+- After: Watch-triggered runs only send the concise `[Watch]` result notification (from T54/Session 175). The "Task started" message is suppressed. Manual Telegram-initiated runs still receive the start notification.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/workflowEvents.test.mjs` — 15/15 pass (was 11, +4 new)
+- `node --test tests/*.test.mjs` — 1259/1259 pass (was 1255, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program R is now fully complete. T54 (watch notifications), T55 (schedule_recurring), T56 (content comparison + auto-persistence), T57 (persistence gap — fixed in Session 176), T58 (suppress start notification) all done.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-R complete. All PM tasks T1-T58 done (T50/T53 blocked on rebuild).
+- Next directed work: Program S — T59 (export extractedData as JSON/CSV), T60 (saved task templates), T61 (partial results on failure).
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 177)*
+
 *Session log entry written: 2026-03-17 (Session 176)*
