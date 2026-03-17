@@ -12304,3 +12304,27 @@ DB: 54 runs, last modified Mar 16 23:42. watches.json absent. PM doc unchanged (
 #### Status: PAUSED
 
 *Session log entry written: 2026-03-17 (Session 214)*
+
+---
+
+### Session 215 — 2026-03-17: PAUSE — Resumption Criteria Unchanged
+
+#### Mode: pause
+
+DB: 54 runs, last modified Mar 16 23:42. PM doc unchanged (Mar 17 05:33). All 3 resumption criteria unmet. Honoring PM STOP directive. No code changes, no commit.
+
+#### Status: PAUSED
+
+*Session log entry written: 2026-03-17 (Session 215)*
+
+---
+
+### Session 216 — 2026-03-17: PAUSE — Committing to Clean Worktree
+
+#### Mode: pause
+
+DB: Mar 16 23:42 unchanged. No watches.json. PM doc unchanged (Mar 17 05:33). Resumption criteria unmet. Session 215 left the worktree dirty; committing to leave it clean per operating rules. Honoring PM STOP directive. **The overnight loop should be disabled entirely.**
+
+#### Status: PAUSED
+
+*Session log entry written: 2026-03-17 (Session 216)*
