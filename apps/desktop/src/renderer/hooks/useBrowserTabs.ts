@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TaskRun } from "@openbrowse/contracts";
 import type { BrowserShellTabDescriptor } from "../../shared/runtime";
 import { runtimeEventBus, type RuntimeEvent } from "../lib/eventBus";
@@ -189,6 +189,26 @@ export function useBrowserTabs() {
   // ---- Tab Groups ----
   const [tabGroups, setTabGroups] = useState<TabGroupDef[]>([]);
   const [groupAssignments, setGroupAssignments] = useState<Record<string, string>>({}); // tabGroupId -> tabGroup.id
+  const groupsInitialized = useRef(false);
+
+  // Load tab groups from persistence on mount
+  useEffect(() => {
+    window.openbrowse.getTabGroups().then(({ tabGroups: restored, groupAssignments: restoredAssignments }) => {
+      if (restored.length > 0) {
+        setTabGroups(restored);
+        setGroupAssignments(restoredAssignments);
+        // Initialize groupIdCounter from restored groups to avoid ID collisions
+        for (const g of restored) {
+          const match = g.id.match(/^tg_(\d+)_/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num >= groupIdCounter) groupIdCounter = num + 1;
+          }
+        }
+      }
+      groupsInitialized.current = true;
+    }).catch(() => { groupsInitialized.current = true; });
+  }, []);
 
   const createTabGroup = useCallback((tabGroupId: string, name?: string): string => {
     const id = `tg_${++groupIdCounter}_${Date.now()}`;
@@ -260,6 +280,15 @@ export function useBrowserTabs() {
       return next.length !== prev.length ? next : prev;
     });
   }, [shellTabs, groupAssignments]);
+
+  // Debounced save of tab group state to persistence
+  useEffect(() => {
+    if (!groupsInitialized.current) return;
+    const timer = setTimeout(() => {
+      window.openbrowse.saveTabGroups(tabGroups, groupAssignments).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [tabGroups, groupAssignments]);
 
   // Sorted tabs: pinned first, then grouped tabs (grouped together by group), then ungrouped
   const sortedTabs = [...shellTabs].sort((a, b) => {

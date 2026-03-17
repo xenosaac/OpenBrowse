@@ -12,12 +12,27 @@ interface PersistedTab {
   pinned?: boolean;
 }
 
+interface PersistedTabGroupDef {
+  id: string;
+  name: string;
+  colorId: string;
+  collapsed: boolean;
+}
+
+interface PersistedTabState {
+  tabs: PersistedTab[];
+  tabGroups: PersistedTabGroupDef[];
+  groupAssignments: Record<string, string>;
+}
+
 export class AppBrowserShell implements EmbeddedViewProvider {
   private viewManager: BrowserViewManager | null = null;
   private readonly standaloneTabIds = new Set<string>();
   private readonly pinnedTabIds = new Set<string>();
   private standaloneTabOrder: string[] = [];
   private standaloneTabCounter = 0;
+  private tabGroupDefs: PersistedTabGroupDef[] = [];
+  private tabGroupAssignments: Record<string, string> = {};
 
   constructor(private readonly storagePath?: string) {}
 
@@ -435,9 +450,15 @@ export class AppBrowserShell implements EmbeddedViewProvider {
       };
     });
 
+    const state: PersistedTabState = {
+      tabs,
+      tabGroups: this.tabGroupDefs,
+      groupAssignments: this.tabGroupAssignments,
+    };
+
     try {
       await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.promises.writeFile(filePath, JSON.stringify(tabs, null, 2), "utf-8");
+      await fs.promises.writeFile(filePath, JSON.stringify(state, null, 2), "utf-8");
     } catch (err) {
       console.error("[AppBrowserShell] Failed to save standalone tabs:", err);
     }
@@ -450,10 +471,49 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     try {
       const data = await fs.promises.readFile(filePath, "utf-8");
       const parsed = JSON.parse(data);
-      return Array.isArray(parsed) ? parsed : [];
+      // Backward compatibility: old format was a plain array
+      if (Array.isArray(parsed)) return parsed;
+      // New format: { tabs, tabGroups, groupAssignments }
+      if (parsed && Array.isArray(parsed.tabs)) {
+        this.tabGroupDefs = Array.isArray(parsed.tabGroups) ? parsed.tabGroups : [];
+        this.tabGroupAssignments = parsed.groupAssignments && typeof parsed.groupAssignments === "object"
+          ? parsed.groupAssignments : {};
+        return parsed.tabs;
+      }
+      return [];
     } catch {
       return [];
     }
+  }
+
+  // --- Tab group persistence ---
+
+  saveTabGroups(
+    groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>,
+    assignments: Record<string, string>
+  ): void {
+    this.tabGroupDefs = groups;
+    this.tabGroupAssignments = assignments;
+    void this.saveStandaloneTabs();
+  }
+
+  getTabGroups(): { tabGroups: PersistedTabGroupDef[]; groupAssignments: Record<string, string> } {
+    // Clean up: remove assignments for tabs that no longer exist
+    const existingTabIds = new Set(this.standaloneTabIds);
+    const cleanedAssignments: Record<string, string> = {};
+    for (const [tabId, groupId] of Object.entries(this.tabGroupAssignments)) {
+      if (existingTabIds.has(tabId)) {
+        cleanedAssignments[tabId] = groupId;
+      }
+    }
+    // Remove groups with no remaining members
+    const usedGroupIds = new Set(Object.values(cleanedAssignments));
+    const cleanedGroups = this.tabGroupDefs.filter((g) => usedGroupIds.has(g.id));
+
+    this.tabGroupDefs = cleanedGroups;
+    this.tabGroupAssignments = cleanedAssignments;
+
+    return { tabGroups: cleanedGroups, groupAssignments: cleanedAssignments };
   }
 
   // --- Cookie management ---

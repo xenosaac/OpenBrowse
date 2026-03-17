@@ -10300,4 +10300,69 @@ Reason: Worktree clean, no unfinished task. PM ordering: T49 is next after T47 i
 
 *Session log entry written: 2026-03-16 (Session 165)*
 
-*Session log entry written: 2026-03-16 (Session 163)*
+---
+
+### Session 166 — 2026-03-16: T48 — Persist Tab Group State Across App Restart
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM ordering: T48 is next after T49. T48 persists tab group definitions (name, color, collapsed) and tab-to-group assignments across app restarts. Follows T40 pin persistence pattern — extends the existing `standalone-tabs.json` with group data. Framework maturity checklist satisfied — 1192/1192 tests passing.
+
+#### Plan
+
+1. **`AppBrowserShell.ts`**: Extend persistence format from `PersistedTab[]` to `{ tabs, tabGroups, groupAssignments }`. Add `saveTabGroups(groups, assignments)` and `getTabGroups()` methods. Backward-compatible: old array format still works.
+2. **`registerIpcHandlers.ts`**: Add `browser:save-tab-groups` and `browser:get-tab-groups` IPC handlers.
+3. **`preload/index.ts`**: Add `saveTabGroups` and `getTabGroups` preload APIs.
+4. **`useBrowserTabs.ts`**: Load groups on mount via IPC. Debounce-save groups on change via effect. Initialize `groupIdCounter` from restored groups.
+5. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/browser/AppBrowserShell.ts`** — Extended persistence:
+- Added `PersistedTabGroupDef` and `PersistedTabState` interfaces.
+- Added `tabGroupDefs` and `tabGroupAssignments` instance fields.
+- `saveStandaloneTabs()`: now saves `{ tabs, tabGroups, groupAssignments }` object format instead of plain array.
+- `loadStandaloneTabs()`: backward-compatible — detects old array format vs. new object format. Loads group state from object format.
+- New `saveTabGroups(groups, assignments)`: stores groups and triggers save.
+- New `getTabGroups()`: returns cleaned groups/assignments — removes orphaned entries for tabs that no longer exist and deletes empty groups.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — 2 new IPC handlers:
+- `browser:save-tab-groups`: calls `browserShell.saveTabGroups(data.groups, data.assignments)`.
+- `browser:get-tab-groups`: calls `browserShell.getTabGroups()`.
+
+**`apps/desktop/src/preload/index.ts`** — 2 new preload APIs:
+- `saveTabGroups(groups, assignments)`: IPC invoke.
+- `getTabGroups()`: IPC invoke.
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Group persistence on renderer side:
+- Added `groupsInitialized` ref to prevent saving before initial load.
+- On mount: loads tab groups from main process via `getTabGroups()`. Initializes `groupIdCounter` from restored group IDs to prevent collisions.
+- Debounced save effect: when `tabGroups` or `groupAssignments` change, saves to main process after 500ms debounce (skipped before initialization).
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Window type declarations:
+- Added `saveTabGroups` and `getTabGroups` to the `window.openbrowse` type declaration.
+
+**Behavior:**
+- Tab groups (names, colors, membership, collapsed state) now survive app restart.
+- On launch, groups are loaded from `standalone-tabs.json` alongside tab state.
+- Orphaned group entries (references to tabs that no longer exist) are cleaned up on load.
+- Empty groups (with no remaining members) are automatically deleted on load.
+- Backward-compatible: old `standalone-tabs.json` files (plain array format) still work — groups just start empty.
+- Group state saves are debounced (500ms) to avoid excessive file writes during rapid group edits.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1192/1192 pass (no regressions, no new tests needed — Electron main process + renderer UI state management + IPC wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- All PM Programs (A-P) are now complete. All PM tasks (T1-T49) are done.
+- T48 was the last remaining PM task. The feature backlog is exhausted.
+- PM guidance: "Self-directed browser chrome is now deprioritized. Further self-directed work should be capability-oriented (vision, scheduling, intelligence), not UI chrome."
+- Re-testing remains the #1 PM priority (user action) — 72+ sessions of fixes sitting unvalidated.
+- Potential next capability work: recurring/scheduled tasks, page monitoring, improved stuck detection.
+
+*Session log entry written: 2026-03-16 (Session 166)*

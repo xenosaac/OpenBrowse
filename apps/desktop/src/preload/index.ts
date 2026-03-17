@@ -62,6 +62,15 @@ const api = {
     ipcRenderer.invoke("browser:set-tab-pinned", { tabId, pinned }),
   setTabOrder: (orderedIds: string[]): Promise<void> =>
     ipcRenderer.invoke("browser:set-tab-order", orderedIds),
+  saveTabGroups: (
+    groups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>,
+    assignments: Record<string, string>
+  ): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("browser:save-tab-groups", { groups, assignments }),
+  getTabGroups: (): Promise<{
+    tabGroups: Array<{ id: string; name: string; colorId: string; collapsed: boolean }>;
+    groupAssignments: Record<string, string>;
+  }> => ipcRenderer.invoke("browser:get-tab-groups"),
   browserNavigate: (sessionId: string, url: string): Promise<void> =>
     ipcRenderer.invoke("browser:navigate", { sessionId, url }),
   browserBack: (sessionId: string): Promise<void> => ipcRenderer.invoke("browser:back", sessionId),
