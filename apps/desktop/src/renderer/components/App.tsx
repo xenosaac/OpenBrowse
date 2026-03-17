@@ -315,6 +315,15 @@ export function App() {
     selection.setMainPanel("browser");
   }, [browserTabs.newTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
 
+  const handleReopenClosedTab = useCallback(async () => {
+    const tab = await browserTabs.reopenClosedTab();
+    if (tab) {
+      selection.selectGroup(tab.groupId);
+      selection.setForegroundRunId(tab.runId);
+      selection.setMainPanel("browser");
+    }
+  }, [browserTabs.reopenClosedTab, selection.selectGroup, selection.setForegroundRunId, selection.setMainPanel]);
+
   const handleNavigate = useCallback(async (input: string) => {
     const url = normalizeUrl(input);
     if (selection.activeBrowserTab && selection.mainPanel === "browser") {
@@ -702,6 +711,7 @@ export function App() {
     addressBarRef,
     onNewTab: () => void handleNewTab(),
     onCloseTab: () => { if (selection.activeBrowserTab) void handleCloseTab(selection.activeBrowserTab); },
+    onReopenClosedTab: () => void handleReopenClosedTab(),
     onReload: () => { if (selection.activeBrowserTab) void browserTabs.reload(selection.activeBrowserTab.id); },
     onBack: () => { if (selection.activeBrowserTab) void browserTabs.goBack(selection.activeBrowserTab.id); },
     onForward: () => { if (selection.activeBrowserTab) void browserTabs.goForward(selection.activeBrowserTab.id); },
@@ -760,6 +770,19 @@ export function App() {
         }}
       >
         New Session
+      </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(browserTabs.closedTabStack.length === 0 ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => void handleReopenClosedTab()}
+      >
+        <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>Reopen Closed Tab</span>
+          <span style={{ fontSize: "0.72rem", color: colors.textMuted, marginLeft: 16 }}>⌘⇧T</span>
+        </span>
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("history")}>
         History

@@ -8,6 +8,7 @@ interface KeyboardShortcutsParams {
   addressBarRef: RefObject<HTMLInputElement | null>;
   onNewTab: () => void;
   onCloseTab: () => void;
+  onReopenClosedTab: () => void;
   onReload: () => void;
   onBack: () => void;
   onForward: () => void;
@@ -21,7 +22,7 @@ interface KeyboardShortcutsParams {
 export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
   const {
     activeBrowserTab, mainPanel, addressBarRef,
-    onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage,
+    onNewTab, onCloseTab, onReopenClosedTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage,
     onZoomIn, onZoomOut, onZoomReset
   } = params;
 
@@ -30,6 +31,11 @@ export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
       const isMod = e.metaKey || e.ctrlKey;
       if (!isMod) return;
 
+      if (e.key === "t" && e.shiftKey) {
+        e.preventDefault();
+        onReopenClosedTab();
+        return;
+      }
       if (e.key === "t") {
         e.preventDefault();
         onNewTab();
@@ -87,5 +93,5 @@ export function useKeyboardShortcuts(params: KeyboardShortcutsParams) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activeBrowserTab, mainPanel, onNewTab, onCloseTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage, onZoomIn, onZoomOut, onZoomReset]);
+  }, [activeBrowserTab, mainPanel, onNewTab, onCloseTab, onReopenClosedTab, onReload, onBack, onForward, onFocusAddressBar, onFindInPage, onZoomIn, onZoomOut, onZoomReset]);
 }
