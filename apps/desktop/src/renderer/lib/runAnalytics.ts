@@ -13,6 +13,7 @@ export interface RunAnalytics {
   completionRate: number;   // 0-100 percentage
   failureRate: number;      // 0-100 percentage
   avgStepsCompleted: number; // average stepCount for completed runs (0 if none)
+  failureBreakdown: Record<string, number>; // category → count for failed runs
   recentRuns: Array<{
     id: string;
     goal: string;
@@ -28,9 +29,15 @@ interface MinimalRun {
   status: string;
   updatedAt: string;
   checkpoint: { stepCount?: number };
+  outcome?: { summary?: string };
 }
 
-export function computeRunAnalytics(runs: MinimalRun[]): RunAnalytics {
+export type FailureClassifierFn = (summary: string) => { category: string };
+
+export function computeRunAnalytics(
+  runs: MinimalRun[],
+  classifyFailureFn?: FailureClassifierFn,
+): RunAnalytics {
   const totalRuns = runs.length;
   let completed = 0;
   let failed = 0;
@@ -67,6 +74,18 @@ export function computeRunAnalytics(runs: MinimalRun[]): RunAnalytics {
   const failureRate = totalRuns > 0 ? Math.round((failed / totalRuns) * 100) : 0;
   const avgStepsCompleted = completed > 0 ? Math.round((completedStepSum / completed) * 10) / 10 : 0;
 
+  // Classify failed runs by failure category (requires classifier function)
+  const failureBreakdown: Record<string, number> = {};
+  if (classifyFailureFn) {
+    for (const run of runs) {
+      if (run.status === "failed") {
+        const summary = run.outcome?.summary ?? "";
+        const { category } = classifyFailureFn(summary);
+        failureBreakdown[category] = (failureBreakdown[category] ?? 0) + 1;
+      }
+    }
+  }
+
   const recentRuns = runs.slice(0, 10).map((r) => ({
     id: r.id,
     goal: r.goal,
@@ -85,6 +104,7 @@ export function computeRunAnalytics(runs: MinimalRun[]): RunAnalytics {
     completionRate,
     failureRate,
     avgStepsCompleted,
+    failureBreakdown,
     recentRuns,
   };
 }

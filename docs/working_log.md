@@ -13281,3 +13281,67 @@ T79 is PM P1: change `navigateWithRetry` from 1 retry to 2 retries with exponent
 - Navigation now retries up to 2 times with 2s/4s exponential backoff (was 1 retry at 2s)
 
 *Session log entry written: 2026-03-17 (Session 242)*
+
+---
+
+### Session 243 — 2026-03-17: T80 — Failure Category Breakdown in RunAnalyticsPanel (Program Y)
+
+#### Mode: feature (PM-directed — Program Y: T78 ✓ → T77 ✓ → T79 ✓ → T80 → STOP)
+
+T80 is PM P2: add failure category breakdown to RunAnalyticsPanel. The panel (T68) shows aggregate counts but not WHY tasks fail. Use `classifyFailure` (T64) to categorize failed runs and display a breakdown section with counts per category.
+
+#### Plan
+
+1. Extend `RunAnalytics` interface in `runAnalytics.ts` with `failureBreakdown: Record<string, number>`
+2. In `computeRunAnalytics`, accept an optional classifier function, iterate failed runs, call it on each, aggregate counts
+3. Render the breakdown in `AnalyticsPanel.tsx` below the Status Breakdown section (only when failures > 0)
+4. Add ≥3 tests: no failures → no breakdown, no classifier → no breakdown, single category, multiple categories, unknown fallback, non-failed runs excluded
+5. Run typecheck + tests
+6. Commit
+
+#### Implementation
+
+**`apps/desktop/src/renderer/lib/runAnalytics.ts`:**
+- Added `failureBreakdown: Record<string, number>` to `RunAnalytics` interface
+- Added optional `outcome?: { summary?: string }` to `MinimalRun` interface
+- Added `FailureClassifierFn` type export for dependency injection
+- `computeRunAnalytics` accepts optional `classifyFailureFn` parameter
+- When provided, iterates failed runs, calls classifier on `outcome.summary`, aggregates by category
+- When not provided, returns empty `failureBreakdown` (backward compatible)
+
+**`apps/desktop/src/renderer/components/AnalyticsPanel.tsx`:**
+- Imports `classifyFailure` from `../lib/classifyFailure`
+- Passes it to `computeRunAnalytics` as the classifier function
+- Added `failureCategoryLabels` map with human-readable labels for all 7 categories
+- Renders "Failure Breakdown" section with horizontal bar chart (same style as Status Breakdown)
+- Only shown when `failed > 0` and breakdown has entries
+- Categories sorted by count descending
+
+**`tests/runAnalytics.test.mjs`:**
+- 6 new tests in `failureBreakdown` describe block:
+  - No failures → empty breakdown
+  - No classifier provided → empty breakdown (backward compat)
+  - Single category (2 navigation failures)
+  - Multiple categories (navigation + stuck + api_error)
+  - No outcome summary → classified as unknown
+  - Completed/cancelled runs excluded from breakdown
+
+**Files changed:**
+- `apps/desktop/src/renderer/lib/runAnalytics.ts` — failure breakdown computation
+- `apps/desktop/src/renderer/components/AnalyticsPanel.tsx` — failure breakdown UI
+- `tests/runAnalytics.test.mjs` — 6 new tests
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1398/1398 pass (was 1392, +6 new)
+- `runAnalytics` tests: 16/16 pass — covers all existing analytics + 6 new failure breakdown cases
+
+#### Status: DONE
+
+#### Next Steps
+
+- **STOP per PM directive.** Programs X+Y are complete. T78 ✓, T77 ✓, T79 ✓, T80 ✓.
+- PM should analyze validation results and issue next program.
+
+*Session log entry written: 2026-03-17 (Session 243)*

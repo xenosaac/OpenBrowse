@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 const { computeRunAnalytics } = await import(
   "../apps/desktop/src/renderer/lib/runAnalytics.ts"
 );
+const { classifyFailure } = await import(
+  "../apps/desktop/src/renderer/lib/classifyFailure.ts"
+);
 
 function makeRun(overrides = {}) {
   return {
@@ -134,5 +137,88 @@ describe("computeRunAnalytics", () => {
     ];
     const result = computeRunAnalytics(runs);
     assert.equal(result.avgStepsCompleted, 4); // (3+4+5)/3 = 4.0
+  });
+
+  describe("failureBreakdown", () => {
+    it("returns empty breakdown when no failures exist", () => {
+      const runs = [
+        makeRun({ status: "completed" }),
+        makeRun({ status: "cancelled" }),
+      ];
+      const result = computeRunAnalytics(runs, classifyFailure);
+      assert.deepEqual(result.failureBreakdown, {});
+    });
+
+    it("returns empty breakdown when no classifier provided", () => {
+      const runs = [
+        makeRun({ status: "failed", outcome: { summary: "ERR_ABORTED" } }),
+      ];
+      const result = computeRunAnalytics(runs);
+      assert.deepEqual(result.failureBreakdown, {});
+    });
+
+    it("categorizes a single failure category", () => {
+      const runs = [
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Failed to execute navigate: ERR_ABORTED (-3) loading 'https://example.com'" },
+        }),
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Failed to execute navigate: Navigation to https://example.com timed out after 30000ms" },
+        }),
+      ];
+      const result = computeRunAnalytics(runs, classifyFailure);
+      assert.equal(result.failureBreakdown.navigation_failed, 2);
+      assert.equal(Object.keys(result.failureBreakdown).length, 1);
+    });
+
+    it("categorizes multiple failure categories", () => {
+      const runs = [
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Failed to execute navigate: ERR_ABORTED" },
+        }),
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Stuck in 2-step cycle. The agent is repeating the same sequence." },
+        }),
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Planner request failed: 429 rate limit" },
+        }),
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Stuck: visited https://example.com 13 times." },
+        }),
+      ];
+      const result = computeRunAnalytics(runs, classifyFailure);
+      assert.equal(result.failureBreakdown.navigation_failed, 1);
+      assert.equal(result.failureBreakdown.agent_stuck, 2);
+      assert.equal(result.failureBreakdown.api_error, 1);
+    });
+
+    it("classifies failures with no outcome summary as unknown", () => {
+      const runs = [
+        makeRun({ status: "failed" }),
+        makeRun({ status: "failed", outcome: {} }),
+      ];
+      const result = computeRunAnalytics(runs, classifyFailure);
+      assert.equal(result.failureBreakdown.unknown, 2);
+    });
+
+    it("does not include completed or cancelled runs in breakdown", () => {
+      const runs = [
+        makeRun({ status: "completed", outcome: { summary: "ERR_ABORTED" } }),
+        makeRun({ status: "cancelled", outcome: { summary: "Stuck in cycle" } }),
+        makeRun({
+          status: "failed",
+          outcome: { summary: "Session not found: session_abc" },
+        }),
+      ];
+      const result = computeRunAnalytics(runs, classifyFailure);
+      assert.equal(Object.keys(result.failureBreakdown).length, 1);
+      assert.equal(result.failureBreakdown.session_lost, 1);
+    });
   });
 });
