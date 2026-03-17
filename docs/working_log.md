@@ -7846,3 +7846,61 @@ Key design decisions:
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 128)*
+
+---
+
+### Session 129 — 2026-03-16: D12 — Sidebar Residual Token Cleanup
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM task ordering says T20 → T22 → D12 → T23. T20 and T22 are both done (Sessions 127-128). D12 is next: 8 mechanical hex-to-token replacements in 3 sidebar files per `docs/ui_design.md`. Feature mode because this is user-facing design polish, not framework work.
+
+#### Plan
+
+1. **`SidebarHeader.tsx`**: Replace `brandName.color: "#ffffff"` → `colors.textWhite`; `sessionListToggle.color: "#9090a8"` → `colors.textSecondary`.
+2. **`SessionListDropdown.tsx`**: Replace `sessionListTitle.color: "#9090a8"` → `colors.textSecondary`; `sessionItem.color: "#e5e7eb"` → `colors.textPrimary` (genuine mismatch fix); `sessionItemMeta.color: "#6b6b82"` → `colors.textMuted`; `deleteBtn.color: "#6b6b82"` → `colors.textMuted`.
+3. **`ChatComposer.tsx`**: Replace `composerButton.color: "#ffffff"` → `colors.textWhite`; `composerHint.color: "#6b6b82"` → `colors.textMuted`.
+4. Run `pnpm run typecheck`.
+5. Update this log and commit.
+
+#### Implementation
+
+**`SidebarHeader.tsx`** — 2 replacements:
+- `brandName.color: "#ffffff"` → `colors.textWhite`
+- `sessionListToggle.color: "#9090a8"` → `colors.textSecondary`
+
+**`SessionListDropdown.tsx`** — 4 replacements:
+- `sessionListTitle.color: "#9090a8"` → `colors.textSecondary`
+- `sessionItem.color: "#e5e7eb"` → `colors.textPrimary` (genuine mismatch fix: Tailwind gray-200 `#e5e7eb` → system `#e8e8f0`)
+- `sessionItemMeta.color: "#6b6b82"` → `colors.textMuted`
+- `deleteBtn.color: "#6b6b82"` → `colors.textMuted`
+
+**`ChatComposer.tsx`** — 2 replacements:
+- `composerButton.color: "#ffffff"` → `colors.textWhite`
+- `composerHint.color: "#6b6b82"` → `colors.textMuted`
+
+All 8 replacements are mechanical hex-to-token swaps. One genuine color correction: `SessionListDropdown` session item text shifts from Tailwind gray-200 (`#e5e7eb`) to system textPrimary (`#e8e8f0`) — a minor warmth increase consistent with the rest of the UI.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` — 2 hex→token replacements
+- `apps/desktop/src/renderer/components/sidebar/SessionListDropdown.tsx` — 4 hex→token replacements (1 genuine color fix)
+- `apps/desktop/src/renderer/components/sidebar/ChatComposer.tsx` — 2 hex→token replacements
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1092/1092 pass (no change — renderer-only)
+- Zero raw `#` hex values remaining in all 3 files
+
+#### Status: DONE
+
+#### Next Steps
+
+- D12 is complete. All 3 sidebar files are now fully token-compliant.
+- PM task ordering says D14 (borderControl + controlHoverBg tokens) or T23 (iframe content) next.
+- D13 (management panel common-token sweep) is the larger design task available.
+- D14 can be combined with D12 in one session per the UI design doc suggestion, but D12 is already done.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+
+*Session log entry written: 2026-03-16 (Session 129)*

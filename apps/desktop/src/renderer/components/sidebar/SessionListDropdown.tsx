@@ -53,7 +53,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   sessionListHeader: { padding: "4px 6px 6px", display: "flex", alignItems: "center" },
   sessionListTitle: {
-    fontSize: "0.7rem", color: "#9090a8",
+    fontSize: "0.7rem", color: colors.textSecondary,
     textTransform: "uppercase" as const, letterSpacing: "0.06em", fontWeight: 600
   },
   sessionRow: {
@@ -63,7 +63,7 @@ const styles: Record<string, React.CSSProperties> = {
     flex: 1, display: "block", background: "none",
     border: `1px solid ${colors.borderDefault}`, borderRadius: 8,
     padding: "6px 8px", textAlign: "left" as const,
-    cursor: "pointer", color: "#e5e7eb", minWidth: 0
+    cursor: "pointer", color: colors.textPrimary, minWidth: 0
   },
   sessionItemActive: {
     ...glass.emerald
@@ -72,9 +72,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "0.82rem", fontWeight: 600,
     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const
   },
-  sessionItemMeta: { fontSize: "0.68rem", color: "#6b6b82", marginTop: 2 },
+  sessionItemMeta: { fontSize: "0.68rem", color: colors.textMuted, marginTop: 2 },
   deleteBtn: {
-    background: "none", border: "none", color: "#6b6b82",
+    background: "none", border: "none", color: colors.textMuted,
     cursor: "pointer", fontSize: "1rem", padding: "2px 6px",
     borderRadius: 6, flexShrink: 0, lineHeight: 1
   }
