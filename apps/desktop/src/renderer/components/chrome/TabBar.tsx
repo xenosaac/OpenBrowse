@@ -18,6 +18,7 @@ interface Props {
   onToggleSidebar: () => void;
   onPinTab: (groupId: string) => void;
   onUnpinTab: (groupId: string) => void;
+  onDuplicateTab: (groupId: string) => void;
   onMoveTab: (fromGroupId: string, toGroupId: string) => void;
 }
 
@@ -38,7 +39,7 @@ function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { col
 export function TabBar(props: Props) {
   const {
     shellTabs, activeBrowserTab, runs, tabFavicons, pinnedTabs, sidebarVisible, mainPanel,
-    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onMoveTab
+    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onDuplicateTab, onMoveTab
   } = props;
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: BrowserShellTabDescriptor } | null>(null);
@@ -204,6 +205,13 @@ export function TabBar(props: Props) {
             }}
           >
             {pinnedTabs.has(contextMenu.tab.groupId) ? "Unpin Tab" : "Pin Tab"}
+          </button>
+          <button
+            className="ob-dropdown-item"
+            style={styles.ctxItem}
+            onClick={() => { onDuplicateTab(contextMenu.tab.groupId); setContextMenu(null); }}
+          >
+            Duplicate Tab
           </button>
           <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
           <button

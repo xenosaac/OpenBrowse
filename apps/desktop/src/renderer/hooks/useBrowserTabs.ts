@@ -149,6 +149,12 @@ export function useBrowserTabs() {
     });
   }, []);
 
+  const duplicateTab = useCallback(async (groupId: string): Promise<BrowserShellTabDescriptor | null> => {
+    const tab = shellTabs.find(t => t.groupId === groupId);
+    if (!tab || !tab.url || tab.url === "about:blank") return null;
+    return window.openbrowse.browserNewTab(tab.url);
+  }, [shellTabs]);
+
   const reopenClosedTab = useCallback(async (): Promise<BrowserShellTabDescriptor | null> => {
     let entry: ClosedTabEntry | undefined;
     setClosedTabStack(stack => {
@@ -170,6 +176,6 @@ export function useBrowserTabs() {
   return {
     shellTabs: sortedTabs, loadingTabs, tabFavicons, pinnedTabs, closedTabStack,
     refreshTabs, newTab, closeTab, navigate, goBack, goForward, reload,
-    pinTab, unpinTab, togglePinTab, moveTab, reopenClosedTab
+    pinTab, unpinTab, togglePinTab, moveTab, duplicateTab, reopenClosedTab
   };
 }
