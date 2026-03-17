@@ -9858,3 +9858,69 @@ Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complet
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 159)*
+
+---
+
+### Session 160 — 2026-03-16: Tab Grouping (Self-Directed Browser Feature)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complete. PM guidance: "After T45, self-directed features should remain browser-visible or capability work. Good candidates: print-to-PDF improvements, tab grouping, split view." Tab grouping is a standard Chrome-style browser feature — users can group tabs by color and label, collapse/expand groups. Adds real organizational value for multi-tab workflows. Framework maturity checklist satisfied — 1170/1170 tests passing.
+
+#### Plan
+
+1. **`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`**: Add tab group state (`TabGroupDef`, `tabGroups`, `groupAssignments`). Functions: `createTabGroup`, `addTabToGroup`, `removeTabFromGroup`, `renameTabGroup`, `setTabGroupColor`, `toggleCollapseTabGroup`, `deleteTabGroup`. Sort tabs by: pinned first, then grouped (by group), then ungrouped.
+2. **`apps/desktop/src/renderer/components/chrome/TabBar.tsx`**: Add context menu items ("Add to New Group", "Add to Group >" submenu, "Remove from Group"). Render group header pills (colored label, click to collapse/expand). Collapsed groups show header pill with tab count badge.
+3. **`apps/desktop/src/renderer/components/App.tsx`**: Wire new props from `useBrowserTabs` to `TabBar`.
+4. Run typecheck.
+5. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Tab group state + logic:
+- Added `TAB_GROUP_COLORS` constant (8 colors: grey, blue, red, yellow, green, pink, purple, cyan) — matches Chrome's tab group palette.
+- Added `TabGroupDef` interface: `id`, `name`, `colorId`, `collapsed`.
+- Added `tabGroups` state (array of `TabGroupDef`) and `groupAssignments` state (record mapping tab groupId → tab group id).
+- Added 7 group management functions: `createTabGroup(tabGroupId)` (auto-assigns next color in rotation), `addTabToGroup`, `removeTabFromGroup`, `renameTabGroup`, `setTabGroupColor`, `toggleCollapseTabGroup`, `deleteTabGroup` (ungroups all tabs in group).
+- Auto-cleanup effect: when tabs are closed, their group assignments are removed. Empty groups are deleted.
+- Tab sorting updated: pinned first, then grouped tabs (clustered together by group creation order), then ungrouped.
+- Exported `TAB_GROUP_COLORS` and `TabGroupDef` for TabBar consumption.
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Tab group rendering + interaction:
+- Imports `TAB_GROUP_COLORS` and `TabGroupDef` from `useBrowserTabs`.
+- New props: `tabGroups`, `groupAssignments`, `onCreateTabGroup`, `onAddTabToGroup`, `onRemoveTabFromGroup`, `onRenameTabGroup`, `onSetTabGroupColor`, `onToggleCollapseTabGroup`, `onDeleteTabGroup`.
+- **Group header pills**: Rendered before each group's tabs. Shows colored pill with group name (or "N tabs" if unnamed), collapse/expand arrow indicator. Click to toggle collapse. Collapsed groups show a badge with tab count.
+- **Collapsed groups**: When a group is collapsed, its tabs are hidden. Only the header pill + count badge is visible.
+- **Inline rename**: Right-click → "Rename Group" enters inline edit mode on the group header pill. Enter saves, Escape cancels.
+- **Tab context menu additions**: "Add to New Group" (creates a new group and adds the tab), "Add to [Group Name]" for each existing group (with colored dot), "Remove from Group" when tab is in a group.
+- **Group header context menu**: Right-click on group header shows: Rename Group, color palette picker (8 circular swatches, selected one has white border), Collapse/Expand toggle, Ungroup All (red, dissolves the group).
+- Grouped tabs have a colored bottom border (2px solid in group color) when not active.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wiring:
+- Passes `tabGroups` and `groupAssignments` from `browserTabs` to `TabBar`.
+- Passes all 7 group management callbacks to `TabBar`.
+
+**Behavior:**
+- Right-click any tab → "Add to New Group" → creates a group with auto-assigned color. Tab gets a colored bottom border.
+- Right-click another tab → "Add to [Group]" → adds it to the existing group. Tabs cluster together.
+- Click group header pill → collapse/expand. Collapsed shows just the pill with tab count badge.
+- Right-click group header → rename, change color (8 options), collapse/expand, ungroup all.
+- Group headers show a directional arrow (▶ collapsed, ▼ expanded) + group name + optional count badge.
+- All state is renderer-local (no persistence across restarts — matches how pin state started).
+- Empty groups auto-delete when their last tab is closed or ungrouped.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1170/1170 pass (no regressions, no new tests needed — pure renderer UI state management + context menu wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM guidance: self-directed features should remain browser-visible or capability work.
+- Remaining candidates from PM list: print-to-PDF improvements, split view.
+- Tab group persistence (like T40 did for pin state) could be a follow-up.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 160)*

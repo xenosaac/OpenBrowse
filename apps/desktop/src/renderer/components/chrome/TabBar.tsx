@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { TaskRun } from "@openbrowse/contracts";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
 import { colors, radii, glass, shadows } from "../../styles/tokens";
+import { TAB_GROUP_COLORS, type TabGroupDef } from "../../hooks/useBrowserTabs";
 
 interface Props {
   shellTabs: BrowserShellTabDescriptor[];
@@ -12,6 +13,8 @@ interface Props {
   pinnedTabs: Set<string>;
   sidebarVisible: boolean;
   mainPanel: string;
+  tabGroups: TabGroupDef[];
+  groupAssignments: Record<string, string>;
   onSelectTab: (tab: BrowserShellTabDescriptor) => void;
   onCloseTab: (tab: BrowserShellTabDescriptor) => void;
   onNewTab: () => void;
@@ -20,6 +23,17 @@ interface Props {
   onUnpinTab: (groupId: string) => void;
   onDuplicateTab: (groupId: string) => void;
   onMoveTab: (fromGroupId: string, toGroupId: string) => void;
+  onCreateTabGroup: (tabGroupId: string) => void;
+  onAddTabToGroup: (tabGroupId: string, tgId: string) => void;
+  onRemoveTabFromGroup: (tabGroupId: string) => void;
+  onRenameTabGroup: (tgId: string, name: string) => void;
+  onSetTabGroupColor: (tgId: string, colorId: string) => void;
+  onToggleCollapseTabGroup: (tgId: string) => void;
+  onDeleteTabGroup: (tgId: string) => void;
+}
+
+function getGroupColor(colorId: string): string {
+  return TAB_GROUP_COLORS.find(c => c.id === colorId)?.value ?? TAB_GROUP_COLORS[0].value;
 }
 
 function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { color: string; animate: boolean; title: string } {
@@ -39,22 +53,29 @@ function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { col
 export function TabBar(props: Props) {
   const {
     shellTabs, activeBrowserTab, runs, tabFavicons, pinnedTabs, sidebarVisible, mainPanel,
-    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onDuplicateTab, onMoveTab
+    tabGroups, groupAssignments,
+    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab, onDuplicateTab, onMoveTab,
+    onCreateTabGroup, onAddTabToGroup, onRemoveTabFromGroup,
+    onRenameTabGroup, onSetTabGroupColor, onToggleCollapseTabGroup, onDeleteTabGroup
   } = props;
 
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: BrowserShellTabDescriptor } | null>(null);
+  const [groupContextMenu, setGroupContextMenu] = useState<{ x: number; y: number; group: TabGroupDef } | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
   const [draggedGroupId, setDraggedGroupId] = useState<string | null>(null);
   const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null);
 
-  // Close context menu on any click
+  // Close context menus on any click
   useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
+    if (!contextMenu && !groupContextMenu) return;
+    const close = () => { setContextMenu(null); setGroupContextMenu(null); };
     window.addEventListener("click", close);
     return () => window.removeEventListener("click", close);
-  }, [contextMenu]);
+  }, [contextMenu, groupContextMenu]);
 
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
   const [tabScroll, setTabScroll] = useState({ canScrollLeft: false, canScrollRight: false });
 
   const updateTabScroll = useCallback(() => {
@@ -67,6 +88,39 @@ export function TabBar(props: Props) {
   }, []);
 
   useEffect(() => { updateTabScroll(); }, [shellTabs.length, updateTabScroll]);
+
+  // Focus input when editing a group name
+  useEffect(() => {
+    if (editingGroupId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingGroupId]);
+
+  // Build render items: interleave group headers with tabs
+  const renderItems: Array<
+    | { type: "group-header"; group: TabGroupDef; tabCount: number }
+    | { type: "tab"; tab: BrowserShellTabDescriptor }
+  > = [];
+
+  let lastGroupId: string | undefined;
+  for (const tab of shellTabs) {
+    const tgId = groupAssignments[tab.groupId];
+    const group = tgId ? tabGroups.find(g => g.id === tgId) : undefined;
+
+    if (group && group.id !== lastGroupId) {
+      const tabCount = shellTabs.filter(t => groupAssignments[t.groupId] === group.id).length;
+      renderItems.push({ type: "group-header", group, tabCount });
+      lastGroupId = group.id;
+    } else if (!group) {
+      lastGroupId = undefined;
+    }
+
+    // Skip tabs in collapsed groups
+    if (group?.collapsed) continue;
+
+    renderItems.push({ type: "tab", tab });
+  }
 
   return (
     <div style={{ ...styles.tabBar, paddingLeft: sidebarVisible ? 10 : 82 } as React.CSSProperties}>
@@ -91,11 +145,101 @@ export function TabBar(props: Props) {
             : {})
         } as React.CSSProperties}
       >
-        {shellTabs.map((tab) => {
+        {renderItems.map((item) => {
+          if (item.type === "group-header") {
+            const { group, tabCount } = item;
+            const groupColor = getGroupColor(group.colorId);
+            return (
+              <div
+                key={`gh-${group.id}`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 0,
+                  cursor: "pointer", flexShrink: 0,
+                  WebkitAppRegion: "no-drag",
+                } as React.CSSProperties}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleCollapseTabGroup(group.id);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setGroupContextMenu({ x: e.clientX, y: e.clientY, group });
+                }}
+              >
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: `${groupColor}22`,
+                  border: `1px solid ${groupColor}44`,
+                  fontSize: "0.75rem",
+                  color: groupColor,
+                  fontWeight: 600,
+                  whiteSpace: "nowrap",
+                }}>
+                  <span style={{
+                    display: "inline-block",
+                    width: 0, height: 0,
+                    borderLeft: "4px solid currentColor",
+                    borderTop: "3px solid transparent",
+                    borderBottom: "3px solid transparent",
+                    transform: group.collapsed ? "rotate(0deg)" : "rotate(90deg)",
+                    transition: "transform 0.15s ease",
+                  }} />
+                  {editingGroupId === group.id ? (
+                    <input
+                      ref={editInputRef}
+                      value={editingGroupName}
+                      onChange={(e) => setEditingGroupName(e.target.value)}
+                      onBlur={() => {
+                        onRenameTabGroup(group.id, editingGroupName);
+                        setEditingGroupId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          onRenameTabGroup(group.id, editingGroupName);
+                          setEditingGroupId(null);
+                        }
+                        if (e.key === "Escape") setEditingGroupId(null);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        background: "transparent", border: "none", outline: "none",
+                        color: "inherit", fontSize: "inherit", fontWeight: "inherit",
+                        width: Math.max(20, editingGroupName.length * 7),
+                        padding: 0,
+                      }}
+                    />
+                  ) : (
+                    group.name || `${tabCount} tabs`
+                  )}
+                  {group.collapsed && (
+                    <span style={{
+                      background: groupColor,
+                      color: "#000",
+                      borderRadius: 8,
+                      padding: "0 5px",
+                      fontSize: "0.68rem",
+                      fontWeight: 700,
+                      marginLeft: 2,
+                      lineHeight: "15px",
+                    }}>{tabCount}</span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          // tab item
+          const { tab } = item;
           const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
           const pinned = pinnedTabs.has(tab.groupId);
           const dot = getTabStatusDot(tab, runs);
           const favicon = tabFavicons[tab.id];
+          const tgId = groupAssignments[tab.groupId];
+          const tg = tgId ? tabGroups.find(g => g.id === tgId) : undefined;
+          const groupColor = tg ? getGroupColor(tg.colorId) : undefined;
           return (
             <div
               key={tab.groupId}
@@ -105,6 +249,9 @@ export function TabBar(props: Props) {
                 ...styles.headerTabWrap,
                 ...(active ? styles.headerTabWrapActive : {}),
                 ...(pinned ? styles.headerTabWrapPinned : {}),
+                ...(groupColor && !active ? {
+                  borderBottom: `2px solid ${groupColor}`,
+                } : {}),
                 ...(draggedGroupId === tab.groupId ? { opacity: 0.4 } : {}),
                 ...(dropTargetGroupId === tab.groupId && draggedGroupId !== tab.groupId
                   ? { borderLeft: `2px solid ${colors.emerald}` } : {})
@@ -182,6 +329,8 @@ export function TabBar(props: Props) {
           +
         </button>
       </div>
+
+      {/* Tab context menu */}
       {contextMenu && createPortal(
         <div style={{
           position: "fixed",
@@ -191,7 +340,7 @@ export function TabBar(props: Props) {
           border: `1px solid ${colors.borderGlass}`,
           borderRadius: 8,
           padding: "4px 0",
-          minWidth: 160,
+          minWidth: 180,
           boxShadow: shadows.glassElevated,
           zIndex: 9999
         } as React.CSSProperties}>
@@ -214,12 +363,134 @@ export function TabBar(props: Props) {
             Duplicate Tab
           </button>
           <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
+          {/* Tab grouping options */}
+          {!groupAssignments[contextMenu.tab.groupId] && (
+            <button
+              className="ob-dropdown-item"
+              style={styles.ctxItem}
+              onClick={() => {
+                onCreateTabGroup(contextMenu.tab.groupId);
+                setContextMenu(null);
+              }}
+            >
+              Add to New Group
+            </button>
+          )}
+          {!groupAssignments[contextMenu.tab.groupId] && tabGroups.length > 0 && (
+            <>
+              {tabGroups.map(tg => (
+                <button
+                  key={tg.id}
+                  className="ob-dropdown-item"
+                  style={styles.ctxItem}
+                  onClick={() => {
+                    onAddTabToGroup(contextMenu.tab.groupId, tg.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  <span style={{
+                    display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                    background: getGroupColor(tg.colorId), marginRight: 8, verticalAlign: "middle"
+                  }} />
+                  Add to "{tg.name || "Group"}"
+                </button>
+              ))}
+            </>
+          )}
+          {groupAssignments[contextMenu.tab.groupId] && (
+            <button
+              className="ob-dropdown-item"
+              style={styles.ctxItem}
+              onClick={() => {
+                onRemoveTabFromGroup(contextMenu.tab.groupId);
+                setContextMenu(null);
+              }}
+            >
+              Remove from Group
+            </button>
+          )}
+          <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
           <button
             className="ob-dropdown-item"
             style={styles.ctxItem}
             onClick={() => { onCloseTab(contextMenu.tab); setContextMenu(null); }}
           >
             Close Tab
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Group header context menu */}
+      {groupContextMenu && createPortal(
+        <div style={{
+          position: "fixed",
+          top: groupContextMenu.y,
+          left: groupContextMenu.x,
+          ...glass.panel,
+          border: `1px solid ${colors.borderGlass}`,
+          borderRadius: 8,
+          padding: "4px 0",
+          minWidth: 160,
+          boxShadow: shadows.glassElevated,
+          zIndex: 9999
+        } as React.CSSProperties}>
+          <button
+            className="ob-dropdown-item"
+            style={styles.ctxItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditingGroupId(groupContextMenu.group.id);
+              setEditingGroupName(groupContextMenu.group.name);
+              setGroupContextMenu(null);
+            }}
+          >
+            Rename Group
+          </button>
+          <div style={{
+            padding: "6px 14px",
+            display: "flex", gap: 6, flexWrap: "wrap"
+          }}>
+            {TAB_GROUP_COLORS.map(c => (
+              <button
+                key={c.id}
+                title={c.label}
+                style={{
+                  width: 16, height: 16, borderRadius: "50%",
+                  background: c.value, border: groupContextMenu.group.colorId === c.id
+                    ? "2px solid white" : "1px solid rgba(255,255,255,0.2)",
+                  cursor: "pointer", padding: 0,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetTabGroupColor(groupContextMenu.group.id, c.id);
+                  setGroupContextMenu(null);
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
+          <button
+            className="ob-dropdown-item"
+            style={styles.ctxItem}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapseTabGroup(groupContextMenu.group.id);
+              setGroupContextMenu(null);
+            }}
+          >
+            {groupContextMenu.group.collapsed ? "Expand Group" : "Collapse Group"}
+          </button>
+          <button
+            className="ob-dropdown-item"
+            style={{ ...styles.ctxItem, color: colors.statusFailed }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteTabGroup(groupContextMenu.group.id);
+              setGroupContextMenu(null);
+            }}
+          >
+            Ungroup All
           </button>
         </div>,
         document.body
