@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   assembleRuntimeServices,
+  compareExtractedData,
   createRuntimeStorage,
+  formatWatchNotification,
 } from "../packages/runtime-core/dist/compose.js";
 import { createDefaultRuntimeSettings } from "../packages/contracts/dist/index.js";
 
@@ -290,4 +292,342 @@ test("assembleRuntimeServices — pendingCancellations is an empty Set", async (
   const services = assembleRuntimeServices(params);
   assert.ok(services.pendingCancellations instanceof Set);
   assert.equal(services.pendingCancellations.size, 0);
+});
+
+// ===========================================================================
+// formatWatchNotification (T54)
+// ===========================================================================
+
+function makeWatchRun(overrides = {}) {
+  return {
+    id: "run_watch_1",
+    taskIntentId: "intent_1",
+    status: overrides.status ?? "completed",
+    goal: overrides.goal ?? "Check Bitcoin price",
+    source: "scheduler",
+    constraints: [],
+    metadata: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:05.000Z",
+    checkpoint: {
+      summary: "Done",
+      notes: [],
+      stepCount: 3,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+    },
+    outcome: overrides.outcome ?? {
+      status: "completed",
+      summary: "Bitcoin is at $98,500",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  };
+}
+
+test("formatWatchNotification — completed run with extractedData", () => {
+  const run = makeWatchRun({
+    outcome: {
+      status: "completed",
+      summary: "Found current Bitcoin price",
+      extractedData: [
+        { label: "Price", value: "$98,500" },
+        { label: "Exchange", value: "CoinGecko" },
+      ],
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.startsWith("[Watch]"), "should start with [Watch] prefix");
+  assert.ok(text.includes("Check Bitcoin price"), "should include goal");
+  assert.ok(text.includes("✓ Completed"), "should show completed status");
+  assert.ok(text.includes("Found current Bitcoin price"), "should include outcome summary");
+  assert.ok(text.includes("Price: $98,500"), "should include extracted data");
+  assert.ok(text.includes("Exchange: CoinGecko"), "should include all extracted items");
+});
+
+test("formatWatchNotification — failed run", () => {
+  const run = makeWatchRun({
+    status: "failed",
+    outcome: {
+      status: "failed",
+      summary: "Navigation timeout on coingecko.com",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.startsWith("[Watch]"), "should start with [Watch] prefix");
+  assert.ok(text.includes("✗ Failed"), "should show failed status");
+  assert.ok(text.includes("Navigation timeout"), "should include failure summary");
+});
+
+test("formatWatchNotification — completed run without extractedData", () => {
+  const run = makeWatchRun({
+    outcome: {
+      status: "completed",
+      summary: "Task completed successfully",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.includes("[Watch]"));
+  assert.ok(text.includes("✓ Completed"));
+  assert.ok(text.includes("Task completed successfully"));
+  // Should not contain label: value lines (no extractedData)
+  assert.ok(!text.includes("Price:"));
+});
+
+// ===========================================================================
+// Watch dispatch sends Telegram notification (T54 integration)
+// ===========================================================================
+
+test("assembleRuntimeServices — watch dispatch sends notification on completed run", async () => {
+  const sentMessages = [];
+  const completedRun = makeWatchRun({ status: "completed" });
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => completedRun,
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  const watchId = await services.scheduler.registerWatch({
+    id: "test-watch",
+    goal: "Check Bitcoin price",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  // Wait for the scheduler to fire and notification to be sent
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  // Find the watch-specific notification (starts with [Watch])
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent at least one [Watch] notification");
+  assert.ok(watchNotifications[0].text.includes("✓ Completed"));
+  assert.ok(watchNotifications[0].text.includes("Check Bitcoin price"));
+  assert.equal(watchNotifications[0].channel, "telegram");
+});
+
+test("assembleRuntimeServices — watch dispatch sends notification on failed run", async () => {
+  const sentMessages = [];
+  const failedRun = makeWatchRun({
+    status: "failed",
+    goal: "Monitor stock price",
+    outcome: {
+      status: "failed",
+      summary: "Page not reachable",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => failedRun,
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  await services.scheduler.registerWatch({
+    id: "test-watch-fail",
+    goal: "Monitor stock price",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent at least one [Watch] notification");
+  assert.ok(watchNotifications[0].text.includes("✗ Failed"));
+  assert.ok(watchNotifications[0].text.includes("Monitor stock price"));
+});
+
+test("assembleRuntimeServices — watch dispatch sends error notification on crash", async () => {
+  const sentMessages = [];
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => { throw new Error("Browser init failed"); },
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  await services.scheduler.registerWatch({
+    id: "test-watch-crash",
+    goal: "Check weather",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent error notification");
+  assert.ok(watchNotifications[0].text.includes("✗ Error"));
+  assert.ok(watchNotifications[0].text.includes("Browser init failed"));
+});
+
+// ===========================================================================
+// compareExtractedData (T56)
+// ===========================================================================
+
+test("compareExtractedData — first run (no previous data) returns not changed", () => {
+  const result = compareExtractedData(undefined, [{ label: "Price", value: "$100" }]);
+  assert.equal(result.changed, false);
+});
+
+test("compareExtractedData — empty previous returns not changed", () => {
+  const result = compareExtractedData([], [{ label: "Price", value: "$100" }]);
+  assert.equal(result.changed, false);
+});
+
+test("compareExtractedData — identical data returns not changed", () => {
+  const data = [{ label: "Price", value: "$100" }, { label: "Exchange", value: "CoinGecko" }];
+  const result = compareExtractedData(data, data);
+  assert.equal(result.changed, false);
+});
+
+test("compareExtractedData — value changed returns changed with diff", () => {
+  const prev = [{ label: "Price", value: "$98,500" }];
+  const curr = [{ label: "Price", value: "$101,200" }];
+  const result = compareExtractedData(prev, curr);
+  assert.equal(result.changed, true);
+  assert.ok(result.diff.includes("$98,500"));
+  assert.ok(result.diff.includes("$101,200"));
+  assert.ok(result.diff.includes("→"));
+});
+
+test("compareExtractedData — new field added returns changed", () => {
+  const prev = [{ label: "Price", value: "$100" }];
+  const curr = [{ label: "Price", value: "$100" }, { label: "Volume", value: "1M" }];
+  const result = compareExtractedData(prev, curr);
+  assert.equal(result.changed, true);
+  assert.ok(result.diff.includes("+ Volume: 1M"));
+});
+
+test("compareExtractedData — field removed returns changed", () => {
+  const prev = [{ label: "Price", value: "$100" }, { label: "Volume", value: "1M" }];
+  const curr = [{ label: "Price", value: "$100" }];
+  const result = compareExtractedData(prev, curr);
+  assert.equal(result.changed, true);
+  assert.ok(result.diff.includes("- Volume: 1M"));
+});
+
+test("compareExtractedData — current data empty but previous had data", () => {
+  const prev = [{ label: "Price", value: "$100" }];
+  const result = compareExtractedData(prev, []);
+  assert.equal(result.changed, true);
+  assert.ok(result.diff.includes("No data extracted"));
+});
+
+test("compareExtractedData — current data undefined but previous had data", () => {
+  const prev = [{ label: "Price", value: "$100" }];
+  const result = compareExtractedData(prev, undefined);
+  assert.equal(result.changed, true);
+});
+
+// ===========================================================================
+// formatWatchNotification with changeInfo (T56)
+// ===========================================================================
+
+test("formatWatchNotification — with changed info includes [CHANGED] marker", () => {
+  const run = makeWatchRun({
+    outcome: {
+      status: "completed",
+      summary: "Price updated",
+      extractedData: [{ label: "Price", value: "$101,200" }],
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+  const changeInfo = { changed: true, diff: "Price: $98,500 → $101,200" };
+  const text = formatWatchNotification(run, changeInfo);
+  assert.ok(text.includes("[CHANGED]"), "should include [CHANGED] marker");
+  assert.ok(text.includes("Changes:"), "should include Changes section");
+  assert.ok(text.includes("$98,500 → $101,200"), "should include diff");
+});
+
+test("formatWatchNotification — with no-change info includes [No change] marker", () => {
+  const run = makeWatchRun();
+  const changeInfo = { changed: false };
+  const text = formatWatchNotification(run, changeInfo);
+  assert.ok(text.includes("[No change]"), "should include [No change] marker");
+  assert.ok(!text.includes("Changes:"), "should not include Changes section");
+});
+
+test("formatWatchNotification — without changeInfo has no change markers (backwards compat)", () => {
+  const run = makeWatchRun();
+  const text = formatWatchNotification(run);
+  assert.ok(!text.includes("[CHANGED]"));
+  assert.ok(!text.includes("[No change]"));
+  assert.ok(!text.includes("Changes:"));
+});
+
+// ===========================================================================
+// Watch dispatch with content comparison (T56 integration)
+// ===========================================================================
+
+test("assembleRuntimeServices — watch dispatch includes change detection across runs", async () => {
+  let dispatchCount = 0;
+  const sentMessages = [];
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => {
+      dispatchCount++;
+      return makeWatchRun({
+        outcome: {
+          status: "completed",
+          summary: dispatchCount === 1 ? "First check" : "Second check",
+          extractedData: [
+            { label: "Price", value: dispatchCount === 1 ? "$98,500" : "$101,200" },
+          ],
+          finishedAt: "2026-01-01T00:00:05.000Z",
+        },
+      });
+    },
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  // Register with very short interval so it fires twice
+  await services.scheduler.registerWatch({
+    id: "test-change",
+    goal: "Monitor price",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  // Wait for at least 2 dispatches
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await services.scheduler.dispose();
+
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 2, `expected >= 2 notifications, got ${watchNotifications.length}`);
+
+  // First notification should not have [CHANGED] (no previous data)
+  assert.ok(!watchNotifications[0].text.includes("[CHANGED]"), "first run should not show [CHANGED]");
+
+  // Second notification should have [CHANGED] (price changed from $98,500 to $101,200)
+  assert.ok(watchNotifications[1].text.includes("[CHANGED]"), "second run should show [CHANGED]");
+  assert.ok(watchNotifications[1].text.includes("$98,500"), "diff should show old value");
+  assert.ok(watchNotifications[1].text.includes("$101,200"), "diff should show new value");
 });

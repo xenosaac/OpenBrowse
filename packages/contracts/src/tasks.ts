@@ -216,4 +216,6 @@ export interface PlannerDecision<TAction = unknown> {
   completionSummary?: string;
   extractedData?: ExtractedDataItem[];
   failureSummary?: string;
+  /** API token usage from the planner call, when available. */
+  usage?: { inputTokens: number; outputTokens: number };
 }

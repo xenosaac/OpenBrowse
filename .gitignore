@@ -33,3 +33,5 @@ docs/*
 
 # Figma Design Files ignored for now.
 UI_Design_Figma/
+
+# Validation harness output — tracked per T77 acceptance criteria

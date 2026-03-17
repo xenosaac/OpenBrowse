@@ -8,7 +8,8 @@ import { createWorkflowEvent, appendWorkflowEvent } from "./workflowEvents.js";
 const MAX_CONSECUTIVE_SOFT_FAILURES = 5;
 const MAX_TOTAL_SOFT_FAILURES = 8;
 const MAX_CONSECUTIVE_IDENTICAL_ACTIONS = 8;
-const MAX_URL_VISITS_BEFORE_FAIL = 12;
+const MAX_URL_VISITS_BEFORE_FAIL = 8;
+const MAX_UNCHANGED_PAGE_ACTIONS = 8;
 const CYCLE_DETECTION_WINDOW = 20;
 
 /**
@@ -163,6 +164,11 @@ export class RunExecutor {
           };
         }
       }
+      // Hard stagnation kill (T51): fail the run if the page hasn't changed for too long.
+      const stagnationCount = current.checkpoint.unchangedPageActions ?? 0;
+      if (stagnationCount >= MAX_UNCHANGED_PAGE_ACTIONS) {
+        return await this.failStuck(current, `Page not responding to actions: ${stagnationCount} consecutive actions had no visible effect on ${pageModel.url}. The task may not be achievable with the current approach.`);
+      }
       lastContentSlice = currentSlice;
       lastActionOk = false; // Reset; will be set to true after a successful action
 
@@ -192,6 +198,7 @@ export class RunExecutor {
       // Always-on screenshot capture (T46): capture before every planner call.
       // On-demand screenshot from browser_screenshot takes priority when set.
       let screenshotForThisStep = pendingScreenshot;
+      const wasOnDemand = !!pendingScreenshot;
       pendingScreenshot = null; // Clear on-demand screenshot after one use
       if (!screenshotForThisStep) {
         try {
@@ -201,20 +208,56 @@ export class RunExecutor {
         }
       }
 
-      let decision;
-      try {
-        decision = await this.services.planner.decide({
-          run: current,
-          pageModel,
-          ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
+      // T50: Log screenshot size for vision cost measurement
+      if (screenshotForThisStep) {
+        const base64Bytes = screenshotForThisStep.length;
+        const fileBytes = Math.floor((base64Bytes * 3) / 4);
+        await this.logEvent(current.id, "screenshot_captured", `Screenshot: ${Math.round(fileBytes / 1024)}KB`, {
+          base64Bytes: String(base64Bytes),
+          fileKB: String(Math.round(fileBytes / 1024)),
+          source: wasOnDemand ? "on_demand" : "always_on"
         });
-      } catch (error) {
+      }
+
+      const decision = await (async () => {
+        const MAX_PLANNER_RETRIES = 2;
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= MAX_PLANNER_RETRIES; attempt++) {
+          try {
+            return await this.services.planner.decide({
+              run: current,
+              pageModel,
+              ...(screenshotForThisStep ? { screenshotBase64: screenshotForThisStep } : {})
+            });
+          } catch (error) {
+            lastError = error;
+            const message = error instanceof Error ? error.message : String(error);
+            const isRetryable = /429|rate.limit|500|502|503|internal server error/i.test(message);
+            if (isRetryable && attempt < MAX_PLANNER_RETRIES) {
+              const delayMs = Math.min(5000 * 2 ** attempt, 30_000);
+              await this.logEvent(current.id, "planner_request_failed", `Planner request failed (attempt ${attempt + 1}/${MAX_PLANNER_RETRIES + 1}, retrying in ${delayMs / 1000}s): ${message}`, {
+                url: pageModel.url,
+                plannerMode: this.services.descriptor.planner.mode
+              });
+              await new Promise((r) => setTimeout(r, delayMs));
+              continue;
+            }
+            throw error;
+          }
+        }
+        throw lastError;
+      })().catch(async (error) => {
         const message = error instanceof Error ? error.message : String(error);
         await this.logEvent(current.id, "planner_request_failed", `Planner request failed: ${message}`, {
           url: pageModel.url,
           plannerMode: this.services.descriptor.planner.mode
         });
-        current = this.services.orchestrator.failRun(current, `Planner request failed: ${message}`);
+        return null;
+      });
+
+      if (decision === null) {
+        const lastEvent = "Planner request failed after retries";
+        current = this.services.orchestrator.failRun(current, lastEvent);
         await this.services.runCheckpointStore.save(current);
         await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
         await this.handoff.writeHandoff(current);
@@ -235,7 +278,12 @@ export class RunExecutor {
       }
 
       await this.logEvent(current.id, "planner_decision", decision.reasoning, {
-        plannerDecision: decision.type
+        plannerDecision: decision.type,
+        // T50: Include token usage when available from the planner API response
+        ...(decision.usage ? {
+          inputTokens: String(decision.usage.inputTokens),
+          outputTokens: String(decision.usage.outputTokens)
+        } : {})
       });
 
       // Clear recovery context after first planner call consumes it
@@ -280,6 +328,52 @@ export class RunExecutor {
           });
           const noteStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
           if (noteStuck) return noteStuck;
+          continue;
+        }
+
+        // Handle schedule_recurring locally — register watch via scheduler
+        if (action.type === "schedule_recurring") {
+          const watchGoal = action.value ?? "";
+          let intervalMinutes = 60;
+          let startUrl: string | undefined;
+          try {
+            const hint = JSON.parse(action.interactionHint ?? "{}");
+            intervalMinutes = typeof hint.intervalMinutes === "number" ? hint.intervalMinutes : 60;
+            startUrl = typeof hint.startUrl === "string" ? hint.startUrl : undefined;
+          } catch {
+            // Use defaults if hint parsing fails
+          }
+          const metadata: Record<string, string> = {};
+          if (startUrl) metadata.startUrl = startUrl;
+          const intent = {
+            id: `task_watch_${Date.now()}`,
+            goal: startUrl ? `${watchGoal} (start at ${startUrl})` : watchGoal,
+            constraints: [] as string[],
+            metadata,
+            source: "scheduler" as const,
+            createdAt: new Date().toISOString(),
+          };
+          let watchId = "unknown";
+          try {
+            watchId = await this.services.scheduler.registerWatch(intent, intervalMinutes);
+          } catch (err) {
+            console.error("[RunExecutor] Failed to register watch:", err);
+          }
+          const syntheticResult = {
+            ok: true as const,
+            action,
+            summary: `Scheduled recurring watch "${watchGoal}" every ${intervalMinutes} minutes (watchId: ${watchId})`,
+          };
+          current = this.services.orchestrator.recordBrowserResult(current, syntheticResult);
+          await this.services.runCheckpointStore.save(current);
+          await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
+            actionType: action.type,
+            ok: "true",
+            description: action.description,
+            watchId
+          });
+          const scheduleStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (scheduleStuck) return scheduleStuck;
           continue;
         }
 

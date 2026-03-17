@@ -8,65 +8,168 @@ import type {
 } from "../../shared/runtime";
 
 /**
+ * Wraps an async IPC call so that both synchronous throws (e.g., handler
+ * missing on window.openbrowse) and async rejections return a safe fallback
+ * instead of crashing the renderer.
+ */
+export async function safeCall<T>(
+  fn: () => T | Promise<T>,
+  fallback: T,
+  channel: string,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn(`[IPC] ${channel} failed:`, err);
+    return fallback;
+  }
+}
+
+/**
+ * Wraps a void IPC call (fire-and-forget) so that synchronous throws
+ * are swallowed with a warning instead of crashing the renderer.
+ */
+export function safeVoid(fn: () => void, channel: string): void {
+  try {
+    fn();
+  } catch (err) {
+    console.warn(`[IPC] ${channel} failed:`, err);
+  }
+}
+
+/**
  * Typed wrapper around all `window.openbrowse.*` calls, organized by domain.
- * Provides a single import for all IPC operations.
+ * Every call is wrapped with safeCall/safeVoid so that missing or broken IPC
+ * handlers degrade gracefully instead of crashing the renderer.
  */
 export const ipc = {
   tasks: {
-    start: (intent: unknown) => window.openbrowse.startTask(intent) as Promise<TaskRun>,
-    resume: (message: unknown) => window.openbrowse.resumeTask(message) as Promise<TaskRun | null>,
-    cancel: (runId: string) => window.openbrowse.cancelTask(runId) as Promise<TaskRun | null>,
-    list: () => window.openbrowse.listRuns() as Promise<TaskRun[]>,
-    get: (runId: string) => window.openbrowse.getRun(runId) as Promise<TaskRun | null>,
+    start: (intent: unknown) =>
+      safeCall(() => window.openbrowse.startTask(intent), null as TaskRun | null, "tasks:start"),
+    resume: (message: unknown) =>
+      safeCall(() => window.openbrowse.resumeTask(message), null as TaskRun | null, "tasks:resume"),
+    cancel: (runId: string) =>
+      safeCall(() => window.openbrowse.cancelTask(runId), null as TaskRun | null, "tasks:cancel"),
+    list: () =>
+      safeCall(() => window.openbrowse.listRuns(), [] as TaskRun[], "tasks:list"),
+    get: (runId: string) =>
+      safeCall(() => window.openbrowse.getRun(runId), null as TaskRun | null, "tasks:get"),
   },
   browser: {
-    showSession: (sessionId: string) => window.openbrowse.showBrowserSession(sessionId),
-    hideSession: () => window.openbrowse.hideBrowserSession(),
-    newTab: (url?: string) => window.openbrowse.browserNewTab(url) as Promise<BrowserShellTabDescriptor>,
-    navigate: (sessionId: string, url: string) => window.openbrowse.browserNavigate(sessionId, url),
-    back: (sessionId: string) => window.openbrowse.browserBack(sessionId),
-    forward: (sessionId: string) => window.openbrowse.browserForward(sessionId),
-    reload: (sessionId: string) => window.openbrowse.browserReload(sessionId),
-    navState: (sessionId: string) => window.openbrowse.browserNavState(sessionId) as Promise<{
-      canGoBack: boolean;
-      canGoForward: boolean;
-      url: string;
-      title: string;
-    } | null>,
+    showSession: (sessionId: string) =>
+      safeVoid(() => window.openbrowse.showBrowserSession(sessionId), "browser:showSession"),
+    hideSession: () =>
+      safeVoid(() => window.openbrowse.hideBrowserSession(), "browser:hideSession"),
+    newTab: (url?: string) =>
+      safeCall(() => window.openbrowse.browserNewTab(url), null as BrowserShellTabDescriptor | null, "browser:newTab"),
+    navigate: (sessionId: string, url: string) =>
+      safeVoid(() => window.openbrowse.browserNavigate(sessionId, url), "browser:navigate"),
+    back: (sessionId: string) =>
+      safeVoid(() => window.openbrowse.browserBack(sessionId), "browser:back"),
+    forward: (sessionId: string) =>
+      safeVoid(() => window.openbrowse.browserForward(sessionId), "browser:forward"),
+    reload: (sessionId: string) =>
+      safeVoid(() => window.openbrowse.browserReload(sessionId), "browser:reload"),
+    navState: (sessionId: string) =>
+      safeCall(() => window.openbrowse.browserNavState(sessionId), null as {
+        canGoBack: boolean;
+        canGoForward: boolean;
+        url: string;
+        title: string;
+      } | null, "browser:navState"),
     setViewport: (bounds: { x: number; y: number; width: number; height: number }) =>
-      window.openbrowse.setBrowserViewport(bounds),
-    clearViewport: () => window.openbrowse.clearBrowserViewport(),
-    closeGroup: (groupId: string) => window.openbrowse.closeBrowserGroup(groupId) as Promise<TaskRun | null>,
-    listTabs: () => window.openbrowse.listTabs() as Promise<BrowserShellTabDescriptor[]>,
-    listProfiles: () => window.openbrowse.listProfiles() as Promise<BrowserProfile[]>,
+      safeVoid(() => window.openbrowse.setBrowserViewport(bounds), "browser:setViewport"),
+    clearViewport: () =>
+      safeVoid(() => window.openbrowse.clearBrowserViewport(), "browser:clearViewport"),
+    closeGroup: (groupId: string) =>
+      safeCall(() => window.openbrowse.closeBrowserGroup(groupId), null as TaskRun | null, "browser:closeGroup"),
+    listTabs: () =>
+      safeCall(() => window.openbrowse.listTabs(), [] as BrowserShellTabDescriptor[], "browser:listTabs"),
+    listProfiles: () =>
+      safeCall(() => window.openbrowse.listProfiles(), [] as BrowserProfile[], "browser:listProfiles"),
   },
   runtime: {
-    describe: () => window.openbrowse.describeRuntime() as Promise<RuntimeDescriptor>,
-    getSettings: () => window.openbrowse.getSettings() as Promise<RuntimeSettings>,
-    saveSettings: (settings: RuntimeSettings) => window.openbrowse.saveSettings(settings) as Promise<{
-      settings: RuntimeSettings;
-      descriptor: RuntimeDescriptor;
-    }>,
-    getLastRecoveryReport: () => window.openbrowse.getLastRecoveryReport() as Promise<RecoverySummary | null>,
+    describe: () =>
+      safeCall(() => window.openbrowse.describeRuntime(), null as RuntimeDescriptor | null, "runtime:describe"),
+    getSettings: () =>
+      safeCall(() => window.openbrowse.getSettings(), null as RuntimeSettings | null, "runtime:getSettings"),
+    saveSettings: (settings: RuntimeSettings) =>
+      safeCall(() => window.openbrowse.saveSettings(settings), null as {
+        settings: RuntimeSettings;
+        descriptor: RuntimeDescriptor;
+      } | null, "runtime:saveSettings"),
+    getLastRecoveryReport: () =>
+      safeCall(() => window.openbrowse.getLastRecoveryReport(), null as RecoverySummary | null, "runtime:getLastRecoveryReport"),
   },
   logs: {
-    list: (runId: string) => window.openbrowse.listLogs(runId) as Promise<WorkflowEvent[]>,
-    replay: (runId: string) => window.openbrowse.replayLogs(runId) as Promise<ReplayStep[]>,
+    list: (runId: string) =>
+      safeCall(() => window.openbrowse.listLogs(runId), [] as WorkflowEvent[], "logs:list"),
+    replay: (runId: string) =>
+      safeCall(() => window.openbrowse.replayLogs(runId), [] as ReplayStep[], "logs:replay"),
   },
   demos: {
-    list: () => window.openbrowse.listDemos(),
-    run: (demoId: string) => window.openbrowse.runDemo(demoId),
-    watch: (demoId: string, intervalMinutes: number) => window.openbrowse.watchDemo(demoId, intervalMinutes),
-    listTaskPacks: () => window.openbrowse.listTaskPacks(),
-    runTaskPack: (packId: string) => window.openbrowse.runTaskPack(packId),
+    list: () =>
+      safeCall(() => window.openbrowse.listDemos(), [] as unknown[], "demos:list"),
+    run: (demoId: string) =>
+      safeVoid(() => window.openbrowse.runDemo(demoId), "demos:run"),
+    watch: (demoId: string, intervalMinutes: number) =>
+      safeVoid(() => window.openbrowse.watchDemo(demoId, intervalMinutes), "demos:watch"),
+    listTaskPacks: () =>
+      safeCall(() => window.openbrowse.listTaskPacks(), [] as unknown[], "demos:listTaskPacks"),
+    runTaskPack: (packId: string) =>
+      safeVoid(() => window.openbrowse.runTaskPack(packId), "demos:runTaskPack"),
   },
   handoff: {
-    get: (runId: string) => window.openbrowse.getRunHandoff(runId) as Promise<{
-      artifact: RunHandoffArtifact;
-      markdown: string;
-    } | null>,
+    get: (runId: string) =>
+      safeCall(() => window.openbrowse.getRunHandoff(runId), null as {
+        artifact: RunHandoffArtifact;
+        markdown: string;
+      } | null, "handoff:get"),
+  },
+  scheduler: {
+    list: () =>
+      safeCall(() => window.openbrowse.listWatches(), [] as Array<{
+        id: string;
+        intent: { id: string; goal: string; metadata?: Record<string, string> };
+        intervalMinutes: number;
+        active: boolean;
+        createdAt: string;
+        nextRunAt: string;
+        lastTriggeredAt?: string;
+        lastCompletedAt?: string;
+        consecutiveFailures: number;
+        lastError?: string;
+        backoffUntil?: string;
+      }>, "scheduler:list"),
+    register: (params: { goal: string; startUrl?: string; intervalMinutes: number }) =>
+      safeCall(() => window.openbrowse.registerWatch(params), null as { watchId: string } | null, "scheduler:register"),
+    unregister: (watchId: string) =>
+      safeCall(() => window.openbrowse.unregisterWatch(watchId), { ok: false }, "scheduler:unregister"),
+  },
+  templates: {
+    list: () =>
+      safeCall(() => window.openbrowse.listTemplates(), [] as Array<{
+        id: string; name: string; goal: string; createdAt: string;
+      }>, "templates:list"),
+    save: (template: { goal: string; name?: string }) =>
+      safeCall(() => window.openbrowse.saveTemplate(template), null as {
+        id: string; name: string; goal: string; createdAt: string;
+      } | null, "templates:save"),
+    delete: (templateId: string) =>
+      safeCall(() => window.openbrowse.deleteTemplate(templateId), { ok: false }, "templates:delete"),
+  },
+  file: {
+    saveExtracted: (params: { data: string; defaultName: string; format: "json" | "csv" }) =>
+      safeCall(() => window.openbrowse.saveExtractedData(params), { ok: false }, "file:saveExtracted"),
   },
   events: {
-    subscribe: (callback: (event: unknown) => void) => window.openbrowse.onRuntimeEvent(callback),
+    subscribe: (callback: (event: unknown) => void) => {
+      try {
+        return window.openbrowse.onRuntimeEvent(callback);
+      } catch (err) {
+        console.warn("[IPC] events:subscribe failed:", err);
+        return () => {}; // no-op cleanup
+      }
+    },
   },
 } as const;

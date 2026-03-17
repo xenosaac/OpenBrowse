@@ -135,6 +135,50 @@ const api = {
   saveKeybindings: (entries: Array<{ key: string; value: string }>): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke("keybindings:save", entries),
 
+  // File export
+  saveExtractedData: (params: { data: string; defaultName: string; format: "json" | "csv" }): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("file:save-extracted", params),
+
+  // Task templates
+  listTemplates: (): Promise<Array<{ id: string; name: string; goal: string; createdAt: string }>> =>
+    ipcRenderer.invoke("templates:list"),
+  saveTemplate: (template: { goal: string; name?: string }): Promise<{ id: string; name: string; goal: string; createdAt: string }> =>
+    ipcRenderer.invoke("templates:save", template),
+  deleteTemplate: (templateId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("templates:delete", templateId),
+
+  // Watch scheduler
+  listWatches: (): Promise<Array<{
+    id: string;
+    intent: { id: string; goal: string; metadata?: Record<string, string> };
+    intervalMinutes: number;
+    active: boolean;
+    createdAt: string;
+    nextRunAt: string;
+    lastTriggeredAt?: string;
+    lastCompletedAt?: string;
+    consecutiveFailures: number;
+    lastError?: string;
+    backoffUntil?: string;
+  }>> => ipcRenderer.invoke("scheduler:list"),
+  registerWatch: (params: { goal: string; startUrl?: string; intervalMinutes: number }): Promise<{ watchId: string }> =>
+    ipcRenderer.invoke("scheduler:register", params),
+  unregisterWatch: (watchId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("scheduler:unregister", watchId),
+
+  // Setup wizard
+  isSetupDismissed: (): Promise<boolean> => ipcRenderer.invoke("setup:isDismissed"),
+  dismissSetup: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("setup:dismiss"),
+
+  // Auto-update check
+  checkForUpdate: (): Promise<{
+    available: boolean;
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+    releaseName: string;
+  }> => ipcRenderer.invoke("app:check-update"),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);

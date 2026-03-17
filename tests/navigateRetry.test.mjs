@@ -49,21 +49,36 @@ describe("navigateWithRetry", () => {
     assert.equal(callCount, 2);
   });
 
-  it("throws retry error when both attempts fail with network_error", async () => {
+  it("retries twice (double-retry) and succeeds on third attempt", async () => {
+    let callCount = 0;
+    await navigateWithRetry(
+      async () => {
+        callCount++;
+        if (callCount <= 2) throw new Error("ERR_ABORTED transient");
+        // third call succeeds
+      },
+      classifyFn,
+      10
+    );
+    assert.equal(callCount, 3, "should attempt initial + 2 retries");
+  });
+
+  it("throws last error when all 3 attempts fail with network_error", async () => {
     let callCount = 0;
     await assert.rejects(
       () => navigateWithRetry(
         async () => {
           callCount++;
           if (callCount === 1) throw new Error("ERR_ABORTED first");
-          throw new Error("ERR_NAME_NOT_RESOLVED second");
+          if (callCount === 2) throw new Error("ERR_ABORTED second");
+          throw new Error("ERR_NAME_NOT_RESOLVED third");
         },
         classifyFn,
         10
       ),
-      { message: "ERR_NAME_NOT_RESOLVED second" }
+      { message: "ERR_NAME_NOT_RESOLVED third" }
     );
-    assert.equal(callCount, 2);
+    assert.equal(callCount, 3, "should attempt initial + 2 retries before giving up");
   });
 
   it("does NOT retry on validation_error", async () => {
@@ -98,19 +113,58 @@ describe("navigateWithRetry", () => {
     assert.equal(callCount, 1, "should not retry non-transient failure");
   });
 
-  it("waits the specified delay before retrying", async () => {
+  it("uses exponential backoff between retries", async () => {
     let callCount = 0;
-    const start = Date.now();
+    const timestamps = [];
     await navigateWithRetry(
       async () => {
         callCount++;
-        if (callCount === 1) throw new Error("ERR_ABORTED");
+        timestamps.push(Date.now());
+        if (callCount <= 2) throw new Error("ERR_ABORTED");
+        // third call succeeds
       },
       classifyFn,
-      50 // 50ms delay
+      50 // base delay 50ms, so retries at ~50ms and ~100ms
     );
-    const elapsed = Date.now() - start;
-    assert.equal(callCount, 2);
-    assert.ok(elapsed >= 40, `expected ≥40ms delay, got ${elapsed}ms`);
+    assert.equal(callCount, 3);
+    const firstDelay = timestamps[1] - timestamps[0];
+    const secondDelay = timestamps[2] - timestamps[1];
+    assert.ok(firstDelay >= 40, `first delay should be ~50ms, got ${firstDelay}ms`);
+    assert.ok(secondDelay >= 80, `second delay should be ~100ms (2x), got ${secondDelay}ms`);
+    assert.ok(secondDelay > firstDelay, `second delay (${secondDelay}ms) should be longer than first (${firstDelay}ms)`);
+  });
+
+  it("respects maxRetries=1 for single retry behavior", async () => {
+    let callCount = 0;
+    await assert.rejects(
+      () => navigateWithRetry(
+        async () => {
+          callCount++;
+          throw new Error("ERR_ABORTED");
+        },
+        classifyFn,
+        10,
+        1 // single retry
+      ),
+      { message: "ERR_ABORTED" }
+    );
+    assert.equal(callCount, 2, "initial + 1 retry = 2 calls");
+  });
+
+  it("stops retrying when a non-retryable error occurs on retry", async () => {
+    let callCount = 0;
+    await assert.rejects(
+      () => navigateWithRetry(
+        async () => {
+          callCount++;
+          if (callCount === 1) throw new Error("ERR_ABORTED transient");
+          throw new Error("Invalid URL: permanent");
+        },
+        classifyFn,
+        10
+      ),
+      { message: "Invalid URL: permanent" }
+    );
+    assert.equal(callCount, 2, "should stop on non-retryable error during retry");
   });
 });

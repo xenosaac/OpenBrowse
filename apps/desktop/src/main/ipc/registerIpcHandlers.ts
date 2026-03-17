@@ -1,10 +1,13 @@
-import { ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import { app, dialog, ipcMain, Menu, clipboard, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
+import fs from "node:fs";
+import path from "node:path";
 import type { TaskIntent, TaskMessage } from "@openbrowse/contracts";
 import { LogReplayer } from "@openbrowse/observability";
 import {
   bootstrapRunDetached,
   buildHandoffArtifact,
   cancelTrackedRun,
+  checkForUpdate,
   describeRuntime,
   getRuntimeSettings,
   handleInboundMessageDetached,
@@ -18,6 +21,7 @@ import { listTaskPacks, getTaskPack } from "@openbrowse/taskpacks";
 import type { DemoRegistry } from "@openbrowse/demo-flows";
 import type { AppBrowserShell } from "../browser/AppBrowserShell";
 import type { BrowserViewportBounds, RuntimeSettings } from "@openbrowse/contracts";
+import { saveWatches, type PersistedWatch } from "../runtime/watchPersistence";
 
 export function registerIpcHandlers(
   services: RuntimeServices,
@@ -431,6 +435,19 @@ export function registerIpcHandlers(
     return browserShell.saveAsPdf(sessionId);
   });
 
+  // --- File export ---
+  register("file:save-extracted", async (_event, params: { data: string; defaultName: string; format: "json" | "csv" }) => {
+    const ext = params.format === "json" ? "json" : "csv";
+    const filterName = params.format === "json" ? "JSON" : "CSV";
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      defaultPath: path.join(app.getPath("downloads"), `${params.defaultName}.${ext}`),
+      filters: [{ name: filterName, extensions: [ext] }]
+    });
+    if (canceled || !filePath) return { ok: false };
+    await fs.promises.writeFile(filePath, params.data, "utf-8");
+    return { ok: true };
+  });
+
   register("run:handoff", async (_event, runId: string) => {
     const run = await services.runCheckpointStore.load(runId);
     if (!run) return null;
@@ -537,5 +554,114 @@ export function registerIpcHandlers(
   register("keybindings:save", async (_event, entries: Array<{ key: string; value: string }>) => {
     await services.preferenceStore.saveNamespaceSettings("keybindings", entries);
     return { ok: true };
+  });
+
+  // --- Setup Wizard ---
+  register("setup:isDismissed", async () => {
+    const pref = await services.preferenceStore.get("setup", "dismissed");
+    return pref?.value === "true";
+  });
+
+  register("setup:dismiss", async () => {
+    await services.preferenceStore.upsert({
+      id: "pref_setup_dismissed",
+      namespace: "setup",
+      key: "dismissed",
+      value: "true",
+      capturedAt: new Date().toISOString()
+    });
+    return { ok: true };
+  });
+
+  // --- Watch Scheduler ---
+
+  const watchesJsonPath = path.join(app.getPath("userData"), "watches.json");
+
+  async function persistWatches(): Promise<void> {
+    if (!services.scheduler.listWatches) return;
+    const watches = await services.scheduler.listWatches();
+    const persisted: PersistedWatch[] = watches.map((w) => ({
+      goal: w.intent.goal,
+      ...(w.intent.metadata?.startUrl ? { startUrl: w.intent.metadata.startUrl } : {}),
+      intervalMinutes: w.intervalMinutes,
+      ...(w.lastExtractedData && w.lastExtractedData.length > 0
+        ? { lastExtractedData: w.lastExtractedData }
+        : {}),
+    }));
+    void saveWatches(watchesJsonPath, persisted);
+  }
+
+  // Wire auto-persistence for watch changes from any source (IPC, RunExecutor, scheduler)
+  if (services.scheduler.setOnChanged) {
+    services.scheduler.setOnChanged(() => void persistWatches());
+  }
+
+  // --- Task Templates ---
+
+  register("templates:list", async () => {
+    const entries = await services.preferenceStore.list("templates");
+    return entries.map((e) => {
+      try { return JSON.parse(e.value); }
+      catch { return null; }
+    }).filter(Boolean);
+  });
+
+  register("templates:save", async (_event, template: { goal: string; name?: string }) => {
+    const id = `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const name = template.name?.trim() || template.goal.slice(0, 60);
+    const record = {
+      id,
+      name,
+      goal: template.goal,
+      createdAt: new Date().toISOString(),
+    };
+    await services.preferenceStore.upsert({
+      id,
+      namespace: "templates",
+      key: id,
+      value: JSON.stringify(record),
+      capturedAt: record.createdAt,
+    });
+    return record;
+  });
+
+  register("templates:delete", async (_event, templateId: string) => {
+    await services.preferenceStore.deleteByKey("templates", templateId);
+    return { ok: true };
+  });
+
+  // --- Watch Scheduler ---
+
+  register("scheduler:list", async () => {
+    if (!services.scheduler.listWatches) return [];
+    return services.scheduler.listWatches();
+  });
+
+  register("scheduler:register", async (_event, params: { goal: string; startUrl?: string; intervalMinutes: number }) => {
+    const metadata: Record<string, string> = {};
+    if (params.startUrl) metadata.startUrl = params.startUrl;
+    const intent: TaskIntent = {
+      id: `task_watch_${Date.now()}`,
+      goal: params.startUrl ? `${params.goal} (start at ${params.startUrl})` : params.goal,
+      constraints: [],
+      metadata,
+      source: "scheduler",
+      createdAt: new Date().toISOString(),
+    };
+    const watchId = await services.scheduler.registerWatch(intent, params.intervalMinutes);
+    return { watchId };
+  });
+
+  register("scheduler:unregister", async (_event, watchId: string) => {
+    if (services.scheduler.unregisterWatch) {
+      await services.scheduler.unregisterWatch(watchId);
+    }
+    return { ok: true };
+  });
+
+  // --- Auto-update check ---
+  register("app:check-update", async () => {
+    const currentVersion = app.getVersion();
+    return checkForUpdate(currentVersion, "openbrowse", "openbrowse");
   });
 }

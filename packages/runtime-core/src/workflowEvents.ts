@@ -35,3 +35,12 @@ export async function appendWorkflowEvent(
   await workflowLogStore.append(event);
   await eventBus.publish("workflow", event);
 }
+
+/**
+ * Whether a task-start Telegram notification should be sent for a given source.
+ * Scheduler-triggered runs skip the start notification to avoid noise — a watch
+ * firing every 30 minutes would generate 48 "Task started" messages per day (T58).
+ */
+export function shouldNotifyTaskStart(source: string | undefined): boolean {
+  return source === "telegram";
+}

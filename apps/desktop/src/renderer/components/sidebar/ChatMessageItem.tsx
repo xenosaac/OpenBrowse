@@ -1,22 +1,27 @@
 import React, { useState, useCallback } from "react";
 import type { ChatMessage } from "../../types/chat";
 import { renderMarkdownHtml } from "../../lib/markdown";
+import { extractedDataToJson, extractedDataToCsv } from "../../lib/exportData";
+import { ipc } from "../../lib/ipc";
 import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   message: ChatMessage;
   onRetry?: (goal: string) => void;
+  onSaveTemplate?: (goal: string) => void;
 }
 
 function extractedDataToTsv(data: Array<{ label: string; value: string }>): string {
   return data.map((item) => `${item.label}\t${item.value}`).join("\n");
 }
 
-export function ChatMessageItem({ message, onRetry }: Props) {
+export function ChatMessageItem({ message, onRetry, onSaveTemplate }: Props) {
   const [copied, setCopied] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
   const isAction = message.tone === "action" || message.tone === "action-error";
   const hasExtracted = message.extractedData && message.extractedData.length > 0;
   const canRetry = message.tone === "error" && !!message.goalText && !!onRetry;
+  const canSaveTemplate = message.tone === "success" && !!message.goalText && !!onSaveTemplate;
 
   const handleCopy = useCallback(() => {
     if (!message.extractedData || copied) return;
@@ -27,9 +32,25 @@ export function ChatMessageItem({ message, onRetry }: Props) {
     });
   }, [message.extractedData, copied]);
 
+  const handleExport = useCallback((format: "json" | "csv") => {
+    if (!message.extractedData) return;
+    const data = format === "json"
+      ? extractedDataToJson(message.extractedData)
+      : extractedDataToCsv(message.extractedData);
+    const defaultName = "extracted-data";
+    ipc.file.saveExtracted({ data, defaultName, format });
+  }, [message.extractedData]);
+
   const handleRetry = useCallback(() => {
     if (message.goalText && onRetry) onRetry(message.goalText);
   }, [message.goalText, onRetry]);
+
+  const handleSaveTemplate = useCallback(() => {
+    if (message.goalText && onSaveTemplate && !templateSaved) {
+      onSaveTemplate(message.goalText);
+      setTemplateSaved(true);
+    }
+  }, [message.goalText, onSaveTemplate, templateSaved]);
 
   return (
     <div style={{
@@ -57,16 +78,35 @@ export function ChatMessageItem({ message, onRetry }: Props) {
           <div>{message.content}</div>
         )}
         {hasExtracted && (
-          <button
-            onClick={handleCopy}
-            style={copied ? { ...styles.copyButton, ...styles.copyButtonCopied } : styles.copyButton}
-          >
-            {copied ? "Copied \u2713" : "Copy"}
-          </button>
+          <div style={styles.extractedActions}>
+            <button
+              onClick={handleCopy}
+              style={copied ? { ...styles.actionButton, ...styles.actionButtonCopied } : styles.actionButton}
+            >
+              {copied ? "Copied \u2713" : "Copy"}
+            </button>
+            <button onClick={() => handleExport("json")} style={styles.actionButton}>
+              JSON
+            </button>
+            <button onClick={() => handleExport("csv")} style={styles.actionButton}>
+              CSV
+            </button>
+          </div>
         )}
         {canRetry && (
           <button onClick={handleRetry} style={styles.retryButton}>
             Retry
+          </button>
+        )}
+        {canSaveTemplate && (
+          <button
+            onClick={handleSaveTemplate}
+            style={templateSaved
+              ? { ...styles.actionButton, ...styles.actionButtonCopied, marginTop: 6 }
+              : { ...styles.actionButton, marginTop: 6 }
+            }
+          >
+            {templateSaved ? "Saved \u2713" : "Save as Template"}
           </button>
         )}
         <div style={styles.chatTime}>
@@ -127,18 +167,23 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "4px 10px", fontSize: "0.78rem", color: colors.textSecondary
   } as React.CSSProperties,
   chatTime: { marginTop: 6, color: "rgba(255,255,255,0.42)", fontSize: "0.68rem" },
-  copyButton: {
+  extractedActions: {
+    display: "flex",
+    gap: 4,
+    marginTop: 6,
+    flexWrap: "wrap" as const,
+  },
+  actionButton: {
     ...glass.control,
     border: "1px solid " + colors.borderControl,
     borderRadius: 6,
     padding: "3px 10px",
-    marginTop: 6,
     fontSize: "0.72rem",
     color: colors.textSecondary,
     cursor: "pointer",
     transition: "all 150ms ease",
   } as React.CSSProperties,
-  copyButtonCopied: {
+  actionButtonCopied: {
     color: colors.emerald,
     borderColor: colors.emeraldBorder,
   },
