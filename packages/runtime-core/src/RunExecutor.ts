@@ -73,6 +73,10 @@ export class RunExecutor {
     // included as screenshotBase64 in the *next* planner call, then cleared.
     let pendingScreenshot: string | null = null;
 
+    // Page content change tracking: detect when actions have no visible effect.
+    let lastContentSlice = "";
+    let lastActionOk = false;
+
     // Initialize openedTabs with primary session if not yet tracked
     if (!current.checkpoint.openedTabs || current.checkpoint.openedTabs.length === 0) {
       current = {
@@ -143,6 +147,24 @@ export class RunExecutor {
         }
       }
       current = this.services.orchestrator.observePage(current, pageModel, activeSession.id);
+
+      // Page content change detection: compare visible text to detect stagnation.
+      const currentSlice = (pageModel.visibleText ?? "").slice(0, 500);
+      if (lastContentSlice && lastActionOk) {
+        if (currentSlice === lastContentSlice) {
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, unchangedPageActions: (current.checkpoint.unchangedPageActions ?? 0) + 1 }
+          };
+        } else {
+          current = {
+            ...current,
+            checkpoint: { ...current.checkpoint, unchangedPageActions: 0 }
+          };
+        }
+      }
+      lastContentSlice = currentSlice;
+      lastActionOk = false; // Reset; will be set to true after a successful action
 
       // Keep openedTabs URL/title in sync with latest page model
       const activeIdx = current.checkpoint.activeTabIndex ?? 0;
@@ -525,6 +547,7 @@ export class RunExecutor {
         }
 
         // --- Stuck detection (only on successful actions — prevents false positives) ---
+        lastActionOk = true;
         const actionStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
         if (actionStuck) return actionStuck;
 

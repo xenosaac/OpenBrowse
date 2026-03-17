@@ -389,6 +389,17 @@ If you are genuinely stuck and cannot make progress, call task_failed with a cle
 If you need user input, call ask_user. Otherwise, continue with your next action.`
     : "";
 
+  // --- Page content stagnation warning ---
+  const unchangedCount = run.checkpoint.unchangedPageActions ?? 0;
+  const contentStagnationWarning = unchangedCount >= 3
+    ? `\n** WARNING: The page content has NOT visibly changed after your last ${unchangedCount} actions. Your actions may not be having the intended effect. Try a COMPLETELY DIFFERENT approach:
+  - Use browser_read_text to examine what is actually on the page
+  - Try different elements — the ones you are clicking may not be interactive
+  - If the page requires keyboard input (games, editors), use browser_press_key
+  - Navigate to a different site or use a search engine
+  - If the task cannot be completed, call task_complete with partial results`
+    : "";
+
   const remaining = MAX_PLANNER_STEPS - (stepCount + 1);
   const lowBudgetWarning = remaining <= 10
     ? `\n** BUDGET LOW: ${remaining} step${remaining !== 1 ? "s" : ""} remaining. Complete the task now using task_complete — include any partial results in extractedData. Do not start new multi-step sequences.`
@@ -405,7 +416,7 @@ If you need user input, call ask_user. Otherwise, continue with your next action
 
   const user = `Goal: ${run.goal}
 Constraints: ${run.constraints.join(", ") || "none"}
-Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${recoverySection}${notesSection}${plannerNotesSection}${openTabsSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
+Steps taken: ${stepCount}/${MAX_PLANNER_STEPS}${lastActionSection}${actionHistorySection}${failedUrlsSection}${usedQueriesSection}${softFailureWarning}${totalSoftWarning}${repeatedNavWarning}${urlWarning}${contentStagnationWarning}${recoverySection}${notesSection}${plannerNotesSection}${openTabsSection}${activePageHint}${selfAssessmentSection}${lowBudgetWarning}
 
 Current page:
 URL: ${pageModel.url}

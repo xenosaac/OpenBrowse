@@ -1736,3 +1736,97 @@ test("plannerLoop screenshot does NOT trigger stuck detection when actions vary"
 
   assert.equal(result.status, "completed", "Varied actions should complete without stuck detection");
 });
+
+// --- Page content change tracking ---
+
+test("plannerLoop tracks unchangedPageActions when page content stays the same", async () => {
+  // 4 successful click actions, same page content every time → checkpoint.unchangedPageActions increments
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click A" }, reasoning: "Trying A" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click B" }, reasoning: "Trying B" },
+    { type: "browser_action", action: { type: "click", targetId: "el_3", description: "Click C" }, reasoning: "Trying C" },
+    { type: "browser_action", action: { type: "click", targetId: "el_4", description: "Click D" }, reasoning: "Trying D" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked A" },
+    { ok: true, summary: "Clicked B" },
+    { ok: true, summary: "Clicked C" },
+    { ok: true, summary: "Clicked D" },
+  ];
+  // All page model captures return same visibleText (must set directly — makePageModel ignores visibleText override)
+  const capturePageModels = Array.from({ length: 5 }, (_, i) => {
+    const pm = makePageModel();
+    pm.visibleText = "Same content on the page";
+    return pm;
+  });
+
+  const { services } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // After 4 successful actions with unchanged content, the final run should have
+  // unchangedPageActions >= 3 (first iteration has no previous, so counting starts from 2nd).
+  const finalUnchanged = result.checkpoint.unchangedPageActions ?? 0;
+  assert.ok(finalUnchanged >= 3, `Expected unchangedPageActions >= 3 but got ${finalUnchanged}`);
+});
+
+test("plannerLoop resets unchangedPageActions when page content changes", async () => {
+  // 3 actions: first two get same content, third gets different content → counter resets
+  const page1 = makePageModel(); page1.visibleText = "Original page content";
+  const page2 = makePageModel(); page2.visibleText = "Original page content";
+  const page3 = makePageModel(); page3.visibleText = "New different content after action";
+  const page4 = makePageModel(); page4.visibleText = "New different content after action";
+
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click 1" }, reasoning: "First" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click 2" }, reasoning: "Second" },
+    { type: "browser_action", action: { type: "click", targetId: "el_3", description: "Click 3" }, reasoning: "Third" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: true, summary: "Clicked 1" },
+    { ok: true, summary: "Clicked 2" },
+    { ok: true, summary: "Clicked 3" },
+  ];
+  const capturePageModels = [page1, page2, page3, page4];
+
+  const { services, savedRuns } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // Without the content change, 3 actions would produce unchangedPageActions = 3.
+  // With the change at iteration 3 (page3), counter resets to 0, then increments to 1
+  // on iteration 4 (page4 = same as page3). Final value = 1, proving reset happened.
+  const finalUnchanged = result.checkpoint.unchangedPageActions ?? 0;
+  assert.ok(finalUnchanged < 3, `Counter should have reset on content change; got ${finalUnchanged} (expected < 3)`);
+  assert.equal(finalUnchanged, 1, "One unchanged iteration after reset");
+});
+
+test("plannerLoop does NOT increment unchangedPageActions after failed actions", async () => {
+  // A failed action followed by same page content should not increment
+  const makeSamePage = () => { const p = makePageModel(); p.visibleText = "Same content here"; return p; };
+
+  const decisions = [
+    { type: "browser_action", action: { type: "click", targetId: "el_1", description: "Click 1" }, reasoning: "First" },
+    { type: "browser_action", action: { type: "click", targetId: "el_2", description: "Click 2" }, reasoning: "Second" },
+    { type: "task_complete", reasoning: "Done" },
+  ];
+  const executeResults = [
+    { ok: false, summary: "Element not found", failureClass: "element_not_found" },
+    { ok: true, summary: "Clicked 2" },
+  ];
+  const capturePageModels = [makeSamePage(), makeSamePage(), makeSamePage()];
+
+  const { services, savedRuns } = makeServices({ decisions, executeResults, capturePageModels });
+  const executor = new RunExecutor(services, makeSessions(), makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+
+  assert.equal(result.status, "completed");
+  // After first action (failed): lastActionOk = false → should not increment
+  // After second action (succeeded): lastActionOk = true but only one successful → count should be low
+  const maxUnchanged = Math.max(...savedRuns.map(r => r.checkpoint.unchangedPageActions ?? 0));
+  assert.ok(maxUnchanged <= 1, `Expected unchangedPageActions <= 1 after failed actions, got ${maxUnchanged}`);
+});
