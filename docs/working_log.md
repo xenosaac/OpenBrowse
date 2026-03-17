@@ -8964,3 +8964,61 @@ T36: Add a "Copy" button on extractedData tables in chat. When clicked, serializ
 - Next iteration should pick a user-visible browser feature or re-examine the failure data for remaining agent reliability gaps.
 
 *Session log entry written: 2026-03-16 (Session 146)*
+
+---
+
+### Session 147 — 2026-03-16: T37 — One-Click Task Retry From Chat (Program L)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. T36 done in Session 146. PM task backlog has T37 next (one-click retry, P2, Program L). Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+T37: When a task fails, the failure message in the chat should include a "Retry" button. Clicking it creates a new task run with the same goal text. This reduces the cost of failure — users don't need to retype the goal. 35 of 51 database runs were failures, so this directly helps.
+
+#### Plan
+
+1. **`types/chat.ts`**: Add optional `goalText?: string` to ChatMessage.
+2. **`App.tsx`**: When building outcome messages for failed runs (`tone: "error"`), include `goalText: run.goal`.
+3. **`ChatMessageItem.tsx`**: Accept `onRetry?: (goal: string) => void` prop. When `message.tone === "error"` and `message.goalText` exists, render a "Retry" button (glass.control style). On click, call `onRetry(message.goalText)`.
+4. **`Sidebar.tsx`**: Add `onRetry` prop, pass through to `ChatMessageItem`, wired to `submitChatTask` in App.tsx.
+5. Run typecheck.
+6. Run tests.
+7. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/types/chat.ts`** — Added optional `goalText` field to ChatMessage:
+- `goalText?: string`
+- Carries the original task goal on failure outcome messages, enabling one-click retry.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Pass goalText on failure outcome messages:
+- When `tone === "error"` and `run.goal` is available, spread `goalText: run.goal` onto the outcome ChatMessage.
+- Wired new `onRetryTask` prop on Sidebar, connected to `submitChatTask(goal)`.
+
+**`apps/desktop/src/renderer/components/sidebar/Sidebar.tsx`** — Added `onRetryTask` prop:
+- New prop `onRetryTask: (goal: string) => void` in Props interface.
+- Destructured and passed through to `ChatMessageItem` as `onRetry`.
+
+**`apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx`** — Added Retry button:
+- New `onRetry?: (goal: string) => void` prop.
+- `canRetry` flag: true when `tone === "error"` AND `goalText` exists AND `onRetry` is provided.
+- Renders a "Retry" button (glass.control style, matching Copy button) below the failure message content.
+- `handleRetry` callback calls `onRetry(message.goalText)` on click.
+- Button only appears on failure outcome messages — not on success, warning, action, or user messages.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — this is pure renderer UI)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T37 complete. Program L is now fully complete (T35 ✓, T36 ✓, T37 ✓).
+- Remaining PM backlog: T38 (address bar autocomplete from browsing history, Program M, P2).
+- PM guidance: self-directed features should focus on user-visible browser value.
+
+*Session log entry written: 2026-03-16 (Session 147)*

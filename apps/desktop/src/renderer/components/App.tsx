@@ -676,7 +676,8 @@ export function App() {
         content,
         tone,
         timestamp: run.outcome!.finishedAt,
-        ...(ed && ed.length > 0 ? { extractedData: ed } : {})
+        ...(ed && ed.length > 0 ? { extractedData: ed } : {}),
+        ...(tone === "error" && run.goal ? { goalText: run.goal } : {})
       };
       chat.postToRunSessions(run.id, outcomeMsg);
     }
@@ -837,6 +838,7 @@ export function App() {
           onClearChat={chat.clearCurrentChat}
           onChatInputChange={chat.setChatInput}
           onSubmitTask={submitChatTask}
+          onRetryTask={(goal: string) => void submitChatTask(goal)}
           onResumeRun={handleResumeRun}
           onDismissRun={handleDismissRun}
         />

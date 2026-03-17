@@ -5,16 +5,18 @@ import { colors, glass } from "../../styles/tokens";
 
 interface Props {
   message: ChatMessage;
+  onRetry?: (goal: string) => void;
 }
 
 function extractedDataToTsv(data: Array<{ label: string; value: string }>): string {
   return data.map((item) => `${item.label}\t${item.value}`).join("\n");
 }
 
-export function ChatMessageItem({ message }: Props) {
+export function ChatMessageItem({ message, onRetry }: Props) {
   const [copied, setCopied] = useState(false);
   const isAction = message.tone === "action" || message.tone === "action-error";
   const hasExtracted = message.extractedData && message.extractedData.length > 0;
+  const canRetry = message.tone === "error" && !!message.goalText && !!onRetry;
 
   const handleCopy = useCallback(() => {
     if (!message.extractedData || copied) return;
@@ -24,6 +26,10 @@ export function ChatMessageItem({ message }: Props) {
       setTimeout(() => setCopied(false), 1500);
     });
   }, [message.extractedData, copied]);
+
+  const handleRetry = useCallback(() => {
+    if (message.goalText && onRetry) onRetry(message.goalText);
+  }, [message.goalText, onRetry]);
 
   return (
     <div style={{
@@ -56,6 +62,11 @@ export function ChatMessageItem({ message }: Props) {
             style={copied ? { ...styles.copyButton, ...styles.copyButtonCopied } : styles.copyButton}
           >
             {copied ? "Copied \u2713" : "Copy"}
+          </button>
+        )}
+        {canRetry && (
+          <button onClick={handleRetry} style={styles.retryButton}>
+            Retry
           </button>
         )}
         <div style={styles.chatTime}>
@@ -131,4 +142,15 @@ const styles: Record<string, React.CSSProperties> = {
     color: colors.emerald,
     borderColor: colors.emeraldBorder,
   },
+  retryButton: {
+    ...glass.control,
+    border: "1px solid " + colors.borderControl,
+    borderRadius: 6,
+    padding: "3px 10px",
+    marginTop: 6,
+    fontSize: "0.72rem",
+    color: colors.textSecondary,
+    cursor: "pointer",
+    transition: "all 150ms ease",
+  } as React.CSSProperties,
 };
