@@ -2813,3 +2813,20 @@ test("T25: URL warning without 4+ visits does NOT include action recap", () => {
   assert.doesNotMatch(user, /Your last \d+ actions/);
   assert.doesNotMatch(user, /Do NOT repeat/);
 });
+
+// ---------------------------------------------------------------------------
+// T27: Sub-goal progress tracking via save_note
+// ---------------------------------------------------------------------------
+
+test("T27: system prompt includes sub-goal progress tracking with save_note and progress key", () => {
+  const { system } = buildPlannerPrompt(makeRun(), makePageModel());
+
+  // Must have the section header
+  assert.match(system, /Sub-goal Progress Tracking/);
+  // Must reference save_note with "progress" key
+  assert.match(system, /save_note.*progress/i);
+  // Must instruct to check saved notes before next action
+  assert.match(system, /check your saved notes/i);
+  // Must instruct to update progress after each sub-goal
+  assert.match(system, /Update the progress note/i);
+});
