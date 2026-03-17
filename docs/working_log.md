@@ -12805,3 +12805,63 @@ Three blockers discovered and fixed:
 - Phase 1 user testing remains blocked — user has not tested beyond 3 simple searches
 
 *Session log entry written: 2026-03-17 (Session 235)*
+
+---
+
+### Session 236 — 2026-03-17: T72 — DMG Build (Option D second increment)
+
+#### Mode: feature (PM-directed — Option D packaging)
+
+Session 235 completed T71: `.app` bundle via `electron-builder --mac --dir`. The build config already targets `dmg` and `zip`. T72 verifies the full pipeline produces a distributable `.dmg`.
+
+#### Plan
+
+1. Run `pnpm run package:unsigned` to produce both `.dmg` and `.zip`
+2. Verify the DMG was created and is valid
+3. Verify the ZIP was created
+4. Update this log and commit
+
+#### Implementation
+
+No code changes required. The build config from T71 already targets both `dmg` and `zip`. This session verifies the full pipeline works end-to-end.
+
+**Build pipeline executed:**
+- `electron-vite build` — 3 bundles: main (63.8KB), preload (6.6KB), renderer (852.6KB)
+- `electron-builder --mac` with `CSC_IDENTITY_AUTO_DISCOVERY=false` — ad-hoc signed
+
+**Outputs produced:**
+- `/tmp/openbrowse-release/OpenBrowse-0.1.0-arm64.dmg` — 110 MB, verified checksum VALID
+- `/tmp/openbrowse-release/OpenBrowse-0.1.0-arm64-mac.zip` — 106 MB
+- `/tmp/openbrowse-release/mac-arm64/OpenBrowse.app` — unpacked app (same as T71)
+- Block maps generated for both DMG and ZIP (for future auto-update support)
+
+**DMG contents verified:**
+- `OpenBrowse.app` present
+- `Applications` symlink for drag-to-install
+- Standard `.background.tiff` and `.DS_Store` for Finder layout
+- `hdiutil verify` — checksum VALID
+- `codesign --verify` — valid (ad-hoc signed)
+
+**Notes:**
+- Default Electron icon still used (T73 will add custom icon)
+- `dmg-builder@1.2.0` auto-downloaded on first run
+- Node deprecation warning DEP0190 (shell option true) from electron-builder internals — cosmetic, does not affect the build
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1366/1366 pass (unchanged)
+- DMG produced, checksum verified, contents inspected via mount
+- ZIP produced alongside DMG
+- App codesign verified
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T73: App icon** — create `icon.icns` for `resources/` (currently uses default Electron icon)
+- **T74: First-launch wizard** — API key, Telegram bot token, default homepage setup
+- Phase 1 user testing remains blocked — user has not tested beyond 3 simple searches
+- **Distribution note:** The `.dmg` at `/tmp/openbrowse-release/OpenBrowse-0.1.0-arm64.dmg` is ready for local distribution. For external distribution, Apple notarization requires a Developer ID certificate.
+
+*Session log entry written: 2026-03-17 (Session 236)*
