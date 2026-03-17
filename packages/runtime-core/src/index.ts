@@ -13,4 +13,5 @@ export * from "./compose.js";
 export * from "./queries.js";
 export * from "./buildStartupDiagnostic.js";
 export * from "./isSetupNeeded.js";
+export * from "./checkForUpdate.js";
 export { buildHandoffArtifact, renderHandoffMarkdown } from "@openbrowse/observability";

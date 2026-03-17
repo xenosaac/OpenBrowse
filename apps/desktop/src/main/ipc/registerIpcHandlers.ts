@@ -7,6 +7,7 @@ import {
   bootstrapRunDetached,
   buildHandoffArtifact,
   cancelTrackedRun,
+  checkForUpdate,
   describeRuntime,
   getRuntimeSettings,
   handleInboundMessageDetached,
@@ -656,5 +657,11 @@ export function registerIpcHandlers(
       await services.scheduler.unregisterWatch(watchId);
     }
     return { ok: true };
+  });
+
+  // --- Auto-update check ---
+  register("app:check-update", async () => {
+    const currentVersion = app.getVersion();
+    return checkForUpdate(currentVersion, "openbrowse", "openbrowse");
   });
 }

@@ -31,6 +31,7 @@ import { ManagementPanel } from "./ManagementPanel";
 import { FindBar } from "./chrome/FindBar";
 import { loadKeybindingOverrides } from "./KeyboardShortcutsPanel";
 import { SetupWizard } from "./SetupWizard";
+import { UpdateBanner } from "./UpdateBanner";
 import type { KeyBindingOverrides } from "../lib/keybindings";
 import { isSetupNeeded } from "../lib/setupWizard";
 
@@ -182,6 +183,15 @@ declare global {
       // Setup wizard
       isSetupDismissed: () => Promise<boolean>;
       dismissSetup: () => Promise<{ ok: boolean }>;
+
+      // Auto-update check
+      checkForUpdate: () => Promise<{
+        available: boolean;
+        currentVersion: string;
+        latestVersion: string;
+        releaseUrl: string;
+        releaseName: string;
+      }>;
     };
   }
 }
@@ -215,6 +225,23 @@ export function App() {
     void window.openbrowse.isSetupDismissed().then(setSetupDismissed).catch(() => setSetupDismissed(false));
   }, []);
   const showSetupWizard = isSetupNeeded(agentRuns.settings, setupDismissed);
+
+  // ---- Auto-update check state ----
+  const [updateInfo, setUpdateInfo] = useState<{
+    available: boolean;
+    latestVersion: string;
+    releaseUrl: string;
+    releaseName: string;
+  } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void window.openbrowse.checkForUpdate()
+        .then((info) => { if (info.available) setUpdateInfo(info); })
+        .catch(() => {});
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ---- Find-in-page state ----
   const [findBarOpen, setFindBarOpen] = useState(false);
@@ -1015,7 +1042,17 @@ export function App() {
 
   // ---- Step 1.8: JSX with extracted components ----
   return (
-    <div style={styles.app}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw" }}>
+      {/* Update banner */}
+      {updateInfo && updateInfo.available && !updateDismissed && (
+        <UpdateBanner
+          latestVersion={updateInfo.latestVersion}
+          releaseUrl={updateInfo.releaseUrl}
+          releaseName={updateInfo.releaseName}
+          onDismiss={() => setUpdateDismissed(true)}
+        />
+      )}
+    <div style={{ ...styles.app, flex: 1, minHeight: 0 }}>
       {/* Sidebar */}
       <aside
         className="ob-glass-panel"
@@ -1255,6 +1292,7 @@ export function App() {
           }}
         />
       )}
+    </div>
     </div>
   );
 }

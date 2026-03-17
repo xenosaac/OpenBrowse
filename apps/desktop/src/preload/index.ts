@@ -170,6 +170,15 @@ const api = {
   isSetupDismissed: (): Promise<boolean> => ipcRenderer.invoke("setup:isDismissed"),
   dismissSetup: (): Promise<{ ok: boolean }> => ipcRenderer.invoke("setup:dismiss"),
 
+  // Auto-update check
+  checkForUpdate: (): Promise<{
+    available: boolean;
+    currentVersion: string;
+    latestVersion: string;
+    releaseUrl: string;
+    releaseName: string;
+  }> => ipcRenderer.invoke("app:check-update"),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
