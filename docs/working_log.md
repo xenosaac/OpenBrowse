@@ -10917,4 +10917,75 @@ Reason: Worktree clean, no unfinished task. All PM tasks T1-T53 done (T50/T53 bl
 - Consider adding Telegram notification when a watched page content changes — "content diff notifications" from Session 171/173 next steps.
 - Re-testing remains the #1 PM priority (user action).
 
+---
+
+### Session 175 — 2026-03-17: T54 — Watch Result Delivery via Telegram
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM tasks T1-T52 done (T50/T53 blocked on rebuild). Session 174 added `schedule_recurring` (essentially T55). PM explicitly directs "T54 → T55 → T56" (Program R: Recurring Task Maturity). T54 is P1: "this is the single feature that makes watches actually useful." Current state: watches run via `IntervalWatchScheduler`, which dispatches through `bootstrapRun`. The `HandoffManager.notifyTerminalEvent` already sends a generic Telegram notification for ALL runs (including scheduler runs), but it sends a verbose full handoff markdown — not watch-specific. T54 replaces this with a concise watch-specific notification format.
+
+#### Plan
+
+1. **`packages/runtime-core/src/HandoffManager.ts`**: Skip the generic terminal notification for `run.source === "scheduler"` runs. Watch-triggered runs get a dedicated notification instead (avoids double-notification with verbose handoff markdown).
+2. **`packages/runtime-core/src/compose.ts`**: In the scheduler dispatch callback, capture the `TaskRun` from `bootstrapRun`. After the run completes, format and send a concise watch-specific Telegram notification with `[Watch]` prefix, goal, status, outcome summary, and extractedData. On dispatch crash, send a failure notification and re-throw for scheduler backoff.
+3. **`tests/handoffManager.test.mjs`**: Add test that scheduler-source runs skip generic notification.
+4. **`tests/compose.test.mjs`**: Add tests for watch notification on success and failure.
+5. Run `pnpm run typecheck` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/HandoffManager.ts`** — Skip generic notification for scheduler runs:
+- Added early return in `notifyTerminalEvent` when `run.source === "scheduler"`. Watch-triggered runs get a dedicated concise notification from the scheduler dispatch callback instead of the verbose full handoff markdown.
+
+**`packages/runtime-core/src/compose.ts`** — Watch notification in scheduler dispatch:
+- Added `formatWatchNotification(run: TaskRun): string` helper (exported for testing). Produces a concise notification:
+  ```
+  [Watch] {goal}
+  Status: ✓ Completed / ✗ Failed
+  {outcome summary}
+  {extractedData as label: value pairs}
+  ```
+- Modified scheduler dispatch callback in `assembleRuntimeServices`:
+  - Captures `TaskRun` result from `schedulerDispatch` (cast from `unknown`).
+  - On success: formats watch notification and sends via `chatBridge.send()` (fire-and-forget).
+  - On crash (bootstrapRun throws): sends error notification with `[Watch]` prefix and error message, then re-throws so the scheduler handles backoff.
+- Added `TaskRun` to the contracts import.
+
+**`tests/handoffManager.test.mjs`** — 1 new test:
+- "notifyTerminalEvent skips generic notification for scheduler-source runs" — verifies 0 messages sent.
+
+**`tests/compose.test.mjs`** — 6 new tests:
+- "formatWatchNotification — completed run with extractedData" — verifies [Watch] prefix, goal, ✓ Completed, outcome summary, extractedData as label: value.
+- "formatWatchNotification — failed run" — verifies ✗ Failed status.
+- "formatWatchNotification — completed run without extractedData" — verifies no spurious label: value lines.
+- "assembleRuntimeServices — watch dispatch sends notification on completed run" — integration: scheduler fires, mock dispatch returns completed TaskRun, verifies [Watch] notification sent.
+- "assembleRuntimeServices — watch dispatch sends notification on failed run" — integration: failed run, verifies ✗ Failed notification.
+- "assembleRuntimeServices — watch dispatch sends error notification on crash" — integration: dispatch throws, verifies ✗ Error notification with error message.
+
+**Behavior:**
+- Before this feature: Watch-triggered runs sent the generic terminal notification — a verbose full handoff markdown document with action history, page context, run ID, etc. This was the same format as regular one-shot tasks, making it impossible to distinguish watch results from manual tasks. The handoff markdown is too verbose for recurring monitoring (users want a quick summary, not a full report).
+- After this feature: Watch-triggered runs send a concise `[Watch]` notification with just the goal, status, outcome summary, and extracted data. Regular (non-scheduler) runs continue to receive the full handoff markdown. Crashes during watch dispatch also generate a `[Watch]` error notification so the user knows the watch failed.
+- The "Task started" notification from `initializeTask` (line 237 of OpenBrowseRuntime.ts) still fires for scheduler runs, so the user sees both the start notification and the result notification.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/handoffManager.test.mjs` — 15/15 pass (was 14, +1 new)
+- `node --test tests/compose.test.mjs` — 26/26 pass (was 19, +7 new: 3 formatWatchNotification + 3 integration + 1 import change accounted for)
+- `node --test tests/*.test.mjs` — 1233/1233 pass (was 1226, +7 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T54 is complete. Watch-triggered runs now send concise Telegram notifications with [Watch] prefix, goal, status, and extractedData.
+- Session 174's `schedule_recurring` planner tool essentially implements T55 (agent-initiated watch creation). The only gap is watch persistence: RunExecutor's direct `scheduler.registerWatch()` does not trigger `persistWatches()`. Follow-up: add scheduler-level onChange callback or emit an event.
+- T56 (watch content comparison) is the next PM task in Program R. It compares `extractedData` across consecutive watch runs and flags changes in notifications.
+- T50 (vision cost measurement) and T53 (approval-gate page-context awareness) remain blocked on user rebuild.
+- Re-testing remains the #1 PM priority (user action).
+
+*Session log entry written: 2026-03-17 (Session 175)*
+
 *Session log entry written: 2026-03-17 (Session 174)*
