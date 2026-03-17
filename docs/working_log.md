@@ -13169,3 +13169,56 @@ Both timed-out tasks demonstrate correct reasoning — they just need more wall-
 - Per PM directive: **STOP — no further engineer work until PM analyzes results and issues new tasks.**
 
 *Session log entry written: 2026-03-17 (Session 240)*
+
+---
+
+### Session 241 — 2026-03-17: T78 — Validate Script API Key Fallback (Program Y)
+
+#### Mode: feature (PM-directed — Program Y: T78 → T77 → T79 → T80 → STOP)
+
+PM activated Program Y (product_manager.md line 1559). T78 is P0: make `pnpm run validate` work without setting `ANTHROPIC_API_KEY` env var by reading the key from the user's main database as a fallback. Session 240 ran T77 by manually extracting the key, but the validate.ts code still requires the env var. This iteration implements the proper fallback.
+
+PM task ordering: T78 → T77 (DONE) → T79 → T80 → STOP.
+
+#### Plan
+
+1. In `validate.ts`, after checking `process.env.ANTHROPIC_API_KEY`, add a fallback that:
+   - Opens the user's main database (`openbrowse.db` in `userData`) read-only via raw `better-sqlite3`
+   - Queries `user_preferences` for namespace `runtime_settings`, key `anthropic_api_key`
+   - Sets `process.env.ANTHROPIC_API_KEY` if found
+   - Does NOT write to the user's main database
+2. If neither source has a key, exit with existing error
+3. Run typecheck + tests
+4. Commit
+
+#### Implementation
+
+**API key fallback in `apps/desktop/src/main/validate.ts`:**
+- After checking `process.env.ANTHROPIC_API_KEY`, if empty, opens the user's main database at `path.join(app.getPath("userData"), "openbrowse.db")` read-only via `better-sqlite3`
+- Queries `user_preferences WHERE namespace = 'runtime_settings' AND key = 'anthropic_api_key'`
+- If found, trims and sets `process.env.ANTHROPIC_API_KEY` so `composeRuntime` and `ClaudePlannerGateway` pick it up
+- Read-only access — does NOT write to the user's main database
+- Graceful error handling: if the user DB doesn't exist or can't be read, falls through to the "no key found" error
+- `better-sqlite3` imported via `require()` (not `import`) to avoid needing `@types/better-sqlite3` in the desktop package
+- Updated error message: now mentions both env var and Settings panel as key sources
+
+**Files changed:**
+- `apps/desktop/src/main/validate.ts` — added `better-sqlite3` require, API key fallback from user DB
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1389/1389 pass (unchanged — no test logic changed)
+- `node scripts/build-validate.cjs`: produces `out/validate/main.mjs` with fallback logic present
+- Compiled output verified: `openbrowse.db` path, read-only open, SELECT query, and fallback log messages all present
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T79: Navigation double-retry with exponential backoff** — change from 1 retry to 2 retries (2s, 4s) in `navigateWithRetry.ts`
+- **T80: Failure category breakdown in RunAnalyticsPanel** — add failure classification to analytics
+- Then STOP per PM directive
+- Future validation runs (`pnpm run validate`) now work without env var if the user has entered their API key through the app
+
+*Session log entry written: 2026-03-17 (Session 241)*

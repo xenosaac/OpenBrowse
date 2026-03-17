@@ -13,6 +13,8 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
 import fs from "node:fs";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Database = require("better-sqlite3");
 import { composeRuntime } from "./runtime/composeRuntime";
 import {
   hydrateRuntimeSettings,
@@ -148,11 +150,31 @@ async function runTask(
 app.whenReady().then(async () => {
   console.log("\n=== OpenBrowse Validation Harness ===\n");
 
-  // Verify API key is available
-  const envKey = process.env.ANTHROPIC_API_KEY ?? "";
-  if (!envKey) {
+  // Resolve API key: env var first, then user's main database as fallback
+  let apiKey = (process.env.ANTHROPIC_API_KEY ?? "").trim();
+  if (!apiKey) {
+    const mainDbPath = path.join(app.getPath("userData"), "openbrowse.db");
+    if (fs.existsSync(mainDbPath)) {
+      try {
+        const db = new Database(mainDbPath, { readonly: true });
+        const row = db.prepare(
+          "SELECT value FROM user_preferences WHERE namespace = ? AND key = ?"
+        ).get("runtime_settings", "anthropic_api_key") as { value: string } | undefined;
+        db.close();
+        if (row?.value?.trim()) {
+          apiKey = row.value.trim();
+          process.env.ANTHROPIC_API_KEY = apiKey;
+          console.log("API key loaded from user database (openbrowse.db).");
+        }
+      } catch (err) {
+        console.warn("Could not read API key from user database:", (err as Error).message);
+      }
+    }
+  }
+  if (!apiKey) {
     console.error(
-      "ERROR: ANTHROPIC_API_KEY environment variable is required.\n" +
+      "ERROR: No API key found.\n" +
+        "Either set ANTHROPIC_API_KEY env var or enter your key in the app's Settings panel.\n" +
         "Usage: ANTHROPIC_API_KEY=sk-... pnpm run validate"
     );
     app.exit(1);
