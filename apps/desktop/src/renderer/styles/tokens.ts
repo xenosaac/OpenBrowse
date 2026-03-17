@@ -21,6 +21,8 @@ export const colors = {
   textSecondary: "#9090a8",
   textMuted: "#6b6b82",
   textWhite: "#ffffff",
+  textBright: "#f5f5ff",
+  textWarm: "#fffdf9",
 
   // Emerald accent
   emerald: "#10b981",

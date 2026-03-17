@@ -8260,3 +8260,131 @@ Both resolve to the same value today. Semantic separation allows future independ
 - PM Program I results should be re-validated after user re-tests multi-step tasks to measure T24+T25+T26 impact.
 
 *Session log entry written: 2026-03-16 (Session 134)*
+
+---
+
+### Session 135 — 2026-03-16: D13 — Management Panel Common-Token Sweep (Pass 1)
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM Program I (T24-T26, T23) fully complete. No severe correctness/security issues. D13 is the next available directed design task from the UI design doc. Feature mode because this is design polish, not framework work. D13 is the last remaining token hygiene task — after this, the token system is essentially complete.
+
+#### Plan
+
+**Pass 1 — Common token replacements.** Replace every raw hex that matches an existing token with the token import across 13 management panel files:
+
+1. **`tokens.ts`**: Add 2 new tokens: `textBright: '#f5f5ff'` (near-white headings) and `textWarm: '#fffdf9'` (warm near-white labels).
+2. **13 files**: Replace `#9090a8` → `colors.textSecondary`, `#6b6b82` → `colors.textMuted`, `#8f90a6` → `colors.textSecondary`, `#e5e7eb`/`#cbd5e1`/`#d7d7e4` → `colors.textPrimary`, `#ffffff` → `colors.textWhite`, `#f5f5ff` → `colors.textBright`, `#fffdf9` → `colors.textWarm`, `#ef4444` → `colors.statusFailed`, `#4ade80` → `colors.emeraldHover`.
+3. **RuntimeOverview exempt** — no changes per D13 policy.
+4. **Domain-specific color maps** (WorkflowLog eventColors, DemoPanel categoryColors, RemoteQuestions urgencyColors) — preserve as local constants per D13 policy.
+5. Run `pnpm run typecheck`.
+6. Update this log and commit.
+
+#### Implementation
+
+**`tokens.ts`** — Added 2 new text tokens:
+- `textBright: '#f5f5ff'` — near-white for headings and input text in secondary panels
+- `textWarm: '#fffdf9'` — warm near-white for button labels and form context
+
+**ManagementPanel.tsx** — 8 replacements:
+- `#9090a8` × 5 → `colors.textSecondary` (headerTitle, tabBtn, closeBtn, runtimeCardTitle, runtimeKey)
+- `#ffffff` × 2 → `colors.textWhite` (tabBtnActive, subTabBtnActive)
+- `#e5e7eb` × 1 → `colors.textPrimary` (runtimeValue)
+
+**DemoPanel.tsx** — 8 replacements:
+- `#9090a8` × 4 → `colors.textSecondary` (empty state, sectionHint, description, intervalLabel)
+- `#e5e7eb` × 1 → `colors.textPrimary` (sectionTitle)
+- `#ffffff` × 2 → `colors.textWhite` (badge, button)
+- `#f5f5ff` × 1 → `colors.textBright` (intervalInput)
+- `#f59e0b` × 1 → `colors.statusWaiting` (categoryColors.shopping)
+
+**WorkflowLog.tsx** — 10 replacements:
+- `#9090a8` × 4 → `colors.textSecondary` (selector label, empty text, replayElapsed, eventType)
+- `#e5e7eb` × 2 → `colors.textPrimary` (sectionTitle, eventSummary)
+- `#f5f5ff` × 1 → `colors.textBright` (select input)
+- `#6b6b82` × 1 → `colors.textMuted` (eventTime)
+- `#ef4444` × 1 → `colors.statusFailed` (eventColors.run_failed)
+
+**RemoteQuestions.tsx** — 6 replacements:
+- `#9090a8` × 2 → `colors.textSecondary` (empty state, pendingNote)
+- `#f5f5ff` × 1 → `colors.textBright` (input text)
+- `#fffdf9` × 1 → `colors.textWarm` (button text)
+- `#ef4444` × 2 → `colors.statusFailed` (RISK_CLASS_COLORS.financial, dismissButton)
+- `#f59e0b` × 1 → `colors.statusWaiting` (RISK_CLASS_COLORS.credential)
+
+**SettingsPanel.tsx** — 7 replacements:
+- `#8f90a6` × 3 → `colors.textSecondary` (subtitle, helpText, dirtyHint)
+- `#cbd5e1` × 2 → `colors.textPrimary` (runtimeBadge, label)
+- `#f5f5ff` × 1 → `colors.textBright` (input text)
+- `#fffdf9` × 1 → `colors.textWarm` (button text)
+
+**LiveTasks.tsx** — 3 replacements:
+- `#9090a8` × 1 → `colors.textSecondary` (empty state)
+- `#8f90a6` × 1 → `colors.textSecondary` (meta)
+- `#d7d7e4` × 1 → `colors.textPrimary` (summary)
+
+**HandoffViewer.tsx** — 4 replacements:
+- `#9090a8` × 2 → `colors.textSecondary` (selector label, hint)
+- `#f5f5ff` × 1 → `colors.textBright` (select input)
+- `#4ade80` × 1 → `colors.emeraldHover` (copyBtnCopied)
+
+**ManagedProfiles.tsx** — 2 replacements:
+- `#9090a8` × 1 → `colors.textSecondary` (empty state)
+- `#8f90a6` × 1 → `colors.textSecondary` (meta)
+
+**TaskStartForm.tsx** — 3 replacements:
+- `#f5f5ff` × 1 → `colors.textBright` (input text)
+- `#fffdf9` × 1 → `colors.textWarm` (button text)
+- `#8f90a6` × 1 → `colors.textSecondary` (hint)
+
+**HistoryPanel.tsx** — 1 replacement:
+- `#ef4444` × 1 → `colors.statusFailed` (clearBtnConfirm)
+
+**CookiePanel.tsx** — 1 replacement:
+- `#ef4444` × 1 → `colors.statusFailed` (clearBtnConfirm)
+
+**HomePage.tsx** — 1 replacement:
+- `#ffffff` × 1 → `colors.textWhite` (promptSubmit)
+
+**Domain-specific color maps preserved (per D13 policy):**
+- `WorkflowLog.tsx` eventColors — kept as top-level named `const`; only `run_failed` tokenized (maps to existing `colors.statusFailed`)
+- `DemoPanel.tsx` categoryColors — kept as top-level named `const`; `shopping` tokenized
+- `RemoteQuestions.tsx` RISK_CLASS_COLORS — kept as top-level named `const`; `financial` and `credential` tokenized
+- `LiveTasks.tsx` statusColors — already uses `colors.*` for most; untokenized domain-specific colors (`#eab308`, `#f97316`, `#94a3b8`, `#6b7280`) preserved per policy
+
+**RuntimeOverview exempt** — no changes per D13 policy.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — 2 new tokens (textBright, textWarm)
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — 8 hex → token
+- `apps/desktop/src/renderer/components/DemoPanel.tsx` — 8 hex → token
+- `apps/desktop/src/renderer/components/WorkflowLog.tsx` — 10 hex → token
+- `apps/desktop/src/renderer/components/RemoteQuestions.tsx` — 6 hex → token
+- `apps/desktop/src/renderer/components/SettingsPanel.tsx` — 7 hex → token
+- `apps/desktop/src/renderer/components/LiveTasks.tsx` — 3 hex → token
+- `apps/desktop/src/renderer/components/HandoffViewer.tsx` — 4 hex → token
+- `apps/desktop/src/renderer/components/ManagedProfiles.tsx` — 2 hex → token
+- `apps/desktop/src/renderer/components/TaskStartForm.tsx` — 3 hex → token
+- `apps/desktop/src/renderer/components/HistoryPanel.tsx` — 1 hex → token
+- `apps/desktop/src/renderer/components/CookiePanel.tsx` — 1 hex → token
+- `apps/desktop/src/renderer/components/panels/HomePage.tsx` — 1 hex → token
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1114/1114 pass (no test changes — purely visual token swaps)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D13 Pass 1 is complete. 54 raw hex instances replaced with token references across 13 files. 2 new tokens added.
+- Zero `#9090a8`, `#6b6b82`, `#8f90a6`, `#ffffff`, `#ef4444`, `#f59e0b`, `#e5e7eb`, `#cbd5e1`, `#d7d7e4`, `#f5f5ff`, `#fffdf9`, `#4ade80` remaining in renderer components.
+- D13 Pass 2 (domain color consolidation — ensuring domain maps are top-level named constants with comments) is available as a follow-up if needed. Most maps are already well-structured.
+- After D13, the token system is essentially complete. The only remaining untokenized values are domain-specific color maps (permitted by D13 policy), CSS animation exemptions, and local notification/badge colors (DemoPanel unavailableReason, RemoteQuestions question, etc.).
+- PM Program I results should be re-validated after user re-tests multi-step tasks to measure T24+T25+T26 impact.
+
+*Session log entry written: 2026-03-16 (Session 135)*
+
+*Session log entry written: 2026-03-16 (Session 134)*

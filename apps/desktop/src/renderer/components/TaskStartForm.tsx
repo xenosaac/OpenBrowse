@@ -85,12 +85,12 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid " + colors.borderDefault,
     borderRadius: 14,
     padding: "12px 14px",
-    color: "#f5f5ff",
+    color: colors.textBright,
     fontSize: "0.92rem"
   },
   button: {
     background: colors.emerald,
-    color: "#fffdf9",
+    color: colors.textWarm,
     border: "1px solid " + colors.emeraldBorderHover,
     borderRadius: 14,
     padding: "12px 16px",
@@ -101,7 +101,7 @@ const styles: Record<string, React.CSSProperties> = {
   hint: {
     margin: "6px 0 0",
     fontSize: "0.78rem",
-    color: "#8f90a6",
+    color: colors.textSecondary,
     lineHeight: 1.45
   },
   error: {

@@ -22,7 +22,7 @@ const eventColors: Record<string, string> = {
   approval_requested: "#f97316",
   approval_answered: colors.statusRunning,
   run_completed: colors.emerald,
-  run_failed: "#ef4444",
+  run_failed: colors.statusFailed,
   run_cancelled: "#6b7280"
 };
 
@@ -30,7 +30,7 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
   return (
     <div style={styles.root}>
       <div style={styles.selector}>
-        <label style={{ color: "#9090a8", fontSize: "0.85rem" }}>Run: </label>
+        <label style={{ color: colors.textSecondary, fontSize: "0.85rem" }}>Run: </label>
         <select
           value={selectedRunId ?? ""}
           onChange={(e) => onSelectRun(e.target.value)}
@@ -46,7 +46,7 @@ export function WorkflowLog({ logs, replaySteps, selectedRunId, runs, onSelectRu
       </div>
 
       {logs.length === 0 && (
-        <p style={{ color: "#9090a8" }}>
+        <p style={{ color: colors.textSecondary }}>
           {selectedRunId ? "No events for this run." : "Select a run to view its log."}
         </p>
       )}
@@ -123,7 +123,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   select: {
     ...glass.input,
-    color: "#f5f5ff",
+    color: colors.textBright,
     border: "1px solid " + colors.borderDefault,
     borderRadius: 8,
     padding: "4px 8px",
@@ -143,10 +143,10 @@ const styles: Record<string, React.CSSProperties> = {
   sectionTitle: {
     margin: "0 0 10px",
     fontSize: "0.95rem",
-    color: "#e5e7eb"
+    color: colors.textPrimary
   },
   emptyText: {
-    color: "#9090a8",
+    color: colors.textSecondary,
     fontSize: "0.9rem"
   },
   replayPanel: {
@@ -164,7 +164,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: "1px solid " + colors.borderSubtle
   },
   replayElapsed: {
-    color: "#9090a8",
+    color: colors.textSecondary,
     fontSize: "0.8rem",
     fontVariantNumeric: "tabular-nums"
   },
@@ -191,17 +191,17 @@ const styles: Record<string, React.CSSProperties> = {
   },
   eventType: {
     fontSize: "0.8rem",
-    color: "#9090a8",
+    color: colors.textSecondary,
     textTransform: "uppercase" as const
   },
   eventSummary: {
     fontSize: "0.9rem",
-    color: "#e5e7eb",
+    color: colors.textPrimary,
     overflowWrap: "break-word"
   },
   eventTime: {
     fontSize: "0.75rem",
-    color: "#6b6b82"
+    color: colors.textMuted
   },
   payloadList: {
     display: "flex",

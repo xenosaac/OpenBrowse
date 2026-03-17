@@ -50,7 +50,7 @@ export function HandoffViewer({ selectedRunId, runs, onSelectRun }: Props) {
     <div style={styles.root}>
       <div style={styles.toolbar}>
         <div style={styles.selector}>
-          <label style={{ color: "#9090a8", fontSize: "0.85rem" }}>Run: </label>
+          <label style={{ color: colors.textSecondary, fontSize: "0.85rem" }}>Run: </label>
           <select
             value={selectedRunId ?? ""}
             onChange={(e) => onSelectRun(e.target.value)}
@@ -115,7 +115,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   select: {
     ...glass.input,
-    color: "#f5f5ff",
+    color: colors.textBright,
     border: "1px solid " + colors.borderDefault,
     borderRadius: 8,
     padding: "4px 8px",
@@ -134,10 +134,10 @@ const styles: Record<string, React.CSSProperties> = {
   copyBtnCopied: {
     background: "rgba(34,197,94,0.15)",
     borderColor: "rgba(34,197,94,0.4)",
-    color: "#4ade80"
+    color: colors.emeraldHover
   },
   hint: {
-    color: "#9090a8",
+    color: colors.textSecondary,
     margin: 0
   },
   pre: {
