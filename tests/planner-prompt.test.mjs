@@ -1021,7 +1021,8 @@ test("active dialog hint shown when activeDialog present", () => {
   const pm = makePageModel({ activeDialog: { label: "Cookie Consent" } });
   const { user } = buildPlannerPrompt(makeRun(), pm);
   assert.match(user, /DIALOG OPEN: "Cookie Consent"/);
-  assert.match(user, /modal dialog is covering the page/);
+  assert.match(user, /You MUST address it/);
+  assert.match(user, /before attempting to interact with background/);
 });
 
 test("active dialog hint absent when no activeDialog", () => {
@@ -2902,4 +2903,45 @@ test("T29: user prompt omits page-type hint for unknown or missing pageType", ()
   // undefined (default makePageModel has no pageType)
   const { user: noTypeUser } = buildPlannerPrompt(makeRun(), makePageModel());
   assert.doesNotMatch(noTypeUser, /Page type:/);
+});
+
+// ---------------------------------------------------------------------------
+// T32: Dialog-aware planner guidance — MUST emphasis
+// ---------------------------------------------------------------------------
+
+test("T32: dialog hint uses MUST wording per PM spec", () => {
+  const pm = makePageModel({ activeDialog: { label: "Confirm Delete" } });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /DIALOG OPEN: "Confirm Delete"/);
+  assert.match(user, /You MUST address it \(dismiss, fill, or interact with it\)/);
+  assert.match(user, /before attempting to interact with background page elements/);
+});
+
+// ---------------------------------------------------------------------------
+// T33: Planner note cap transparency
+// ---------------------------------------------------------------------------
+
+test("T33: saved notes section shows count/20 and eviction policy", () => {
+  const run = makeRun({
+    checkpoint: {
+      summary: "In progress",
+      notes: [],
+      stepCount: 5,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+      plannerNotes: [
+        { key: "progress", value: "Step 2/4 done" },
+        { key: "prices", value: "Site A: $500" }
+      ]
+    }
+  });
+  const { user } = buildPlannerPrompt(run, makePageModel());
+  assert.match(user, /Your saved notes \(2\/20/);
+  assert.match(user, /same key overwrites/);
+  assert.match(user, /oldest evicted if full/);
+});
+
+test("T33: saved notes section absent when no notes", () => {
+  const { user } = buildPlannerPrompt(makeRun(), makePageModel());
+  assert.ok(!user.includes("Your saved notes"));
 });

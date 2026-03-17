@@ -8731,3 +8731,61 @@ Rationale: Worktree clean, no unfinished task. T30 (soft failure classification)
 - Program K is now 2/5 complete (T30 ✓, T31 ✓). T32-T34 are P2 — lower urgency.
 
 *Session log entry written: 2026-03-16 (Session 142)*
+
+---
+
+### Session 143 — 2026-03-16: T32 + T33 — Dialog MUST Wording + Planner Note Cap Transparency
+
+#### Mode: feature
+
+Rationale: Worktree clean, no unfinished task. T30 (P1) and T31 (P1) done. PM directs T32 → T33 → T34 next (all P2). T32 (dialog-aware planner guidance) is already 95% implemented — the dialog hint exists with 3 tests and correct behavior. PM acceptance criteria say "You MUST address it" but current wording says "Interact with the dialog elements first" — functionally equivalent but lacks MUST emphasis. T33 (planner note cap transparency) is genuinely new: the planner has a 20-note cap but is never told about it. Combining T32 (1-line wording tweak) and T33 (small prompt addition) into one iteration since both are prompt-only, zero-risk.
+
+#### Plan
+
+1. T32: Strengthen dialog hint wording to include "MUST" per PM spec.
+2. T33: Add note cap transparency — inform planner about 20-note limit and upsert semantics in the "Your saved notes" section header and/or save_note tool description.
+3. Add tests: 1 for T32 MUST wording, 1-2 for T33 note cap info.
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**T32 — Dialog MUST wording:**
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Strengthened dialog hint wording (line 180):
+- Old: "A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements."
+- New: "A dialog/modal is currently open. You MUST address it (dismiss, fill, or interact with it) before attempting to interact with background page elements."
+- Matches PM acceptance criteria exactly. Existing 3 dialog tests updated to match new wording.
+
+**T33 — Planner note cap transparency:**
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Updated "Your saved notes" section header (line 64):
+- Old: `Your saved notes (from browser_save_note — persistent across pages):`
+- New: `Your saved notes (N/20 — same key overwrites, oldest evicted if full):`
+- Shows current count vs limit, explains upsert and eviction behavior.
+
+**`packages/planner/src/toolMapping.ts`** — Updated `browser_save_note` tool description (line 159):
+- Appended: "Limit: 20 notes. Same key overwrites (upsert). Oldest evicted if full. Prefer updating existing notes over creating new ones."
+- This appears in the tool schema sent to Claude, so the planner sees the limit even before any notes exist.
+
+**`tests/planner-prompt.test.mjs`** — 3 new tests:
+- "T32: dialog hint uses MUST wording per PM spec" — verifies MUST language, dismiss/fill/interact phrasing, background page reference
+- "T33: saved notes section shows count/20 and eviction policy" — verifies N/20 format, "same key overwrites", "oldest evicted"
+- "T33: saved notes section absent when no notes" — verifies no hint when notes array is empty
+
+#### Verification
+
+- `pnpm --filter @openbrowse/planner build` — ✓ clean
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/planner-prompt.test.mjs` — 194/194 pass (+3 new)
+- `node --test tests/*.test.mjs` — 1131/1131 pass (was 1128, +3 new, no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T32 and T33 complete. Program K is now 4/5 complete (T30 ✓, T31 ✓, T32 ✓, T33 ✓). Only T34 (validation_error as soft failure) remains.
+- T34 is P2 — adds `validation_error` to `SOFT_FAILURE_CLASSES` so form validation errors don't kill runs. Small scope.
+- After T34: Program K is fully complete. All PM-directed programs (A-K) will be done. PM guidance says next work should focus on user-visible browser value (bookmark support, tab pinning, address bar history) or re-testing.
+
+*Session log entry written: 2026-03-16 (Session 143)*

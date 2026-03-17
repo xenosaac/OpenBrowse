@@ -156,7 +156,7 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "browser_save_note",
-    description: "Save a note to your scratchpad for later reference. Use this to record intermediate findings, extracted data, or context you'll need on a future page (e.g. search results, prices, names, URLs to visit next). Notes persist across page navigations and appear in your context on every subsequent step.",
+    description: "Save a note to your scratchpad for later reference. Use this to record intermediate findings, extracted data, or context you'll need on a future page (e.g. search results, prices, names, URLs to visit next). Notes persist across page navigations and appear in your context on every subsequent step. Limit: 20 notes. Same key overwrites (upsert). Oldest evicted if full. Prefer updating existing notes over creating new ones.",
     input_schema: {
       type: "object" as const,
       properties: {
