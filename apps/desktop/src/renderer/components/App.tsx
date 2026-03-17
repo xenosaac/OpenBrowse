@@ -105,8 +105,9 @@ declare global {
       browserZoomIn: (sessionId: string) => Promise<{ zoomLevel: number }>;
       browserZoomOut: (sessionId: string) => Promise<{ zoomLevel: number }>;
       browserZoomReset: (sessionId: string) => Promise<{ zoomLevel: number }>;
-      // DevTools / Print / PDF
+      // DevTools / Print / PDF / Reader
       openDevTools: (sessionId: string) => Promise<unknown>;
+      toggleReaderMode: (sessionId: string) => Promise<{ active: boolean; success: boolean }>;
       printPage: (sessionId: string) => Promise<unknown>;
       saveAsPdf: (sessionId: string) => Promise<boolean>;
       // Chat persistence
@@ -280,6 +281,36 @@ export function App() {
       setIsBookmarked(true);
     }
   }, [displayUrl, isBookmarked, selection.activeBrowserTab?.title]);
+
+  // ---- Reader mode state ----
+  const [readerModeTabs, setReaderModeTabs] = useState<Set<string>>(new Set());
+  const isReaderMode = selection.activeBrowserTab ? readerModeTabs.has(selection.activeBrowserTab.id) : false;
+
+  // Reset reader mode on navigation
+  useEffect(() => {
+    if (selection.activeBrowserTab && displayUrl) {
+      setReaderModeTabs(prev => {
+        if (!prev.has(selection.activeBrowserTab!.id)) return prev;
+        const next = new Set(prev);
+        next.delete(selection.activeBrowserTab!.id);
+        return next;
+      });
+    }
+  }, [displayUrl]);
+
+  const handleToggleReaderMode = useCallback(async () => {
+    if (!selection.activeBrowserTab) return;
+    const sessionId = selection.activeBrowserTab.id;
+    const result = await window.openbrowse.toggleReaderMode(sessionId);
+    if (result.success) {
+      setReaderModeTabs(prev => {
+        const next = new Set(prev);
+        if (result.active) next.add(sessionId);
+        else next.delete(sessionId);
+        return next;
+      });
+    }
+  }, [selection.activeBrowserTab]);
 
   // ---- Step 1.6: Cross-cutting handlers ----
 
@@ -823,6 +854,16 @@ export function App() {
       >
         Developer Tools
       </button>
+      <button
+        className="ob-dropdown-item"
+        style={{
+          ...styles.dropdownItem,
+          ...(!(selection.mainPanel === "browser" && selection.activeBrowserTab) ? { opacity: 0.4, pointerEvents: "none" as const } : {})
+        }}
+        onClick={() => void handleToggleReaderMode()}
+      >
+        {isReaderMode ? "Exit Reader Mode" : "Reader Mode"}
+      </button>
       <div style={styles.dropdownSeparator} />
       <button
         className="ob-dropdown-item"
@@ -929,6 +970,8 @@ export function App() {
           isSecure={isSecure}
           waitingCount={agentRuns.suspendedRuns.length}
           isBookmarked={isBookmarked}
+          isReaderMode={isReaderMode}
+          onToggleReaderMode={() => void handleToggleReaderMode()}
           suggestions={addressBar.suggestions}
           selectedIndex={addressBar.selectedIndex}
           onToggleBookmark={() => void handleToggleBookmark()}

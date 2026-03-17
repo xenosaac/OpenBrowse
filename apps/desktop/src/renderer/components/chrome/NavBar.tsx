@@ -14,6 +14,8 @@ interface Props {
   isSecure: boolean;
   waitingCount: number;
   isBookmarked: boolean;
+  isReaderMode: boolean;
+  onToggleReaderMode: () => void;
   suggestions: AddressBarSuggestion[];
   selectedIndex: number;
   onToggleBookmark: () => void;
@@ -38,8 +40,8 @@ export function NavBar(props: Props) {
   const {
     activeBrowserTab, mainPanel, addressInput, addressEditing,
     navState, displayUrl, isSecure, waitingCount,
-    isBookmarked, suggestions, selectedIndex,
-    onToggleBookmark,
+    isBookmarked, isReaderMode, suggestions, selectedIndex,
+    onToggleBookmark, onToggleReaderMode,
     onAddressChange, onAddressFocus, onAddressBlur, onNavigate,
     onBack, onForward, onReload, onHome, onOpenManagement,
     onToggleMenu, onMoveSelection, onSetSelectedIndex, onSelectSuggestion,
@@ -122,17 +124,30 @@ export function NavBar(props: Props) {
           style={{ ...styles.addressInput, WebkitAppRegion: "no-drag" } as React.CSSProperties}
         />
         {displayUrl && displayUrl !== "about:blank" && (
-          <button
-            className="ob-btn"
-            style={{
-              ...styles.bookmarkStar,
-              color: isBookmarked ? colors.emerald : colors.textMuted,
-            }}
-            onClick={onToggleBookmark}
-            title={isBookmarked ? "Remove bookmark" : "Add bookmark"}
-          >
-            {isBookmarked ? "★" : "☆"}
-          </button>
+          <>
+            <button
+              className="ob-btn"
+              style={{
+                ...styles.bookmarkStar,
+                color: isReaderMode ? colors.emerald : colors.textMuted,
+              }}
+              onClick={onToggleReaderMode}
+              title={isReaderMode ? "Exit Reader Mode" : "Reader Mode"}
+            >
+              ¶
+            </button>
+            <button
+              className="ob-btn"
+              style={{
+                ...styles.bookmarkStar,
+                color: isBookmarked ? colors.emerald : colors.textMuted,
+              }}
+              onClick={onToggleBookmark}
+              title={isBookmarked ? "Remove bookmark" : "Add bookmark"}
+            >
+              {isBookmarked ? "★" : "☆"}
+            </button>
+          </>
         )}
         {showDropdown && (
           <div style={styles.dropdown}>

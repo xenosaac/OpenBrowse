@@ -390,6 +390,10 @@ export function registerIpcHandlers(
     return { ok: true };
   });
 
+  register("browser:toggle-reader-mode", async (_event, sessionId: string) => {
+    return browserShell.toggleReaderMode(sessionId);
+  });
+
   register("browser:print", async (_event, sessionId: string) => {
     browserShell.printPage(sessionId);
     return { ok: true };
