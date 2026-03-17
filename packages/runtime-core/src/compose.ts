@@ -1,6 +1,6 @@
 import type { BrowserKernel } from "@openbrowse/browser-runtime";
 import type { ChatBridge } from "@openbrowse/chat-bridge";
-import type { RuntimeConfig, RuntimeDescriptor, RuntimeSettings, TaskIntent, WorkflowEvent } from "@openbrowse/contracts";
+import type { RuntimeConfig, RuntimeDescriptor, RuntimeSettings, TaskIntent, TaskRun, WorkflowEvent } from "@openbrowse/contracts";
 import {
   InMemoryBookmarkStore,
   InMemoryBrowserProfileStore,
@@ -147,6 +147,34 @@ export interface AssembleServicesParams extends StorageBundle {
 }
 
 /**
+ * Formats a concise watch notification for Telegram delivery.
+ * @internal Exported for testing only.
+ */
+export function formatWatchNotification(run: TaskRun): string {
+  const isSuccess = run.status === "completed";
+  const statusIcon = isSuccess ? "\u2713" : "\u2717";
+  const statusText = isSuccess ? "Completed" : "Failed";
+
+  const lines: string[] = [
+    `[Watch] ${run.goal}`,
+    `Status: ${statusIcon} ${statusText}`
+  ];
+
+  if (run.outcome?.summary) {
+    lines.push("", run.outcome.summary);
+  }
+
+  if (run.outcome?.extractedData && run.outcome.extractedData.length > 0) {
+    lines.push("");
+    for (const item of run.outcome.extractedData) {
+      lines.push(`${item.label}: ${item.value}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+/**
  * Assembles the full RuntimeServices object from pre-built subsystem parts.
  * Owns the scheduler, event bus, orchestrator, and security policy construction.
  */
@@ -161,7 +189,23 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
       source: "scheduler",
       createdAt: new Date().toISOString()
     };
-    await params.schedulerDispatch(services, schedulerIntent);
+    try {
+      const result = await params.schedulerDispatch(services, schedulerIntent);
+      // Send concise watch-specific notification via Telegram
+      const run = result as TaskRun | undefined;
+      if (run && run.status && run.goal) {
+        const text = formatWatchNotification(run);
+        void services.chatBridge.send({ channel: "telegram", runId: run.id, text })
+          .catch((err: unknown) => console.error("[scheduler] Watch notification failed:", err instanceof Error ? err.message : err));
+      }
+    } catch (error) {
+      // Send failure notification for initialization crashes
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const text = `[Watch] ${intent.goal}\nStatus: \u2717 Error\n\n${errorMsg}`;
+      void services.chatBridge.send({ channel: "telegram", runId: intent.id, text })
+        .catch(() => {});
+      throw error; // re-throw so scheduler handles backoff
+    }
   });
 
   services = {

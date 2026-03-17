@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   assembleRuntimeServices,
   createRuntimeStorage,
+  formatWatchNotification,
 } from "../packages/runtime-core/dist/compose.js";
 import { createDefaultRuntimeSettings } from "../packages/contracts/dist/index.js";
 
@@ -290,4 +291,193 @@ test("assembleRuntimeServices — pendingCancellations is an empty Set", async (
   const services = assembleRuntimeServices(params);
   assert.ok(services.pendingCancellations instanceof Set);
   assert.equal(services.pendingCancellations.size, 0);
+});
+
+// ===========================================================================
+// formatWatchNotification (T54)
+// ===========================================================================
+
+function makeWatchRun(overrides = {}) {
+  return {
+    id: "run_watch_1",
+    taskIntentId: "intent_1",
+    status: overrides.status ?? "completed",
+    goal: overrides.goal ?? "Check Bitcoin price",
+    source: "scheduler",
+    constraints: [],
+    metadata: {},
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:05.000Z",
+    checkpoint: {
+      summary: "Done",
+      notes: [],
+      stepCount: 3,
+      actionHistory: [],
+      consecutiveSoftFailures: 0,
+    },
+    outcome: overrides.outcome ?? {
+      status: "completed",
+      summary: "Bitcoin is at $98,500",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  };
+}
+
+test("formatWatchNotification — completed run with extractedData", () => {
+  const run = makeWatchRun({
+    outcome: {
+      status: "completed",
+      summary: "Found current Bitcoin price",
+      extractedData: [
+        { label: "Price", value: "$98,500" },
+        { label: "Exchange", value: "CoinGecko" },
+      ],
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.startsWith("[Watch]"), "should start with [Watch] prefix");
+  assert.ok(text.includes("Check Bitcoin price"), "should include goal");
+  assert.ok(text.includes("✓ Completed"), "should show completed status");
+  assert.ok(text.includes("Found current Bitcoin price"), "should include outcome summary");
+  assert.ok(text.includes("Price: $98,500"), "should include extracted data");
+  assert.ok(text.includes("Exchange: CoinGecko"), "should include all extracted items");
+});
+
+test("formatWatchNotification — failed run", () => {
+  const run = makeWatchRun({
+    status: "failed",
+    outcome: {
+      status: "failed",
+      summary: "Navigation timeout on coingecko.com",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.startsWith("[Watch]"), "should start with [Watch] prefix");
+  assert.ok(text.includes("✗ Failed"), "should show failed status");
+  assert.ok(text.includes("Navigation timeout"), "should include failure summary");
+});
+
+test("formatWatchNotification — completed run without extractedData", () => {
+  const run = makeWatchRun({
+    outcome: {
+      status: "completed",
+      summary: "Task completed successfully",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const text = formatWatchNotification(run);
+  assert.ok(text.includes("[Watch]"));
+  assert.ok(text.includes("✓ Completed"));
+  assert.ok(text.includes("Task completed successfully"));
+  // Should not contain label: value lines (no extractedData)
+  assert.ok(!text.includes("Price:"));
+});
+
+// ===========================================================================
+// Watch dispatch sends Telegram notification (T54 integration)
+// ===========================================================================
+
+test("assembleRuntimeServices — watch dispatch sends notification on completed run", async () => {
+  const sentMessages = [];
+  const completedRun = makeWatchRun({ status: "completed" });
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => completedRun,
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  const watchId = await services.scheduler.registerWatch({
+    id: "test-watch",
+    goal: "Check Bitcoin price",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  // Wait for the scheduler to fire and notification to be sent
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  // Find the watch-specific notification (starts with [Watch])
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent at least one [Watch] notification");
+  assert.ok(watchNotifications[0].text.includes("✓ Completed"));
+  assert.ok(watchNotifications[0].text.includes("Check Bitcoin price"));
+  assert.equal(watchNotifications[0].channel, "telegram");
+});
+
+test("assembleRuntimeServices — watch dispatch sends notification on failed run", async () => {
+  const sentMessages = [];
+  const failedRun = makeWatchRun({
+    status: "failed",
+    goal: "Monitor stock price",
+    outcome: {
+      status: "failed",
+      summary: "Page not reachable",
+      finishedAt: "2026-01-01T00:00:05.000Z",
+    },
+  });
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => failedRun,
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  await services.scheduler.registerWatch({
+    id: "test-watch-fail",
+    goal: "Monitor stock price",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent at least one [Watch] notification");
+  assert.ok(watchNotifications[0].text.includes("✗ Failed"));
+  assert.ok(watchNotifications[0].text.includes("Monitor stock price"));
+});
+
+test("assembleRuntimeServices — watch dispatch sends error notification on crash", async () => {
+  const sentMessages = [];
+
+  const params = await makeAssembleParams({
+    schedulerDispatch: async () => { throw new Error("Browser init failed"); },
+    chatBridge: {
+      ...stubChatBridge(),
+      send: async (msg) => { sentMessages.push(msg); },
+    },
+  });
+  const services = assembleRuntimeServices(params);
+
+  await services.scheduler.registerWatch({
+    id: "test-watch-crash",
+    goal: "Check weather",
+    source: "scheduler",
+    constraints: [],
+    createdAt: new Date().toISOString(),
+  }, 0.001);
+
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await services.scheduler.dispose();
+
+  const watchNotifications = sentMessages.filter((m) => m.text && m.text.startsWith("[Watch]"));
+  assert.ok(watchNotifications.length >= 1, "should have sent error notification");
+  assert.ok(watchNotifications[0].text.includes("✗ Error"));
+  assert.ok(watchNotifications[0].text.includes("Browser init failed"));
 });

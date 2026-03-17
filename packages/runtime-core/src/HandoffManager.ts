@@ -41,6 +41,10 @@ export class HandoffManager {
   }
 
   async notifyTerminalEvent(run: TaskRun): Promise<void> {
+    // Skip generic notification for scheduler-triggered runs — they get a
+    // dedicated watch notification from the scheduler dispatch callback.
+    if (run.source === "scheduler") return;
+
     const artifact = buildHandoffArtifact(run);
     const markdown = renderHandoffMarkdown(artifact);
     const prefix: Record<string, string> = {

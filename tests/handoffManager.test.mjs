@@ -164,6 +164,17 @@ test("notifyTerminalEvent truncates long goals in status line", async () => {
   assert.ok(!firstLine.includes("A".repeat(61)));
 });
 
+test("notifyTerminalEvent skips generic notification for scheduler-source runs", async () => {
+  const { services, sentMessages } = makeServices();
+  const hm = new HandoffManager(services);
+  const run = makeRun({ status: "completed", source: "scheduler" });
+  run.source = "scheduler";
+
+  await hm.notifyTerminalEvent(run);
+
+  assert.equal(sentMessages.length, 0, "scheduler runs should not receive generic terminal notification");
+});
+
 test("notifyTerminalEvent swallows send errors", async () => {
   const { services } = makeServices({
     send: async () => { throw new Error("network failure"); },
