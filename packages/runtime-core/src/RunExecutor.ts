@@ -67,8 +67,7 @@ export class RunExecutor {
   async plannerLoop(run: TaskRun, session: BrowserSession): Promise<TaskRun> {
     let current = run;
     let activeSession = session;
-    let consecutiveIdenticalActions = 0;
-    let lastActionKey = "";
+    const stuckState = { consecutiveIdenticalActions: 0, lastActionKey: "" };
 
     // On-demand screenshot: stored when the planner calls browser_screenshot,
     // included as screenshotBase64 in the *next* planner call, then cleared.
@@ -249,6 +248,8 @@ export class RunExecutor {
             ok: "true",
             description: action.description
           });
+          const noteStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (noteStuck) return noteStuck;
           continue;
         }
 
@@ -275,6 +276,8 @@ export class RunExecutor {
             ok: "true",
             description: action.description
           });
+          const screenshotStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (screenshotStuck) return screenshotStuck;
           continue;
         }
 
@@ -361,6 +364,8 @@ export class RunExecutor {
             description: action.description,
             tabIndex: String(newIndex)
           });
+          const newTabStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (newTabStuck) return newTabStuck;
           continue;
         }
 
@@ -414,6 +419,8 @@ export class RunExecutor {
           await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
             actionType: action.type, ok: "true", description: action.description, tabIndex: String(targetIndex)
           });
+          const switchStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          if (switchStuck) return switchStuck;
           continue;
         }
 
@@ -518,50 +525,8 @@ export class RunExecutor {
         }
 
         // --- Stuck detection (only on successful actions — prevents false positives) ---
-
-        // 1. Consecutive identical actions
-        const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
-        if (actionKey === lastActionKey) {
-          consecutiveIdenticalActions++;
-          if (consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
-            const msg = `Stuck: repeated "${action.type}" on ${pageModel.url} ${consecutiveIdenticalActions} times.`;
-            current = this.services.orchestrator.failRun(current, msg);
-            await this.services.runCheckpointStore.save(current);
-            await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-            await this.handoff.writeHandoff(current);
-            return current;
-          }
-        } else {
-          consecutiveIdenticalActions = 0;
-          lastActionKey = actionKey;
-        }
-
-        // 2. URL visit count — detect excessive revisiting
-        const urlCounts = current.checkpoint.urlVisitCounts ?? {};
-        const currentUrlVisits = urlCounts[pageModel.url] ?? 0;
-        if (currentUrlVisits >= MAX_URL_VISITS_BEFORE_FAIL) {
-          const msg = `Stuck: visited ${pageModel.url} ${currentUrlVisits} times. Moving on is not working.`;
-          current = this.services.orchestrator.failRun(current, msg);
-          await this.services.runCheckpointStore.save(current);
-          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-          await this.handoff.writeHandoff(current);
-          return current;
-        }
-
-        // 3. Cycle detection: 2/3/4/5-step cycles over extended window
-        const recentKeys = (current.checkpoint.actionHistory ?? [])
-          .slice(-CYCLE_DETECTION_WINDOW)
-          .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
-
-        const cycleLength = detectCycle(recentKeys);
-        if (cycleLength > 0) {
-          const msg = `Stuck in ${cycleLength}-step cycle. The agent is repeating the same sequence of actions.`;
-          current = this.services.orchestrator.failRun(current, msg);
-          await this.services.runCheckpointStore.save(current);
-          await this.logEvent(current.id, "run_failed", current.outcome?.summary ?? "Failed", {});
-          await this.handoff.writeHandoff(current);
-          return current;
-        }
+        const actionStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+        if (actionStuck) return actionStuck;
 
         await this.services.runCheckpointStore.save(current);
         continue;
@@ -662,6 +627,55 @@ export class RunExecutor {
     }
 
     return this.plannerLoop(current, session);
+  }
+
+  /**
+   * Run stuck detection checks after any action (normal or special-handler).
+   * Returns the failed TaskRun if stuck, or null to continue.
+   */
+  private async checkStuckAfterAction(
+    action: { type: string; targetId?: string; description: string },
+    pageModel: PageModel,
+    current: TaskRun,
+    stuckState: { consecutiveIdenticalActions: number; lastActionKey: string }
+  ): Promise<TaskRun | null> {
+    // 1. Consecutive identical actions
+    const actionKey = `${action.type}:${action.targetId ?? ""}:${action.description}:${pageModel.url}`;
+    if (actionKey === stuckState.lastActionKey) {
+      stuckState.consecutiveIdenticalActions++;
+      if (stuckState.consecutiveIdenticalActions >= MAX_CONSECUTIVE_IDENTICAL_ACTIONS) {
+        return this.failStuck(current, `Stuck: repeated "${action.type}" on ${pageModel.url} ${stuckState.consecutiveIdenticalActions} times.`);
+      }
+    } else {
+      stuckState.consecutiveIdenticalActions = 0;
+      stuckState.lastActionKey = actionKey;
+    }
+
+    // 2. URL visit count — detect excessive revisiting
+    const urlCounts = current.checkpoint.urlVisitCounts ?? {};
+    const visits = urlCounts[pageModel.url] ?? 0;
+    if (visits >= MAX_URL_VISITS_BEFORE_FAIL) {
+      return this.failStuck(current, `Stuck: visited ${pageModel.url} ${visits} times. Moving on is not working.`);
+    }
+
+    // 3. Cycle detection: 2/3/4/5-step cycles over extended window
+    const recentKeys = (current.checkpoint.actionHistory ?? [])
+      .slice(-CYCLE_DETECTION_WINDOW)
+      .map(r => `${r.type}:${r.targetId ?? ""}:${r.description}:${r.targetUrl ?? r.url ?? ""}`);
+    const cycleLength = detectCycle(recentKeys);
+    if (cycleLength > 0) {
+      return this.failStuck(current, `Stuck in ${cycleLength}-step cycle. The agent is repeating the same sequence of actions.`);
+    }
+
+    return null;
+  }
+
+  private async failStuck(current: TaskRun, message: string): Promise<TaskRun> {
+    const failed = this.services.orchestrator.failRun(current, message);
+    await this.services.runCheckpointStore.save(failed);
+    await this.logEvent(failed.id, "run_failed", failed.outcome?.summary ?? "Failed", {});
+    await this.handoff.writeHandoff(failed);
+    return failed;
   }
 
   private async logEvent(
