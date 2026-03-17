@@ -12937,3 +12937,72 @@ PM scope: "first-launch wizard (API key, Telegram bot, default homepage)"
 - Option D packaging is now complete for code-implementable tasks (T71 .app, T72 .dmg, T74 wizard). Only T73 (graphic design) remains.
 
 *Session log entry written: 2026-03-17 (Session 237)*
+
+---
+
+### Session 238 — 2026-03-17: T75 — Auto-Update Check (Option D final code increment)
+
+#### Mode: feature (PM-directed — Option D packaging, remaining code task)
+
+Session 237 declared Option D "complete for code-implementable tasks" but the PM's original Option D plan (line 1472 of product_manager.md) includes T74: "Auto-update check — on launch, check GitHub Releases for newer version. Show update-available banner. No auto-install." This was skipped because the engineer used the T74 number for the setup wizard. Renumbering to T75 to avoid collision.
+
+PM scope: "on launch, check GitHub Releases for newer version. Show update-available banner. No auto-install."
+
+#### Plan
+
+1. Create `packages/runtime-core/src/checkForUpdate.ts` — pure function `checkForUpdate(currentVersion, owner, repo)` that compares semver against GitHub latest release
+2. Create `tests/checkForUpdate.test.mjs` — test version comparison logic (pure, no network)
+3. Add IPC handler `app:check-update` in registerIpcHandlers.ts
+4. Add preload method `checkForUpdate()`
+5. Create `UpdateBanner.tsx` — dismissible banner shown at top of app when update available
+6. Integrate into App.tsx — check on mount (with 5s delay), show banner if newer version exists
+7. Run typecheck + tests, commit
+
+#### Implementation
+
+**Pure version comparison (`packages/runtime-core/src/checkForUpdate.ts`):**
+- `parseSemver(version)` — strips `v` prefix, handles partial versions, returns `[major, minor, patch]`
+- `isNewerVersion(current, latest)` — strict semver comparison
+- `checkForUpdate(currentVersion, owner, repo)` — fetches GitHub REST API `/repos/{owner}/{repo}/releases/latest` with 10s timeout, compares tags, returns `UpdateInfo`
+- All failures gracefully return `{ available: false }` — network errors, timeouts, missing repo, bad JSON
+
+**IPC + preload:**
+- `app:check-update` handler calls `checkForUpdate` with `app.getVersion()` and hardcoded owner/repo (`openbrowse/openbrowse` — placeholder until the repo is published)
+- Preload exposes `checkForUpdate()` returning full `UpdateInfo` shape
+
+**UpdateBanner component (`apps/desktop/src/renderer/components/UpdateBanner.tsx`):**
+- Emerald-tinted strip at top of app (token-compliant: `emeraldTint`, `emeraldBorder`, `emeraldHover`)
+- Shows release name, "Download" button (opens `releaseUrl` in browser), "✕" dismiss button
+- Hover states on both buttons
+
+**App.tsx integration:**
+- Outer wrapper div added for column layout (banner + app content)
+- `updateInfo` state set by delayed check (5s after mount to avoid blocking startup)
+- `updateDismissed` state — banner dismissible per session (not persisted — user sees it again on next launch)
+- Window type declaration extended with `checkForUpdate` method
+
+**Files changed:**
+- `packages/runtime-core/src/checkForUpdate.ts` — new: pure functions + API call
+- `packages/runtime-core/src/index.ts` — export new module
+- `apps/desktop/src/main/ipc/registerIpcHandlers.ts` — import + IPC handler
+- `apps/desktop/src/preload/index.ts` — preload method
+- `apps/desktop/src/renderer/components/UpdateBanner.tsx` — new: banner component
+- `apps/desktop/src/renderer/components/App.tsx` — import, state, effect, render, Window type
+- `tests/checkForUpdate.test.mjs` — new: 14 tests
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1389/1389 pass (was 1375, +14 new)
+- `checkForUpdate` tests: 14/14 pass — covers parseSemver (6 tests: standard, v-prefix, partial, empty, garbage, whitespace) and isNewerVersion (8 tests: major/minor/patch higher, equal, current newer, v-prefix variants, major downgrade)
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T73: App icon** — create `icon.icns` for `resources/` (requires graphic design)
+- Option D packaging is now fully complete for all code-implementable tasks (T71 .app, T72 .dmg, T74/Session237 wizard, T75 auto-update). Only T73 (graphic design) remains.
+- Phase 1 user testing remains blocked — user has not tested beyond 3 simple searches
+- Once the GitHub repo is published, update the owner/repo in `registerIpcHandlers.ts` from `openbrowse/openbrowse` to the actual repo
+
+*Session log entry written: 2026-03-17 (Session 238)*
