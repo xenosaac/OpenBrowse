@@ -10989,3 +10989,97 @@ Reason: Worktree clean, no unfinished task. All PM tasks T1-T52 done (T50/T53 bl
 *Session log entry written: 2026-03-17 (Session 175)*
 
 *Session log entry written: 2026-03-17 (Session 174)*
+
+---
+
+### Session 176 — 2026-03-17: T56 — Watch Content Comparison + Watch Persistence Gap Fix
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM directs T54 → T55 → T56 (Program R). T54 done (Session 175). T55 essentially done (Session 174 — `schedule_recurring` tool). T56 is next: watch content comparison. Also fixing the persistence gap from Session 174 (watches created by RunExecutor's `scheduler.registerWatch()` don't trigger persistence).
+
+#### Plan
+
+1. **`packages/scheduler/src/WatchScheduler.ts`**: Add `lastExtractedData` to `RegisteredWatch`. Add `onChanged` callback, `setOnChanged`, `getWatchData`, `updateWatchData`. Pass watchId to dispatch.
+2. **`packages/runtime-core/src/compose.ts`**: Add `compareExtractedData` helper. Update `formatWatchNotification` with optional `WatchChangeInfo`. Update dispatch callback to compare and update watch data.
+3. **`apps/desktop/src/main/ipc/registerIpcHandlers.ts`**: Wire `onChanged` to `persistWatches()`. Include `lastExtractedData` in persisted data. Remove redundant explicit `persistWatches()` calls.
+4. **`apps/desktop/src/main/runtime/watchPersistence.ts`**: Add `lastExtractedData` to `PersistedWatch`.
+5. **`apps/desktop/src/main/bootstrap.ts`**: Restore `lastExtractedData` on app restart.
+6. **Tests**: Add tests for change detection, notification formatting, integration, onChanged, getWatchData/updateWatchData, dispatch watchId.
+7. Run `pnpm run typecheck` + `pnpm run build` + `node --test tests/*.test.mjs`. Update log, commit.
+
+#### Implementation
+
+**`packages/scheduler/src/WatchScheduler.ts`** — Core scheduler changes:
+- Added `lastExtractedData?: Array<{ label: string; value: string }>` to `RegisteredWatch`.
+- Changed `WatchDispatcher` signature to `(intent: TaskIntent, watchId: string) => Promise<void>` — dispatch callback now knows which watch triggered the run.
+- Added `WatchSchedulerOptions` interface extending `WatchRetryPolicy` with `onChanged?: () => void`.
+- Changed constructor from `(dispatch, retryPolicy?)` to `(dispatch, options?)` — backwards compatible since `WatchSchedulerOptions` extends `WatchRetryPolicy`.
+- Added `setOnChanged(cb)` method — allows post-construction callback wiring (needed because persistence is set up after composition).
+- Added `getWatchData(watchId)` — returns the watch's stored `lastExtractedData`.
+- Added `updateWatchData(watchId, data)` — stores data and fires `onChanged` for persistence.
+- `registerWatch` fires `onChanged` after adding the watch.
+- `unregisterWatch` fires `onChanged` after removing the watch.
+- `triggerWatch` passes `watchId` to dispatch.
+- Added `setOnChanged`, `getWatchData`, `updateWatchData` as optional methods on `WatchScheduler` interface.
+
+**`packages/runtime-core/src/compose.ts`** — Content comparison + notification:
+- Added `WatchChangeInfo` interface: `{ changed: boolean; diff?: string }`.
+- Added `compareExtractedData(previous, current)` pure function (exported for testing):
+  - No previous data → `{ changed: false }` (first run, nothing to compare).
+  - Empty/undefined current but had previous data → changed with "No data extracted" message.
+  - Compares label-value pairs: detects value changes (`label: old → new`), additions (`+ label: value`), removals (`- label: value`).
+  - Returns `{ changed: false }` when all label-value pairs match.
+- Updated `formatWatchNotification(run, changeInfo?)`:
+  - When `changeInfo.changed === true`: adds `[CHANGED]` marker + "Changes:" section with diff.
+  - When `changeInfo.changed === false`: adds `[No change]` marker.
+  - When `changeInfo` is undefined: no change markers (backwards compat for first runs / non-watch runs).
+- Updated scheduler dispatch callback:
+  - Receives `watchId` from updated `WatchDispatcher` signature.
+  - After run completes: calls `scheduler.getWatchData(watchId)` to get previous data, compares with current `extractedData`, passes `changeInfo` to `formatWatchNotification`.
+  - After comparison: calls `scheduler.updateWatchData(watchId, currentData)` to store for next comparison.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — Auto-persistence:
+- Wires `scheduler.setOnChanged(() => void persistWatches())` immediately after `persistWatches` is defined.
+- Removed redundant `void persistWatches()` calls from `scheduler:register` and `scheduler:unregister` handlers — now handled automatically by `onChanged`.
+- Updated `persistWatches` to include `lastExtractedData` in persisted watch data.
+
+**`apps/desktop/src/main/runtime/watchPersistence.ts`** — Persistence format:
+- Added `lastExtractedData?: Array<{ label: string; value: string }>` to `PersistedWatch`.
+
+**`apps/desktop/src/main/bootstrap.ts`** — Restore on startup:
+- After `registerWatch`, calls `scheduler.updateWatchData(watchId, w.lastExtractedData)` if persisted data exists. This ensures content comparison works across app restarts.
+
+**`tests/compose.test.mjs`** — 12 new tests (26 → 38):
+- compareExtractedData: first run (no previous), empty previous, identical data, value changed, new field added, field removed, current data empty, current data undefined (8 tests).
+- formatWatchNotification: with [CHANGED] marker, with [No change] marker, backwards compat (3 tests).
+- Integration: watch dispatch with change detection across two runs — verifies first notification has no [CHANGED], second has [CHANGED] with diff (1 test).
+
+**`tests/watchScheduler.test.mjs`** — 10 new tests (17 → 27):
+- onChanged callback: fires on register, fires on unregister, fires on updateWatchData, setOnChanged replaces callback (4 tests).
+- getWatchData/updateWatchData: undefined for new watch, undefined for unknown id, stores and retrieves, overwrites previous, no-op for unknown id (5 tests).
+- dispatch passes watchId: callback receives correct watchId (1 test).
+
+**Behavior:**
+- Before: Watch-triggered runs sent a generic notification with no comparison to previous results. Users had to manually spot differences across notifications. Watches created by the planner tool (`schedule_recurring` in RunExecutor) did not persist across app restarts.
+- After: Watch notifications include `[CHANGED]`/`[No change]` markers. When content changes, the notification shows exactly what changed (e.g., `Price: $98,500 → $101,200`). The first run shows no change marker (nothing to compare to). All watch data changes (from any source: IPC, RunExecutor, scheduler) automatically trigger persistence via the `onChanged` callback.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `pnpm run build` — ✓ clean
+- `node --test tests/watchScheduler.test.mjs` — 27/27 pass (was 17, +10 new)
+- `node --test tests/compose.test.mjs` — 38/38 pass (was 26, +12 new)
+- `node --test tests/*.test.mjs` — 1255/1255 pass (was 1233, +22 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program R is now complete. T54 (watch notifications), T55 (schedule_recurring planner tool), T56 (content comparison) are all done.
+- T50 (vision cost measurement) and T53 (approval-gate page-context) remain blocked on user rebuild.
+- All Programs A-R complete. All PM tasks T1-T56 done (T50/T53 blocked on rebuild).
+- Re-testing remains the #1 PM priority (user action).
+- Possible next work: self-directed features or reliability improvements guided by new failure evidence post-rebuild.
+
+*Session log entry written: 2026-03-17 (Session 176)*

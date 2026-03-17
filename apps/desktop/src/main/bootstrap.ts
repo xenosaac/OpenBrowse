@@ -98,7 +98,10 @@ export async function createDesktopBootstrap(mainWindow: BrowserWindow): Promise
         source: "scheduler" as const,
         createdAt: new Date().toISOString(),
       };
-      await services.scheduler.registerWatch(intent, w.intervalMinutes);
+      const watchId = await services.scheduler.registerWatch(intent, w.intervalMinutes);
+      if (w.lastExtractedData && w.lastExtractedData.length > 0 && services.scheduler.updateWatchData) {
+        services.scheduler.updateWatchData(watchId, w.lastExtractedData);
+      }
     }
     if (savedWatches.length > 0) {
       console.log(`[bootstrap] Restored ${savedWatches.length} saved watch(es).`);

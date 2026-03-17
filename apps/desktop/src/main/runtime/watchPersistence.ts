@@ -5,6 +5,7 @@ export interface PersistedWatch {
   goal: string;
   startUrl?: string;
   intervalMinutes: number;
+  lastExtractedData?: Array<{ label: string; value: string }>;
 }
 
 export async function saveWatches(filePath: string, watches: PersistedWatch[]): Promise<void> {

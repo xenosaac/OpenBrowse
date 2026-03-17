@@ -146,11 +146,53 @@ export interface AssembleServicesParams extends StorageBundle {
   schedulerDispatch: (services: RuntimeServices, intent: TaskIntent) => Promise<unknown>;
 }
 
+export interface WatchChangeInfo {
+  changed: boolean;
+  diff?: string;
+}
+
+/**
+ * Compares two sets of extracted data items and returns a change summary.
+ * @internal Exported for testing only.
+ */
+export function compareExtractedData(
+  previous: Array<{ label: string; value: string }> | undefined,
+  current: Array<{ label: string; value: string }> | undefined
+): WatchChangeInfo {
+  if (!previous || previous.length === 0) {
+    return { changed: false }; // First run or no data — no comparison possible
+  }
+  if (!current || current.length === 0) {
+    return { changed: true, diff: "No data extracted (previously had data)" };
+  }
+
+  const prevMap = new Map(previous.map((d) => [d.label, d.value]));
+  const diffs: string[] = [];
+
+  for (const item of current) {
+    const prevValue = prevMap.get(item.label);
+    if (prevValue === undefined) {
+      diffs.push(`+ ${item.label}: ${item.value}`);
+    } else if (prevValue !== item.value) {
+      diffs.push(`${item.label}: ${prevValue} → ${item.value}`);
+    }
+    prevMap.delete(item.label);
+  }
+  for (const [label, value] of prevMap) {
+    diffs.push(`- ${label}: ${value}`);
+  }
+
+  if (diffs.length === 0) {
+    return { changed: false };
+  }
+  return { changed: true, diff: diffs.join("\n") };
+}
+
 /**
  * Formats a concise watch notification for Telegram delivery.
  * @internal Exported for testing only.
  */
-export function formatWatchNotification(run: TaskRun): string {
+export function formatWatchNotification(run: TaskRun, changeInfo?: WatchChangeInfo): string {
   const isSuccess = run.status === "completed";
   const statusIcon = isSuccess ? "\u2713" : "\u2717";
   const statusText = isSuccess ? "Completed" : "Failed";
@@ -160,8 +202,16 @@ export function formatWatchNotification(run: TaskRun): string {
     `Status: ${statusIcon} ${statusText}`
   ];
 
+  if (changeInfo) {
+    lines.push(changeInfo.changed ? "[CHANGED]" : "[No change]");
+  }
+
   if (run.outcome?.summary) {
     lines.push("", run.outcome.summary);
+  }
+
+  if (changeInfo?.changed && changeInfo.diff) {
+    lines.push("", "Changes:", changeInfo.diff);
   }
 
   if (run.outcome?.extractedData && run.outcome.extractedData.length > 0) {
@@ -182,7 +232,7 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
   // The scheduler needs a forward reference to services so it can call bootstrapRun.
   let services!: RuntimeServices;
 
-  const scheduler = new IntervalWatchScheduler(async (intent) => {
+  const scheduler = new IntervalWatchScheduler(async (intent, watchId) => {
     const schedulerIntent: TaskIntent = {
       ...intent,
       id: `${intent.id}_${Date.now()}`,
@@ -194,7 +244,17 @@ export function assembleRuntimeServices(params: AssembleServicesParams): Runtime
       // Send concise watch-specific notification via Telegram
       const run = result as TaskRun | undefined;
       if (run && run.status && run.goal) {
-        const text = formatWatchNotification(run);
+        // Compare extractedData with previous run
+        const previousData = scheduler.getWatchData(watchId);
+        const currentData = run.outcome?.extractedData;
+        const changeInfo = compareExtractedData(previousData, currentData);
+
+        // Update watch with current data for next comparison
+        if (currentData && currentData.length > 0) {
+          scheduler.updateWatchData(watchId, currentData);
+        }
+
+        const text = formatWatchNotification(run, changeInfo);
         void services.chatBridge.send({ channel: "telegram", runId: run.id, text })
           .catch((err: unknown) => console.error("[scheduler] Watch notification failed:", err instanceof Error ? err.message : err));
       }

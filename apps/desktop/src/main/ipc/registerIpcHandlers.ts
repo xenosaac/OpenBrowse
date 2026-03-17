@@ -552,8 +552,16 @@ export function registerIpcHandlers(
       goal: w.intent.goal,
       ...(w.intent.metadata?.startUrl ? { startUrl: w.intent.metadata.startUrl } : {}),
       intervalMinutes: w.intervalMinutes,
+      ...(w.lastExtractedData && w.lastExtractedData.length > 0
+        ? { lastExtractedData: w.lastExtractedData }
+        : {}),
     }));
     void saveWatches(watchesJsonPath, persisted);
+  }
+
+  // Wire auto-persistence for watch changes from any source (IPC, RunExecutor, scheduler)
+  if (services.scheduler.setOnChanged) {
+    services.scheduler.setOnChanged(() => void persistWatches());
   }
 
   register("scheduler:list", async () => {
@@ -573,7 +581,6 @@ export function registerIpcHandlers(
       createdAt: new Date().toISOString(),
     };
     const watchId = await services.scheduler.registerWatch(intent, params.intervalMinutes);
-    void persistWatches();
     return { watchId };
   });
 
@@ -581,7 +588,6 @@ export function registerIpcHandlers(
     if (services.scheduler.unregisterWatch) {
       await services.scheduler.unregisterWatch(watchId);
     }
-    void persistWatches();
     return { ok: true };
   });
 }

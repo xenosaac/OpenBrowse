@@ -12,21 +12,29 @@ export interface RegisteredWatch {
   consecutiveFailures: number;
   lastError?: string;
   backoffUntil?: string;
+  lastExtractedData?: Array<{ label: string; value: string }>;
 }
 
 export interface WatchScheduler {
   registerWatch(intent: TaskIntent, intervalMinutes: number): Promise<string>;
   unregisterWatch?(watchId: string): Promise<void>;
   listWatches?(): Promise<RegisteredWatch[]>;
+  setOnChanged?(cb: () => void): void;
+  getWatchData?(watchId: string): Array<{ label: string; value: string }> | undefined;
+  updateWatchData?(watchId: string, data: Array<{ label: string; value: string }>): void;
   dispose?(): Promise<void>;
 }
 
-export type WatchDispatcher = (intent: TaskIntent) => Promise<void>;
+export type WatchDispatcher = (intent: TaskIntent, watchId: string) => Promise<void>;
 
 export interface WatchRetryPolicy {
   minuteMs?: number;
   multiplier?: number;
   maxBackoffMinutes?: number;
+}
+
+export interface WatchSchedulerOptions extends WatchRetryPolicy {
+  onChanged?: () => void;
 }
 
 interface WatchRuntime {
@@ -46,14 +54,21 @@ export class IntervalWatchScheduler implements WatchScheduler {
   private readonly minuteMs: number;
   private readonly multiplier: number;
   private readonly maxBackoffMinutes: number;
+  private _onChanged?: () => void;
 
   constructor(
     private readonly dispatch: WatchDispatcher,
-    retryPolicy: WatchRetryPolicy = {}
+    options: WatchSchedulerOptions = {}
   ) {
-    this.minuteMs = retryPolicy.minuteMs ?? 60_000;
-    this.multiplier = retryPolicy.multiplier ?? 2;
-    this.maxBackoffMinutes = retryPolicy.maxBackoffMinutes ?? 60;
+    this.minuteMs = options.minuteMs ?? 60_000;
+    this.multiplier = options.multiplier ?? 2;
+    this.maxBackoffMinutes = options.maxBackoffMinutes ?? 60;
+    this._onChanged = options.onChanged;
+  }
+
+  /** Set or replace the change callback (called on register, unregister, updateWatchData). */
+  setOnChanged(cb: () => void): void {
+    this._onChanged = cb;
   }
 
   async registerWatch(intent: TaskIntent, intervalMinutes: number): Promise<string> {
@@ -75,6 +90,7 @@ export class IntervalWatchScheduler implements WatchScheduler {
 
     this.watches.set(watchId, runtime);
     this.scheduleNext(watchId, intervalMinutes);
+    this._onChanged?.();
     return watchId;
   }
 
@@ -109,7 +125,7 @@ export class IntervalWatchScheduler implements WatchScheduler {
     runtime.descriptor.lastTriggeredAt = new Date().toISOString();
 
     try {
-      await this.dispatch(runtime.descriptor.intent);
+      await this.dispatch(runtime.descriptor.intent, watchId);
       runtime.descriptor.consecutiveFailures = 0;
       runtime.descriptor.lastError = undefined;
       runtime.descriptor.lastCompletedAt = new Date().toISOString();
@@ -141,10 +157,23 @@ export class IntervalWatchScheduler implements WatchScheduler {
     }
     runtime.descriptor.active = false;
     this.watches.delete(watchId);
+    this._onChanged?.();
   }
 
   async listWatches(): Promise<RegisteredWatch[]> {
     return [...this.watches.values()].map((runtime) => ({ ...runtime.descriptor }));
+  }
+
+  getWatchData(watchId: string): Array<{ label: string; value: string }> | undefined {
+    return this.watches.get(watchId)?.descriptor.lastExtractedData;
+  }
+
+  updateWatchData(watchId: string, data: Array<{ label: string; value: string }>): void {
+    const runtime = this.watches.get(watchId);
+    if (runtime) {
+      runtime.descriptor.lastExtractedData = data;
+      this._onChanged?.();
+    }
   }
 
   async dispose(): Promise<void> {
