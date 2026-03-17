@@ -73,6 +73,8 @@ declare global {
       closeBrowserGroup: (groupId: string) => Promise<TaskRun | null>;
       onRuntimeEvent: (callback: (event: unknown) => void) => () => void;
       browserNewTab: (url?: string) => Promise<BrowserShellTabDescriptor>;
+      setTabPinned: (tabId: string, pinned: boolean) => Promise<void>;
+      setTabOrder: (orderedIds: string[]) => Promise<void>;
       browserNavigate: (sessionId: string, url: string) => Promise<void>;
       browserBack: (sessionId: string) => Promise<void>;
       browserForward: (sessionId: string) => Promise<void>;

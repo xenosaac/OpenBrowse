@@ -9204,3 +9204,81 @@ Tab drag-and-drop reorder is a standard browser feature. Users should be able to
 *Session log entry written: 2026-03-16 (Session 150)*
 
 *Session log entry written: 2026-03-16 (Session 149)*
+
+---
+
+### Session 151 — 2026-03-16: T40 — Persist Tab and Pin State Across App Restart (Program N)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Session 150 completed T39 (tab drag reorder). Program N is in progress: T39 done, T40 is next (P2). Framework maturity checklist satisfied — bias toward feature work. PM directs "self-directed features should focus on user-visible browser value."
+
+#### Context
+
+Currently, closing and reopening OpenBrowse loses all pin state and tab order. Tab URLs are persisted in `browser-shell/standalone-tabs.json` via `AppBrowserShell`, but pin state (`pinnedTabs` in the renderer) and tab order (from `moveTab`) are renderer-local and lost on restart. Every real browser restores session state.
+
+#### Plan
+
+1. **`packages/contracts/src/runtime.ts`**: Add `pinned?: boolean` to `BrowserShellTabDescriptor` (optional, backward-compatible).
+2. **`apps/desktop/src/main/browser/AppBrowserShell.ts`**: Extend `PersistedTab` with `pinned?: boolean`. Track `pinnedTabIds: Set<string>` and `orderedStandaloneIds: string[]` in memory. Add `setTabPinned(tabId, pinned)` and `reorderTabs(orderedIds)` methods. Update `saveStandaloneTabs()` to include pin/order. Update `restoreStandaloneTabs()` and `listStandaloneTabs()` to return descriptors with `pinned` flag and in saved order.
+3. **`apps/desktop/src/main/ipc/registerIpcHandlers.ts`**: Add `browser:set-tab-pinned` and `browser:set-tab-order` IPC handlers.
+4. **`apps/desktop/src/preload/index.ts`**: Expose `setTabPinned` and `setTabOrder` preload APIs.
+5. **`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`**: Initialize `pinnedTabs` from `listTabs()` result on mount. Call IPC in `pinTab`/`unpinTab`/`togglePinTab` and `moveTab` to persist changes.
+6. Run typecheck + tests.
+7. Update this log and commit.
+
+#### Implementation
+
+**`packages/contracts/src/runtime.ts`** — Extended tab descriptor:
+- Added `pinned?: boolean` optional field to `BrowserShellTabDescriptor`. Backward-compatible (optional, only set for pinned standalone tabs).
+
+**`apps/desktop/src/main/browser/AppBrowserShell.ts`** — Pin/order tracking and persistence:
+- Extended `PersistedTab` interface with `pinned?: boolean`.
+- Added `pinnedTabIds: Set<string>` for tracking which standalone tabs are pinned.
+- Added `standaloneTabOrder: string[]` for tracking tab order.
+- New `setTabPinned(tabId, pinned)` method: updates pin tracking and saves.
+- New `reorderTabs(orderedIds)` method: updates order tracking and saves.
+- `createStandaloneTab()` now appends to `standaloneTabOrder`.
+- `closeStandaloneTab()` and `releaseStandaloneTab()` now clean up pin/order state.
+- `saveStandaloneTabs()` now saves tabs in tracked order with `pinned` flag.
+- `restoreStandaloneTabs()` now reads `pinned` from persisted data, restores pin tracking, and sets `pinned: true` on returned descriptors.
+- `listStandaloneTabs()` now returns tabs in saved order with `pinned` flag.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — New IPC handlers:
+- `browser:set-tab-pinned`: receives `{ tabId, pinned }`, calls `browserShell.setTabPinned()`.
+- `browser:set-tab-order`: receives `orderedIds: string[]`, calls `browserShell.reorderTabs()`.
+
+**`apps/desktop/src/preload/index.ts`** — New preload APIs:
+- `setTabPinned(tabId, pinned)`: invokes `browser:set-tab-pinned`.
+- `setTabOrder(orderedIds)`: invokes `browser:set-tab-order`.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Window type declaration:
+- Added `setTabPinned` and `setTabOrder` to `window.openbrowse` type.
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Renderer persistence:
+- `refreshTabs()` now reads `pinned` flag from restored tabs and initializes `pinnedTabs` Set.
+- `standalone_tab_created` event handler now picks up `pinned` from the tab descriptor.
+- `pinTab()`, `unpinTab()`, `togglePinTab()` now call IPC `setTabPinned` to persist.
+- `moveTab()` now calls IPC `setTabOrder` with standalone tab IDs in new order.
+
+**Behavior:**
+- Pin/unpin a tab → persisted to `browser-shell/standalone-tabs.json` immediately.
+- Drag-reorder tabs → new order persisted immediately.
+- Close and reopen app → tabs restored in saved order with pin state preserved.
+- Pinned tabs still render compact and sorted-to-left (Session 149 behavior preserved).
+- No schema migration needed — uses the existing JSON persistence path.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — all changes are Electron main process + renderer IPC wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T41 (agent working indicator in tab bar) — PM Program N, P2.
+- T42 (task history panel) — PM Program N, P3.
+- PM guidance: focus on user-visible browser value.
+
+*Session log entry written: 2026-03-16 (Session 151)*
