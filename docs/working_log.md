@@ -12619,3 +12619,51 @@ T69 (P1) done in Session 225. T68 is next in Phase 0.5 priority order (P2). T68 
 - Phase 1 still requires ≥7 more user test tasks including multi-step
 
 *Session log entry written: 2026-03-17 (Session 226)*
+
+---
+
+### Session 227 — 2026-03-17: T70 — Token Usage and Screenshot Cost in Task Timeline
+
+#### Mode: feature (PM-directed — Program V Phase 0.5)
+
+T69 (P1) and T68 (P2) done. T70 is the last task in Phase 0.5. It surfaces the T50 instrumentation data (token usage on planner_decision events, screenshot size on screenshot_captured events) in the step timeline UI.
+
+#### Plan
+
+1. Add `screenshot_captured` to EVENT_LABELS and EVENT_COLORS in `timelineFormat.ts`
+2. Enrich `formatTimelineEvent` summary for `planner_decision` events: append `(N in / M out)` when inputTokens/outputTokens present in payload
+3. Enrich `formatTimelineEvent` summary for `screenshot_captured` events: append `(~N tokens)` using `estimateImageTokensFromBase64Length` when base64Bytes present in payload
+4. Add ≥3 tests for the new formatting paths
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Updated `apps/desktop/src/renderer/lib/timelineFormat.ts`:**
+- Added `screenshot_captured` to EVENT_LABELS ("Screenshot") and EVENT_COLORS (purple `#8b5cf6`)
+- Enriched `formatTimelineEvent` for `planner_decision` events: appends `(N in / M out)` when `inputTokens`/`outputTokens` present in payload
+- Enriched `formatTimelineEvent` for `screenshot_captured` events: appends `(~N tokens)` estimated vision cost when `base64Bytes` present in payload
+- Added inline `estimateImageTokens(base64Length)` — same formula as `@openbrowse/planner` `estimateImageTokensFromBase64Length`, inlined to avoid pulling the planner package into the renderer bundle
+- Graceful: no enrichment when usage data is missing (old runs display unchanged)
+
+**Added 4 tests to `tests/timelineFormat.test.mjs`:**
+1. Planner decision with token counts → summary enriched with `(N in / M out)`
+2. Planner decision without token counts → summary unchanged
+3. Screenshot captured with base64Bytes → summary enriched with `(~N tokens)`
+4. Screenshot captured without base64Bytes → summary unchanged
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/timelineFormat.test.mjs`: 14/14 pass (was 10, +4 new)
+- `node --test tests/*.test.mjs`: 1366/1366 pass (was 1362, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- **Phase 0.5 COMPLETE.** All 3 tasks done: T69, T68, T70.
+- Per PM directive: **STOP.** Phase 1 still requires ≥7 more user test tasks including multi-step.
+- Do not proceed to T53 or self-direct.
+
+*Session log entry written: 2026-03-17 (Session 227)*

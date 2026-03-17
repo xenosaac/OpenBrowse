@@ -127,4 +127,53 @@ describe("formatTimelineEvent", () => {
     );
     assert.equal(entry.url, "https://a.com");
   });
+
+  // T70: Token usage enrichment tests
+
+  it("appends token counts to planner_decision summary when present", () => {
+    const entry = formatTimelineEvent(
+      "planner_decision",
+      "Navigate to Google search",
+      "2026-03-17T08:00:00.000Z",
+      { plannerDecision: "browser_action", inputTokens: "8421", outputTokens: "312" },
+    );
+    assert.equal(entry.summary, "Navigate to Google search (8421 in / 312 out)");
+    assert.equal(entry.label, "Decision");
+    assert.equal(entry.color, "#3b82f6");
+  });
+
+  it("does not append token counts to planner_decision when missing", () => {
+    const entry = formatTimelineEvent(
+      "planner_decision",
+      "Navigate to Google search",
+      "2026-03-17T08:00:00.000Z",
+      { plannerDecision: "browser_action" },
+    );
+    assert.equal(entry.summary, "Navigate to Google search");
+  });
+
+  it("formats screenshot_captured with estimated tokens", () => {
+    const entry = formatTimelineEvent(
+      "screenshot_captured",
+      "Screenshot: 42KB",
+      "2026-03-17T08:00:00.000Z",
+      { base64Bytes: "57344", fileKB: "42", source: "always_on" },
+    );
+    assert.equal(entry.label, "Screenshot");
+    assert.equal(entry.color, "#8b5cf6");
+    assert.ok(entry.summary.includes("Screenshot: 42KB"), "should keep original summary");
+    assert.ok(entry.summary.includes("tokens"), "should include token estimate");
+    assert.match(entry.summary, /~\d+ tokens/);
+  });
+
+  it("handles screenshot_captured without base64Bytes gracefully", () => {
+    const entry = formatTimelineEvent(
+      "screenshot_captured",
+      "Screenshot: unknown",
+      "2026-03-17T08:00:00.000Z",
+      { source: "always_on" },
+    );
+    assert.equal(entry.summary, "Screenshot: unknown");
+    assert.equal(entry.label, "Screenshot");
+  });
 });
