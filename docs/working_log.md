@@ -9328,4 +9328,71 @@ When the agent is executing a task, the tab shows its favicon (if loaded) regard
 - T42 (task history panel) — PM Program N, P3.
 - PM guidance: focus on user-visible browser value.
 
+---
+
+### Session 153 — 2026-03-16: T42 — Task History Panel (Program N)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. Session 152 completed T41 (agent working indicator). PM ordering: T39 → T40 → T41 → T42. T39-T41 are done. T42 is next (P3). Framework maturity checklist satisfied — bias toward feature work. All PM Programs A-M complete; Program N in progress.
+
+#### Context
+
+Past task results are only visible by scrolling through the chat log. Users need a structured way to find past results. T42 adds a "Task History" tab in the ManagementPanel showing a reverse-chronological list of task runs with status, goal, timestamp, and outcome summary. The existing `runs:list` IPC already returns all runs sorted by updatedAt desc. We add a dedicated `runs:listRecent` IPC handler that limits results, and a new `TaskHistoryPanel` component.
+
+#### Plan
+
+1. **IPC handler**: Add `runs:listRecent` that queries `run_checkpoints` via `listAllRuns` with a limit parameter (default 50). Add corresponding preload API.
+2. **`TaskHistoryPanel.tsx`**: New component. Fetches runs on mount via `listRecentRuns()`. Shows each run as a card with status badge (colored dot + label), goal, timestamp, outcome summary. Optional filter by status.
+3. **`ManagementPanel.tsx`**: Add "Task History" as a new tab. Wire the component.
+4. **`App.tsx`**: Add `listRecentRuns` to the window type declaration.
+5. Run typecheck + tests.
+6. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — New IPC handler:
+- `runs:listRecent`: calls `listAllRuns(services)` and slices to `limit` (default 50). Returns the most recent runs by `updatedAt`.
+
+**`apps/desktop/src/preload/index.ts`** — New preload API:
+- `listRecentRuns(limit?: number)`: invokes `runs:listRecent`.
+
+**`apps/desktop/src/renderer/components/TaskHistoryPanel.tsx`** — New component:
+- Fetches runs on mount via `window.openbrowse.listRecentRuns(50)`.
+- Filter bar with 5 status buttons: All, Completed, Failed, Cancelled, Running. Active filter uses `glass.emerald` styling.
+- Search input for filtering by goal text or run ID.
+- Each run rendered as a glass card with: colored status dot + uppercase status label, timestamp (relative: Today/Yesterday or date), goal text, outcome summary (or stopReason for failed runs without outcome).
+- Empty state for no runs and no-matches.
+
+**`apps/desktop/src/renderer/components/ManagementPanel.tsx`** — Added tab:
+- New `"taskHistory"` value in `ManagementTab` union type.
+- Added `{ key: "taskHistory", label: "Task History" }` to TABS array.
+- Renders `<TaskHistoryPanel />` when active.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Updated:
+- Added `listRecentRuns` to `window.openbrowse` type declaration.
+- Added "Task History" item in hamburger dropdown menu (after "History").
+
+**Behavior:**
+- ManagementPanel → "Task History" tab shows reverse-chronological run list.
+- Status filter buttons (All/Completed/Failed/Cancelled/Running) with emerald active state.
+- Search box filters by goal or run ID.
+- Each card shows status dot (green=completed, red=failed, gray=cancelled, emerald=running, amber=suspended), goal, timestamp, outcome/stopReason.
+- Hamburger menu → "Task History" opens the panel directly to the Task History tab.
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — renderer UI component + IPC thin wrapper)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Program N is now complete (T39-T42 all done).
+- PM guidance: self-directed features should remain browser-visible work (tab drag between windows, keyboard shortcut customization, print improvements).
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 153)*
+
 *Session log entry written: 2026-03-16 (Session 152)*

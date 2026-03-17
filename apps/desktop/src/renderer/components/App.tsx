@@ -37,6 +37,7 @@ declare global {
       resumeTask: (message: unknown) => Promise<TaskRun | null>;
       cancelTask: (runId: string) => Promise<TaskRun | null>;
       listRuns: () => Promise<TaskRun[]>;
+      listRecentRuns: (limit?: number) => Promise<TaskRun[]>;
       getRun: (runId: string) => Promise<TaskRun | null>;
       listProfiles: () => Promise<BrowserProfile[]>;
       listLogs: (runId: string) => Promise<WorkflowEvent[]>;
@@ -762,6 +763,9 @@ export function App() {
       </button>
       <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("history")}>
         History
+      </button>
+      <button className="ob-dropdown-item" style={styles.dropdownItem} onClick={() => layout.openManagement("taskHistory")}>
+        Task History
       </button>
       <div style={styles.dropdownSeparator} />
       <button

@@ -18,6 +18,7 @@ const api = {
 
   // Query operations
   listRuns: () => ipcRenderer.invoke("runs:list"),
+  listRecentRuns: (limit?: number): Promise<TaskRun[]> => ipcRenderer.invoke("runs:listRecent", limit),
   getRun: (runId: string) => ipcRenderer.invoke("runs:get", runId),
   listProfiles: () => ipcRenderer.invoke("profiles:list"),
   listLogs: (runId: string) => ipcRenderer.invoke("logs:list", runId),
