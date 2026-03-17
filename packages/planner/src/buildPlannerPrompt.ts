@@ -61,7 +61,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
   // --- Planner scratchpad notes ---
   const plannerNotes = run.checkpoint.plannerNotes ?? [];
   const plannerNotesSection = plannerNotes.length > 0
-    ? `\nYour saved notes (from browser_save_note — persistent across pages):\n${plannerNotes.map((n) => `  "${n.key}": ${n.value}`).join("\n")}`
+    ? `\nYour saved notes (${plannerNotes.length}/20 — same key overwrites, oldest evicted if full):\n${plannerNotes.map((n) => `  "${n.key}": ${n.value}`).join("\n")}`
     : "";
 
   const recoveryContext = run.checkpoint.recoveryContext;
@@ -177,7 +177,7 @@ export function buildPlannerPrompt(run: TaskRun, pageModel: PageModel): PlannerP
 
   // --- Active dialog ---
   const dialogHint = pageModel.activeDialog
-    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A modal dialog is covering the page. Interact with the dialog elements first (accept, dismiss, or fill it) before trying to reach background elements.`
+    ? `\n** DIALOG OPEN: "${pageModel.activeDialog.label}" — A dialog/modal is currently open. You MUST address it (dismiss, fill, or interact with it) before attempting to interact with background page elements.`
     : "";
 
   // --- Forms (enriched with field details) ---
