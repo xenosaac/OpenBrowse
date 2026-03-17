@@ -70,6 +70,8 @@ const api = {
     ipcRenderer.invoke("browser:find-in-page", { sessionId, text, ...options }),
   stopFindInPage: (sessionId: string) => ipcRenderer.invoke("browser:stop-find-in-page", sessionId),
   openDevTools: (sessionId: string) => ipcRenderer.invoke("browser:devtools", sessionId),
+  toggleReaderMode: (sessionId: string): Promise<{ active: boolean; success: boolean }> =>
+    ipcRenderer.invoke("browser:toggle-reader-mode", sessionId),
   printPage: (sessionId: string) => ipcRenderer.invoke("browser:print", sessionId),
   saveAsPdf: (sessionId: string): Promise<boolean> => ipcRenderer.invoke("browser:save-pdf", sessionId),
 

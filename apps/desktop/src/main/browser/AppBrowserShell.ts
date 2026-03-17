@@ -200,6 +200,83 @@ export class AppBrowserShell implements EmbeddedViewProvider {
     }
   }
 
+  async toggleReaderMode(sessionId: string): Promise<{ active: boolean; success: boolean }> {
+    const managed = this.viewManager?.get(sessionId);
+    if (!managed || managed.view.webContents.isDestroyed()) {
+      return { active: false, success: false };
+    }
+
+    const result = await managed.view.webContents.executeJavaScript(`
+      (function() {
+        var overlay = document.getElementById('ob-reader-overlay');
+        if (overlay) {
+          overlay.remove();
+          return { active: false, success: true };
+        }
+
+        // Find article content
+        var article = document.querySelector('article');
+        if (!article) article = document.querySelector('[role="main"]');
+        if (!article) article = document.querySelector('main');
+        if (!article) {
+          var candidates = document.querySelectorAll('div, section');
+          var best = null;
+          var bestLen = 0;
+          candidates.forEach(function(c) {
+            var text = c.innerText || '';
+            if (text.length > bestLen && c.querySelectorAll('p').length >= 2) {
+              bestLen = text.length;
+              best = c;
+            }
+          });
+          article = best;
+        }
+
+        if (!article || (article.innerText || '').length < 100) {
+          return { active: false, success: false };
+        }
+
+        var title = document.title || '';
+        var content = article.innerHTML;
+
+        var div = document.createElement('div');
+        div.id = 'ob-reader-overlay';
+        div.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:#1a1a1a;overflow-y:auto;';
+        div.innerHTML =
+          '<div style="max-width:680px;margin:0 auto;padding:48px 24px 80px;color:#e0e0e0;font-family:Georgia,serif;line-height:1.75;font-size:18px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;">' +
+              '<button id="ob-reader-close" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#e0e0e0;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:14px;">Exit Reader Mode</button>' +
+            '</div>' +
+            '<h1 style="font-size:28px;line-height:1.3;margin-bottom:24px;color:#f5f5f5;">' + title.replace(/</g, '&lt;') + '</h1>' +
+            '<div id="ob-reader-content">' + content + '</div>' +
+          '</div>';
+
+        document.body.appendChild(div);
+
+        // Style images and links inside reader content
+        var rc = document.getElementById('ob-reader-content');
+        if (rc) {
+          var imgs = rc.querySelectorAll('img');
+          imgs.forEach(function(img) { img.style.maxWidth = '100%'; img.style.height = 'auto'; img.style.borderRadius = '6px'; img.style.margin = '16px 0'; });
+          var links = rc.querySelectorAll('a');
+          links.forEach(function(a) { a.style.color = '#6ee7b7'; });
+          // Remove ads, nav, footer, aside inside content
+          var junk = rc.querySelectorAll('nav, footer, aside, .ad, .advertisement, [role="complementary"], [role="banner"]');
+          junk.forEach(function(el) { el.remove(); });
+        }
+
+        document.getElementById('ob-reader-close').addEventListener('click', function() {
+          var ov = document.getElementById('ob-reader-overlay');
+          if (ov) ov.remove();
+        });
+
+        return { active: true, success: true };
+      })()
+    `);
+
+    return result as { active: boolean; success: boolean };
+  }
+
   async saveAsPdf(sessionId: string): Promise<boolean> {
     const managed = this.viewManager?.get(sessionId);
     if (!managed || managed.view.webContents.isDestroyed()) return false;

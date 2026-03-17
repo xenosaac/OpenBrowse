@@ -9790,3 +9790,71 @@ OpenBrowse has 12+ keyboard shortcuts (Cmd+T, Cmd+W, Cmd+Shift+T, Cmd+F, Cmd+L, 
 - Vision integration is the next major capability frontier per PM strategic priorities.
 
 *Session log entry written: 2026-03-16 (Session 158)*
+
+---
+
+### Session 159 — 2026-03-16: Reader Mode (Self-Directed Browser Feature)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-O (T1-T45) complete. PM guidance: "After T45, self-directed features should remain browser-visible or capability work. Good candidates: reader mode, print-to-PDF improvements, tab grouping, split view." Reader mode is first in the PM's suggested list. Framework maturity checklist satisfied — 1170/1170 tests passing. Database failure evidence is stale (all pre-rebuild) — no actionable new data for reliability work.
+
+#### Plan
+
+1. **`AppBrowserShell.ts`**: Add `toggleReaderMode(sessionId)` that executes JS in the webContents to inject/remove a reader mode overlay. The script extracts article content (`<article>`, `<main>`, or largest text block), renders it in a clean styled overlay.
+2. **`registerIpcHandlers.ts`**: Add `browser:toggle-reader-mode` IPC handler.
+3. **`preload/index.ts`**: Add `toggleReaderMode(sessionId)` preload API.
+4. **`NavBar.tsx`**: Add reader mode toggle button (between bookmark star and header actions).
+5. **`App.tsx`**: Add `readerModeTabs` state (Set of sessionIds in reader mode). Wire button + IPC. Track state per tab, reset on navigation.
+6. Run typecheck.
+7. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/main/browser/AppBrowserShell.ts`** — New `toggleReaderMode(sessionId)` method:
+- Executes JavaScript in the webContents to toggle a reader mode overlay.
+- **Enter reader mode:** Finds article content using `<article>`, `[role="main"]`, `<main>`, or the largest `div`/`section` with 2+ paragraphs. Extracts title and HTML content. Creates a full-page overlay (`#ob-reader-overlay`) with clean typography (Georgia serif, 18px, 1.75 line height, dark background #1a1a1a, max-width 680px centered). Styles images to max-width, links to emerald, removes ads/nav/footer/aside. Includes "Exit Reader Mode" button.
+- **Exit reader mode:** Removes the overlay div. Original page is preserved underneath.
+- Returns `{ active: boolean, success: boolean }`. Returns `success: false` if no article content found or content is < 100 chars.
+
+**`apps/desktop/src/main/ipc/registerIpcHandlers.ts`** — New IPC handler:
+- `browser:toggle-reader-mode`: calls `browserShell.toggleReaderMode(sessionId)`.
+
+**`apps/desktop/src/preload/index.ts`** — New preload API:
+- `toggleReaderMode(sessionId)`: invokes `browser:toggle-reader-mode`. Returns `{ active, success }`.
+
+**`apps/desktop/src/renderer/components/chrome/NavBar.tsx`** — Reader mode button:
+- New props: `isReaderMode: boolean`, `onToggleReaderMode: () => void`.
+- Added reader mode toggle button (¶ pilcrow symbol) in the address bar, before the bookmark star.
+- Uses emerald color when active, textMuted when inactive. Same styling as bookmark star.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — State management + wiring:
+- Added `readerModeTabs` state (`Set<string>` of sessionIds currently in reader mode).
+- Added `isReaderMode` derived from active tab.
+- Added `handleToggleReaderMode` callback that calls IPC and updates state.
+- Reader mode resets on navigation (URL change clears the tab from the set).
+- Added `toggleReaderMode` to Window type declaration.
+- Passed `isReaderMode` and `onToggleReaderMode` props to NavBar.
+- Added "Reader Mode" / "Exit Reader Mode" toggle item to hamburger dropdown menu (between Developer Tools and Print Page). Disabled when no browser tab active.
+
+**Behavior:**
+- Click ¶ button in address bar or hamburger menu → "Reader Mode" → extracts article content and shows it in a clean, dark reader overlay.
+- Click "Exit Reader Mode" button inside overlay, or ¶ button again, or hamburger menu → original page restored.
+- Navigation to a new URL automatically exits reader mode.
+- Works on articles, blog posts, documentation pages — any page with `<article>`, `<main>`, or substantial paragraph content.
+- Minimum 100 chars of content required — empty/minimal pages return `success: false` (no-op).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1170/1170 pass (no regressions, no new tests needed — Electron main process executeJavaScript + renderer UI wiring)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM guidance: self-directed features should remain browser-visible or capability work.
+- Remaining candidates from PM list: print-to-PDF improvements, tab grouping, split view.
+- Vision integration is the next major capability frontier per PM strategic priorities.
+
+*Session log entry written: 2026-03-16 (Session 159)*
