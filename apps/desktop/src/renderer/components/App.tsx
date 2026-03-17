@@ -11,6 +11,7 @@ import type {
 import { runtimeEventBus } from "../lib/eventBus";
 import { ipc } from "../lib/ipc";
 import { normalizeUrl } from "../lib/url";
+import { classifyFailure } from "../lib/classifyFailure";
 import type { ChatMessage } from "../types/chat";
 import { useAgentRuns } from "../hooks/useAgentRuns";
 import { useBrowserTabs } from "../hooks/useBrowserTabs";
@@ -803,6 +804,10 @@ export function App() {
       const tone: ChatMessage["tone"] = run.outcome.status === "completed" ? "success" : "error";
       const msgId = `outcome:${run.id}`;
       let content = run.outcome!.summary;
+      if (tone === "error") {
+        const classified = classifyFailure(content);
+        content = `**${classified.userMessage}** ${classified.suggestion}\n\n_${content}_`;
+      }
       const ed = run.outcome!.extractedData;
       if (ed && ed.length > 0) {
         const heading = tone === "error" ? "## Partial results" : "## Results";
