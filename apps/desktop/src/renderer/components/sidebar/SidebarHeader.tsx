@@ -57,7 +57,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: "0 0 12px rgba(16,185,129,0.2)"
   },
   brandInfo: { minWidth: 0 },
-  brandName: { fontSize: "0.9rem", fontWeight: 700, color: "#ffffff" },
+  brandName: { fontSize: "0.9rem", fontWeight: 700, color: colors.textWhite },
   statusRow: { display: "flex", gap: 10, marginTop: 4 },
   statusPip: { fontSize: "0.72rem" },
   newSessionButton: {
@@ -69,7 +69,7 @@ const styles: Record<string, React.CSSProperties> = {
   sessionListToggle: {
     ...glass.control, width: 26, height: 26, borderRadius: 7,
     border: "1px solid rgba(255,255,255,0.08)",
-    color: "#9090a8", cursor: "pointer", fontSize: "0.72rem",
+    color: colors.textSecondary, cursor: "pointer", fontSize: "0.72rem",
     display: "grid", placeItems: "center", flexShrink: 0
   } as React.CSSProperties
 };

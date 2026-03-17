@@ -59,8 +59,8 @@ const styles: Record<string, React.CSSProperties> = {
   composerButton: {
     width: 40, borderRadius: 12, border: "1px solid " + colors.emeraldActive,
     background: colors.emerald,
-    color: "#ffffff", cursor: "pointer", fontWeight: 700, fontSize: "1rem",
+    color: colors.textWhite, cursor: "pointer", fontWeight: 700, fontSize: "1rem",
     boxShadow: "0 0 16px rgba(16,185,129,0.2)"
   },
-  composerHint: { marginTop: 6, fontSize: "0.7rem", color: "#6b6b82" }
+  composerHint: { marginTop: 6, fontSize: "0.7rem", color: colors.textMuted }
 };
