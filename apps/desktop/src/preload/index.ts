@@ -110,6 +110,12 @@ const api = {
     ipcRenderer.invoke("cookies:remove", { sessionId, url, name }),
   removeAllCookies: (sessionId: string) => ipcRenderer.invoke("cookies:remove-all", sessionId),
 
+  // Keybinding preferences
+  getKeybindings: (): Promise<Array<{ key: string; value: string }>> =>
+    ipcRenderer.invoke("keybindings:get"),
+  saveKeybindings: (entries: Array<{ key: string; value: string }>): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("keybindings:save", entries),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);
