@@ -857,12 +857,15 @@ export function App() {
             activeBrowserTab={selection.activeBrowserTab}
             runs={agentRuns.runs}
             tabFavicons={browserTabs.tabFavicons}
+            pinnedTabs={browserTabs.pinnedTabs}
             sidebarVisible={layout.sidebarVisible}
             mainPanel={selection.mainPanel}
             onSelectTab={handleSelectTab}
             onCloseTab={handleCloseTab}
             onNewTab={() => void handleNewTab()}
             onToggleSidebar={layout.toggleSidebar}
+            onPinTab={browserTabs.pinTab}
+            onUnpinTab={browserTabs.unpinTab}
           />
           <div style={styles.chromeSeparator} />
           <NavBar

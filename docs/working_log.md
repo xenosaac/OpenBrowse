@@ -9089,3 +9089,61 @@ T38: As the user types in the address bar, a dropdown appears with matching URLs
 - No remaining PM-specified tasks. Next iteration should examine failure data for agent reliability gaps or pick a self-directed browser feature.
 
 *Session log entry written: 2026-03-16 (Session 148)*
+
+---
+
+### Session 149 — 2026-03-16: Tab Pinning (Self-Directed Browser Feature)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. All PM programs A-M and tasks T30-T38 done. PM guidance: "self-directed features should focus on user-visible browser value (tab pinning, tab drag reorder, print support)." Framework maturity checklist satisfied — bias toward feature work.
+
+#### Context
+
+Tab pinning is a standard browser feature. Pinned tabs are compact (favicon only), stick to the left of the tab bar, and don't show a close button. This improves daily-use value for users who keep persistent tabs open.
+
+#### Plan
+
+1. **`useBrowserTabs.ts`**: Add `pinnedTabs` state (Set of groupIds), `pinTab(groupId)`, `unpinTab(groupId)`, `togglePinTab(groupId)` functions. Return `sortedTabs` that puts pinned first.
+2. **`TabBar.tsx`**: Accept `pinnedTabs` set and `onPinTab`/`onUnpinTab` callbacks. Render pinned tabs as compact (favicon/dot only, ~36px wide, no title, no close button). Add right-click context menu with Pin/Unpin + Close options.
+3. **`App.tsx`**: Wire new props from useBrowserTabs to TabBar.
+4. Run typecheck.
+5. Update this log and commit.
+
+#### Implementation
+
+**`apps/desktop/src/renderer/hooks/useBrowserTabs.ts`** — Added pin state management:
+- New `pinnedTabs` state (`Set<string>` of pinned groupIds).
+- `pinTab(groupId)`, `unpinTab(groupId)`, `togglePinTab(groupId)` callbacks.
+- `sortedTabs` — sorts shellTabs with pinned tabs first, preserving relative order within each group.
+- Returns `pinnedTabs` set and all three pin functions to consumers.
+
+**`apps/desktop/src/renderer/components/chrome/TabBar.tsx`** — Updated tab rendering for pinned state:
+- New props: `pinnedTabs: Set<string>`, `onPinTab`, `onUnpinTab`.
+- Pinned tabs render as compact (36px wide, favicon/dot only, no title, no close button). Title shown as tooltip on hover.
+- Right-click context menu on any tab (rendered via portal to `document.body`): "Pin Tab" / "Unpin Tab" toggle + "Close Tab". Uses existing glass token styling.
+- Context menu auto-closes on any click outside.
+
+**`apps/desktop/src/renderer/components/App.tsx`** — Wired new props:
+- Passes `pinnedTabs`, `onPinTab`, `onUnpinTab` from `browserTabs` to `TabBar`.
+
+**Behavior:**
+- Right-click any tab → context menu with Pin/Unpin and Close.
+- Pinned tabs are compact (favicon only) and stick to the left.
+- Pinned tabs have no close button (must unpin first or use context menu "Close Tab").
+- Pin state is renderer-local (not persisted across restarts — can be added later).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1133/1133 pass (no regressions, no new tests needed — pure renderer UI)
+
+#### Status: DONE
+
+#### Next Steps
+
+- Consider persisting pin state to SQLite for cross-restart preservation.
+- Tab drag reorder (PM-suggested self-directed feature).
+- PM guidance: focus on user-visible browser value.
+
+*Session log entry written: 2026-03-16 (Session 149)*

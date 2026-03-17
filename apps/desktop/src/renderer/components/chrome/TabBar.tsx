@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TaskRun } from "@openbrowse/contracts";
 import type { BrowserShellTabDescriptor } from "../../../shared/runtime";
 import { colors, radii, glass, shadows } from "../../styles/tokens";
@@ -8,12 +9,15 @@ interface Props {
   activeBrowserTab: BrowserShellTabDescriptor | null;
   runs: TaskRun[];
   tabFavicons: Record<string, string>;
+  pinnedTabs: Set<string>;
   sidebarVisible: boolean;
   mainPanel: string;
   onSelectTab: (tab: BrowserShellTabDescriptor) => void;
   onCloseTab: (tab: BrowserShellTabDescriptor) => void;
   onNewTab: () => void;
   onToggleSidebar: () => void;
+  onPinTab: (groupId: string) => void;
+  onUnpinTab: (groupId: string) => void;
 }
 
 function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { color: string; animate: boolean; title: string } {
@@ -32,9 +36,19 @@ function getTabStatusDot(tab: BrowserShellTabDescriptor, runs: TaskRun[]): { col
 
 export function TabBar(props: Props) {
   const {
-    shellTabs, activeBrowserTab, runs, tabFavicons, sidebarVisible, mainPanel,
-    onSelectTab, onCloseTab, onNewTab, onToggleSidebar
+    shellTabs, activeBrowserTab, runs, tabFavicons, pinnedTabs, sidebarVisible, mainPanel,
+    onSelectTab, onCloseTab, onNewTab, onToggleSidebar, onPinTab, onUnpinTab
   } = props;
+
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tab: BrowserShellTabDescriptor } | null>(null);
+
+  // Close context menu on any click
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [contextMenu]);
 
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const [tabScroll, setTabScroll] = useState({ canScrollLeft: false, canScrollRight: false });
@@ -75,13 +89,31 @@ export function TabBar(props: Props) {
       >
         {shellTabs.map((tab) => {
           const active = mainPanel === "browser" && activeBrowserTab?.groupId === tab.groupId;
+          const pinned = pinnedTabs.has(tab.groupId);
           const dot = getTabStatusDot(tab, runs);
           const favicon = tabFavicons[tab.id];
           return (
-            <div key={tab.groupId} className="ob-tab" style={{ ...styles.headerTabWrap, ...(active ? styles.headerTabWrapActive : {}) }}>
+            <div
+              key={tab.groupId}
+              className="ob-tab"
+              style={{
+                ...styles.headerTabWrap,
+                ...(active ? styles.headerTabWrapActive : {}),
+                ...(pinned ? styles.headerTabWrapPinned : {})
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, tab });
+              }}
+            >
               <button
                 onClick={() => onSelectTab(tab)}
-                style={{ ...styles.headerTabInner, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                style={{
+                  ...styles.headerTabInner,
+                  ...(pinned ? { padding: "8px 8px" } : {}),
+                  WebkitAppRegion: "no-drag"
+                } as React.CSSProperties}
+                title={pinned ? tab.title : undefined}
               >
                 {favicon ? (
                   <img src={favicon} alt="" width={16} height={16}
@@ -94,15 +126,17 @@ export function TabBar(props: Props) {
                     ...(dot.animate ? { animation: "ob-pulse 1.5s ease-in-out infinite" } : {})
                   }} title={dot.title} />
                 )}
-                <span style={styles.headerTabTitle}>{tab.title}</span>
+                {!pinned && <span style={styles.headerTabTitle}>{tab.title}</span>}
               </button>
-              <button
-                className="ob-tab-close"
-                style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
-                onClick={() => onCloseTab(tab)}
-              >
-                ✕
-              </button>
+              {!pinned && (
+                <button
+                  className="ob-tab-close"
+                  style={{ ...styles.headerTabClose, WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                  onClick={() => onCloseTab(tab)}
+                >
+                  ✕
+                </button>
+              )}
             </div>
           );
         })}
@@ -114,6 +148,41 @@ export function TabBar(props: Props) {
           +
         </button>
       </div>
+      {contextMenu && createPortal(
+        <div style={{
+          position: "fixed",
+          top: contextMenu.y,
+          left: contextMenu.x,
+          ...glass.panel,
+          border: `1px solid ${colors.borderGlass}`,
+          borderRadius: 8,
+          padding: "4px 0",
+          minWidth: 160,
+          boxShadow: shadows.glassElevated,
+          zIndex: 9999
+        } as React.CSSProperties}>
+          <button
+            className="ob-dropdown-item"
+            style={styles.ctxItem}
+            onClick={() => {
+              const gid = contextMenu.tab.groupId;
+              if (pinnedTabs.has(gid)) onUnpinTab(gid); else onPinTab(gid);
+              setContextMenu(null);
+            }}
+          >
+            {pinnedTabs.has(contextMenu.tab.groupId) ? "Unpin Tab" : "Pin Tab"}
+          </button>
+          <div style={{ height: 1, background: colors.borderSubtle, margin: "3px 0" }} />
+          <button
+            className="ob-dropdown-item"
+            style={styles.ctxItem}
+            onClick={() => { onCloseTab(contextMenu.tab); setContextMenu(null); }}
+          >
+            Close Tab
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -139,6 +208,9 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: radii.md, background: "rgba(255,255,255,0.03)",
     border: "1px solid rgba(255,255,255,0.06)", color: colors.textSecondary
   },
+  headerTabWrapPinned: {
+    minWidth: 36, maxWidth: 36
+  },
   headerTabWrapActive: {
     ...glass.emerald,
     backdropFilter: "blur(16px) saturate(180%)",
@@ -163,5 +235,10 @@ const styles: Record<string, React.CSSProperties> = {
     ...glass.control, width: 28, height: 28, borderRadius: 7,
     border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary, cursor: "pointer", fontSize: "1rem"
-  } as React.CSSProperties
+  } as React.CSSProperties,
+  ctxItem: {
+    display: "block", width: "100%", background: "none", border: "none",
+    color: colors.textPrimary, fontSize: "0.82rem", padding: "7px 14px",
+    textAlign: "left" as const, cursor: "pointer", borderRadius: 0
+  }
 };
