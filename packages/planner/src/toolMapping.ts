@@ -238,6 +238,17 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_screenshot",
+    description: "Request a screenshot of the current page. The screenshot will be shown to you on your next step as visual context. Use when you need to see the page layout, verify visual state after an action, or when text extraction doesn't give you enough context to understand the page.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        description: { type: "string", description: "Why you need to see the page visually" }
+      },
+      required: ["description"]
+    }
+  },
+  {
     name: "ask_user",
     description: "Ask the user a question when you need clarification or cannot proceed without human input (e.g. CAPTCHA, ambiguous instructions).",
     input_schema: {

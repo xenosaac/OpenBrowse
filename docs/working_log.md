@@ -581,7 +581,7 @@ Current schema version: **4**
 
 ### Planner Output Format
 
-`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (16 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
+`ClaudePlannerGateway` uses tool-use mode with `BROWSER_TOOLS` (20 tool definitions in `packages/planner/src/toolMapping.ts`). First call uses `tool_choice: "auto"` so Claude can reason before acting. If Claude responds with text only (no tool call), a retry is sent with `tool_choice: "any"`. The `mapToolCallToDecision` function translates tool_use blocks into `PlannerDecision` objects. Reasoning is extracted from text blocks in the response.
 
 ---
 
@@ -10159,5 +10159,77 @@ Reason: Worktree clean, no unfinished task. PM explicitly designates Program P (
 - After T47, T49 (visual element annotation overlay) amplifies vision accuracy.
 - T48 (tab group persistence) is P3 polish — lower priority than vision.
 - PM note: After T46 is working, measure token cost and report. If >2000 tokens/step, T47 becomes the primary vision mode (on-demand) and T46 becomes optional.
+
+*Session log entry written: 2026-03-16 (Session 163)*
+
+---
+
+### Session 164 — 2026-03-16: T47 — Visual Fallback Tool: Planner-Initiated Screenshot (Program P)
+
+#### Mode: feature
+
+Reason: Worktree clean, no unfinished task. PM ordering: T47 is next after T46. T47 gives the planner the ability to request a screenshot on demand via `browser_screenshot` tool. This converts the always-on screenshot from T46 to an on-demand model — the planner operates text-only by default but can request visual context when needed. Tool count goes from 19 → 20 (restoring `browser_screenshot` with actual visual delivery). Framework maturity checklist satisfied — 1176/1176 tests passing.
+
+#### Plan
+
+1. **`packages/planner/src/toolMapping.ts`**: Re-add `browser_screenshot` to `BROWSER_TOOLS` array.
+2. **`packages/planner/src/buildPlannerPrompt.ts`**: Update Visual Context section — add on-demand guidance.
+3. **`packages/runtime-core/src/RunExecutor.ts`**: Handle `browser_screenshot` locally. Replace always-on with on-demand.
+4. **Tests**: At least 2 tests per PM acceptance criteria.
+5. Run typecheck + tests. Update log, commit.
+
+#### Implementation
+
+**`packages/planner/src/toolMapping.ts`** — Re-added `browser_screenshot` tool (20th tool):
+- Tool description: "Request a screenshot of the current page. The screenshot will be shown to you on your next step as visual context. Use when you need to see the page layout, verify visual state after an action, or when text extraction doesn't give you enough context to understand the page."
+- Takes a single `description` parameter (why the planner needs visual context).
+- The existing `mapToolCallToDecision` case for `browser_screenshot` already maps to `{ type: "screenshot" }` action — no changes needed there.
+
+**`packages/planner/src/buildPlannerPrompt.ts`** — Updated Visual Context system prompt section:
+- Added paragraph explaining on-demand screenshot usage: "Use `browser_screenshot` when you need visual context — for example, when the element list doesn't convey enough about the page layout, when you need to verify a visual result, or when dealing with image-heavy pages."
+
+**`packages/runtime-core/src/RunExecutor.ts`** — On-demand screenshot handler:
+- **Removed** the always-on screenshot capture from T46 (the `captureScreenshot` call that ran on every planner iteration). Screenshots are now only captured when the planner explicitly requests them via `browser_screenshot`.
+- Added `pendingScreenshot` local variable: stores the base64 data from a `browser_screenshot` action. Included as `screenshotBase64` in the *next* planner call, then cleared (one-use).
+- New `screenshot` action handler (similar pattern to `save_note` — handled locally, no browser kernel executeAction call):
+  - Calls `browserKernel.captureScreenshot(activeSession)`.
+  - Stores result in `pendingScreenshot`. On capture failure, stores null (planner proceeds text-only).
+  - Logs "Screenshot captured" or "Screenshot capture failed" event.
+  - Records a synthetic browser result and continues the loop.
+- On each planner call: passes `pendingScreenshot` as `screenshotBase64` if non-null, then clears it.
+
+**`tests/toolMapping.test.mjs`** — Updated 2 existing tests:
+- "defines exactly 20 tools" (was 19).
+- "contains all expected tool names" — added `browser_screenshot`.
+
+**`tests/runExecutor.test.mjs`** — 4 new tests:
+- "browser_screenshot action captures screenshot and delivers it on the NEXT planner call" — verifies first planner call has no screenshot, second has the captured data.
+- "browser_screenshot is cleared after one use (not accumulated across steps)" — verifies screenshot appears on step 2 but not step 3.
+- "browser_screenshot handles capture failure gracefully" — verifies no screenshot on any step when capture throws.
+- "planner does NOT receive always-on screenshots (T47 replaces T46 always-on)" — verifies no screenshot when no `browser_screenshot` action was requested.
+
+**Behavior:**
+- The planner operates text-only by default. No screenshots are sent unless the planner explicitly calls `browser_screenshot`.
+- When the planner calls `browser_screenshot`, the runtime captures a JPEG screenshot (quality 60%) and stores it. On the next planner iteration, the screenshot is included as an `image` content block alongside the text prompt.
+- The screenshot is consumed after one use — it does not accumulate across steps.
+- If screenshot capture fails (session destroyed, CDP error), the planner proceeds text-only with no run failure.
+- This replaces T46's always-on screenshots with on-demand screenshots, reducing token cost for most steps while preserving visual capability when the planner needs it.
+- Tool count: 19 → 20 (re-adds `browser_screenshot` which was removed in Session 136 because the planner couldn't see images — now it can via T46's multimodal infrastructure).
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/toolMapping.test.mjs` — 84/84 pass (updated 2 existing tests)
+- `node --test tests/runExecutor.test.mjs` — 52/52 pass (was 48, +4 new)
+- `node --test tests/*.test.mjs` — 1180/1180 pass (was 1176, +4 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- PM ordering: T49 (visual element annotation overlay) is next in Program P.
+- T48 (tab group persistence) is P3 polish — lower priority.
+- The planner prompt now describes on-demand screenshots. The planner system prompt's "Visual Context" section tells the planner to call `browser_screenshot` when needed.
+- Cost impact: most planner steps now have zero screenshot cost. Only steps where the planner explicitly requests visual context incur the ~1000-2000 token image cost.
 
 *Session log entry written: 2026-03-16 (Session 163)*

@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 19 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 19);
+  it("defines exactly 20 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 20);
   });
 
   it("has unique tool names", () => {
@@ -39,7 +39,7 @@ describe("BROWSER_TOOLS", () => {
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
       "browser_go_back", "browser_read_text", "browser_wait_for_text",
       "browser_wait_for_navigation", "browser_save_note", "browser_upload_file",
-      "browser_open_in_new_tab", "browser_switch_tab",
+      "browser_open_in_new_tab", "browser_switch_tab", "browser_screenshot",
       "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {

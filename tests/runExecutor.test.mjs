@@ -85,7 +85,7 @@ function makeServices(options = {}) {
           captureIndex++;
           return pm;
         },
-        captureScreenshot: async () => null,
+        captureScreenshot: options.captureScreenshot ?? (async () => null),
         executeAction: async (_session, action) => {
           const result = executeResults.shift() ?? {
             ok: true,
@@ -1473,4 +1473,141 @@ test("executeAction 'Session not found' returns already-failed run from checkpoi
 
   assert.equal(result.status, "failed");
   assert.equal(result.outcome.summary, "Already failed");
+});
+
+// --- T47: browser_screenshot on-demand vision ---
+
+test("browser_screenshot action captures screenshot and delivers it on the NEXT planner call", async () => {
+  const screenshotData = "base64_jpeg_data_here";
+  const plannerInputs = [];
+
+  const { services, appendedEvents } = makeServices({
+    captureScreenshot: async () => screenshotData,
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "need visual", action: { type: "screenshot", description: "Check page layout" } },
+      // Step 2: planner completes (should see the screenshot in its input)
+      { type: "task_complete", reasoning: "Looks good" },
+    ],
+  });
+
+  // Intercept planner.decide to capture inputs
+  const originalDecide = services.planner.decide;
+  let callIndex = 0;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    callIndex++;
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // First planner call: no screenshot (none was pending)
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+
+  // Second planner call: screenshot should be included from the browser_screenshot action
+  assert.equal(plannerInputs[1].screenshotBase64, screenshotData);
+
+  // Verify the screenshot captured event was logged
+  const screenshotEvent = appendedEvents.find(e => e.summary.includes("Screenshot captured"));
+  assert.ok(screenshotEvent, "should log screenshot captured event");
+});
+
+test("browser_screenshot is cleared after one use (not accumulated across steps)", async () => {
+  const plannerInputs = [];
+
+  const { services } = makeServices({
+    captureScreenshot: async () => "screenshot_once",
+    decisions: [
+      // Step 1: planner requests a screenshot
+      { type: "browser_action", reasoning: "check", action: { type: "screenshot", description: "Look" } },
+      // Step 2: planner navigates (should see screenshot)
+      { type: "browser_action", reasoning: "nav", action: { type: "navigate", value: "https://example.com/page2", description: "Go to page 2" } },
+      // Step 3: planner completes (should NOT see screenshot — cleared after step 2)
+      { type: "task_complete", reasoning: "Done" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  await executor.plannerLoop(makeRun(), makeSession());
+
+  // Step 1 (first planner call): no screenshot pending
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+  // Step 2: screenshot from browser_screenshot action
+  assert.equal(plannerInputs[1].screenshotBase64, "screenshot_once");
+  // Step 3: screenshot was already consumed — should be undefined
+  assert.equal(plannerInputs[2].screenshotBase64, undefined);
+});
+
+test("browser_screenshot handles capture failure gracefully", async () => {
+  const plannerInputs = [];
+
+  const { services } = makeServices({
+    captureScreenshot: async () => { throw new Error("CDP error"); },
+    decisions: [
+      // Step 1: planner requests a screenshot — capture fails
+      { type: "browser_action", reasoning: "check", action: { type: "screenshot", description: "Look" } },
+      // Step 2: planner continues (no screenshot available)
+      { type: "task_complete", reasoning: "Done anyway" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  const result = await executor.plannerLoop(makeRun(), makeSession());
+  assert.equal(result.status, "completed");
+
+  // No screenshot available on any step (capture failed)
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
+  assert.equal(plannerInputs[1].screenshotBase64, undefined);
+});
+
+test("planner does NOT receive always-on screenshots (T47 replaces T46 always-on)", async () => {
+  const plannerInputs = [];
+
+  const { services } = makeServices({
+    // captureScreenshot returns data — but since no browser_screenshot action was requested,
+    // it should NOT be called automatically (no always-on behavior)
+    captureScreenshot: async () => "should_not_appear",
+    decisions: [
+      { type: "task_complete", reasoning: "Quick task" },
+    ],
+  });
+
+  const originalDecide = services.planner.decide;
+  services.planner.decide = async (input) => {
+    plannerInputs.push({ ...input });
+    return originalDecide(input);
+  };
+
+  const cancellation = makeCancellation();
+  const handoff = makeHandoff();
+  const executor = new RunExecutor(services, makeSessions(), cancellation, handoff);
+
+  await executor.plannerLoop(makeRun(), makeSession());
+
+  // Without a browser_screenshot action, no screenshot should be included
+  assert.equal(plannerInputs[0].screenshotBase64, undefined);
 });
