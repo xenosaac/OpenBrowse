@@ -34,6 +34,7 @@
     "lint": "tsc --noEmit",
     "native:rebuild": "electron-rebuild -f -w better-sqlite3 -m ../../packages/memory-store",
     "typecheck": "tsc --noEmit",
+    "validate": "node scripts/build-validate.cjs && npx electron out/validate/main.mjs",
     "package": "electron-vite build && electron-builder --mac",
     "package:dir": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --dir",
     "package:unsigned": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
