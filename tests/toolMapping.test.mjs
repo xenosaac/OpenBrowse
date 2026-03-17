@@ -7,8 +7,8 @@ import { mapToolCallToDecision, BROWSER_TOOLS } from "../packages/planner/dist/t
 // ---------------------------------------------------------------------------
 
 describe("BROWSER_TOOLS", () => {
-  it("defines exactly 16 tools", () => {
-    assert.equal(BROWSER_TOOLS.length, 16);
+  it("defines exactly 17 tools", () => {
+    assert.equal(BROWSER_TOOLS.length, 17);
   });
 
   it("has unique tool names", () => {
@@ -38,7 +38,8 @@ describe("BROWSER_TOOLS", () => {
       "browser_navigate", "browser_click", "browser_type", "browser_select",
       "browser_scroll", "browser_hover", "browser_press_key", "browser_wait",
       "browser_go_back", "browser_read_text", "browser_wait_for_text",
-      "browser_wait_for_navigation", "browser_save_note", "task_complete", "task_failed", "ask_user"
+      "browser_wait_for_navigation", "browser_save_note", "browser_upload_file",
+      "task_complete", "task_failed", "ask_user"
     ];
     for (const name of expected) {
       assert.ok(names.has(name), `missing tool: ${name}`);
@@ -468,6 +469,48 @@ describe("mapToolCallToDecision — browser_save_note", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mapToolCallToDecision — browser_upload_file
+// ---------------------------------------------------------------------------
+
+describe("mapToolCallToDecision — browser_upload_file", () => {
+  it("maps to upload_file action with ref and description", () => {
+    const result = mapToolCallToDecision(
+      "browser_upload_file",
+      { ref: "el_8", description: "Resume PDF for job application" },
+      "need to upload resume",
+      "run_1"
+    );
+    assert.equal(result.type, "browser_action");
+    assert.equal(result.action.type, "upload_file");
+    assert.equal(result.action.targetId, "el_8");
+    assert.equal(result.action.description, "Resume PDF for job application");
+    assert.equal(result.reasoning, "need to upload resume");
+  });
+
+  it("uses default description when missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_upload_file",
+      { ref: "el_3" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.action.type, "upload_file");
+    assert.equal(result.action.description, "Upload file");
+  });
+
+  it("fails when ref is missing", () => {
+    const result = mapToolCallToDecision(
+      "browser_upload_file",
+      { description: "Upload" },
+      "r",
+      "run_1"
+    );
+    assert.equal(result.type, "task_failed");
+    assert.ok(result.failureSummary.includes("without ref"));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mapToolCallToDecision — terminal decisions
 // ---------------------------------------------------------------------------
 
@@ -699,6 +742,12 @@ describe("mapToolCallToDecision — missing required fields", () => {
     assert.equal(result.failureSummary, "browser_save_note called without value");
   });
 
+  it("browser_upload_file without ref returns task_failed", () => {
+    const result = mapToolCallToDecision("browser_upload_file", { description: "Upload" }, "r", "run_1");
+    assert.equal(result.type, "task_failed");
+    assert.equal(result.failureSummary, "browser_upload_file called without ref");
+  });
+
   it("browser_navigate with empty string url returns task_failed", () => {
     const result = mapToolCallToDecision("browser_navigate", { url: "" }, "r", "run_1");
     assert.equal(result.type, "task_failed");
@@ -746,6 +795,7 @@ describe("mapToolCallToDecision — cross-cutting", () => {
       ["browser_wait_for_text", { text: "t" }],
       ["browser_wait_for_navigation", {}],
       ["browser_save_note", { key: "k", value: "v" }],
+      ["browser_upload_file", { ref: "r" }],
       ["task_complete", { summary: "s" }],
       ["task_failed", { reason: "f" }],
       ["ask_user", { question: "q" }],

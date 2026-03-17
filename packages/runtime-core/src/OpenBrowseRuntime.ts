@@ -194,17 +194,35 @@ export class OpenBrowseRuntime {
 
     if (!run.checkpoint.pendingClarificationId) return run;
 
+    // Check if this clarification was for a file upload before resuming
+    // (resumeFromClarification preserves pendingBrowserAction via checkpoint spread)
+    const pendingUpload = run.checkpoint.pendingBrowserAction?.type === "upload_file"
+      ? run.checkpoint.pendingBrowserAction
+      : undefined;
+
     const resumedRun = this.services.orchestrator.resumeFromClarification(run, {
       requestId: run.checkpoint.pendingClarificationId,
       runId: run.id,
       answer: message.text,
       respondedAt: message.createdAt
     });
+
+    // If this was a file upload clarification, set the file path from user's answer
+    // and pass the upload action as pendingAction for execution on resume
+    let pendingAction: BrowserAction | undefined;
+    if (pendingUpload) {
+      pendingAction = {
+        ...pendingUpload,
+        value: message.text.trim(),
+      };
+      resumedRun.checkpoint.pendingBrowserAction = undefined;
+    }
+
     await this.services.runCheckpointStore.save(resumedRun);
     await this.logWorkflowEvent(resumedRun.id, "clarification_answered", `Run resumed from ${message.channel}.`, {
       channel: message.channel
     });
-    return doResume(resumedRun);
+    return doResume(resumedRun, pendingAction);
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────

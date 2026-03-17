@@ -660,6 +660,51 @@ export class ElectronBrowserKernel implements BrowserKernel {
             screenshotBase64: screenshotResult.data
           };
         }
+
+        case "upload_file": {
+          const targetId = this.requireTargetId(action);
+          const filePath = this.requireActionValue(action);
+
+          // Use DOM.getDocument + DOM.querySelector to find the file input by target attribute
+          const doc = await managed.cdp.send<{ root: { nodeId: number } }>("DOM.getDocument", {});
+          const queryResult = await managed.cdp.send<{ nodeId: number }>("DOM.querySelector", {
+            nodeId: doc.root.nodeId,
+            selector: `[${TARGET_ATTR}="${targetId}"]`
+          });
+          if (!queryResult.nodeId) throw new Error(`Target not found: ${targetId}`);
+
+          // Set the file on the input element via CDP
+          await managed.cdp.send("DOM.setFileInputFiles", {
+            files: [filePath],
+            nodeId: queryResult.nodeId
+          });
+
+          // Dispatch change event for framework compatibility
+          await managed.cdp.callFunction(
+            `function(targetAttr, targetId) {
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (r.el) {
+                r.el.dispatchEvent(new Event('change', { bubbles: true }));
+                r.el.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+            }`,
+            TARGET_ATTR,
+            targetId
+          );
+
+          // Post-action settle
+          await this.postActionSettle(wc);
+          managed.cdp.invalidateContext();
+
+          const pageModelAfterUpload = await this.capturePageModel(browserSession);
+          return {
+            ok: true,
+            action,
+            pageModelId: pageModelAfterUpload.id,
+            summary: `File uploaded: ${filePath.split("/").pop() ?? filePath}`
+          };
+        }
       }
 
       const pageModel = await this.capturePageModel(browserSession);

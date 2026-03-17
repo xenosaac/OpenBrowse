@@ -202,6 +202,18 @@ export const BROWSER_TOOLS: Anthropic.Tool[] = [
     }
   },
   {
+    name: "browser_upload_file",
+    description: "Upload a file to a file input (<input type=\"file\">) element. This will ask the user to provide the file path, then set the file on the input element. Use when you see a file input element (type=\"file\") on the page that needs a file attached.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The element ID of the file input (e.g. el_5)" },
+        description: { type: "string", description: "Describe what file is being requested (e.g. 'Resume PDF for job application', 'Profile photo')" }
+      },
+      required: ["ref", "description"]
+    }
+  },
+  {
     name: "ask_user",
     description: "Ask the user a question when you need clarification or cannot proceed without human input (e.g. CAPTCHA, ambiguous instructions).",
     input_schema: {
@@ -416,6 +428,18 @@ export function mapToolCallToDecision(
           type: "wait_for_navigation",
           description: input.description ?? "Wait for navigation",
           interactionHint: String(input.timeout ?? 10000)
+        }
+      };
+
+    case "browser_upload_file":
+      if (!input.ref) return fail("browser_upload_file called without ref");
+      return {
+        type: "browser_action",
+        reasoning,
+        action: {
+          type: "upload_file",
+          targetId: input.ref,
+          description: input.description ?? "Upload file"
         }
       };
 
