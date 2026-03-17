@@ -7994,3 +7994,64 @@ Rationale: Worktree is clean, no unfinished task. PM task ordering: T20 → T22 
 - The iframe capability should improve success rates for tasks involving embedded forms, payment flows, and OAuth popups.
 
 *Session log entry written: 2026-03-16 (Session 130)*
+
+---
+
+### Session 131 — 2026-03-16: T24 — Approval Gate Calibration (Evidence-Driven)
+
+#### Mode: framework
+
+Rationale: Worktree is clean, no unfinished task. PM guidance says T24 → T25 → T26. T24 is P1 — directly fixes measurable failure patterns from the database. Database evidence: approval gates fire on benign actions (Google searches with "price" keyword, Wordle "submit" actions), causing element staleness and task kills. Framework mode because this changes the security/validation layer.
+
+#### Plan
+
+1. **`ApprovalPolicy.ts`**: Add three calibration fixes:
+   - **Fix 1 (read-only exemption)**: `read_text`, `wait_for_text`, `screenshot`, `go_back`, `scroll`, `wait`, `hover`, `extract`, `focus` actions return "low" risk immediately — they never modify page state.
+   - **Fix 2 (navigate exemption)**: `navigate` actions return "low" risk unless URL/description matches transactional patterns (checkout, payment, billing, etc.).
+   - **Fix 3 (submission co-occurrence)**: "submit" and "confirm" keywords only trigger HIGH risk when combined with transactional context ("form", "order", "payment", "account", etc.). Without context, they fall through to low. This fixes the Wordle "submit" false positive.
+2. **Update existing approval tests** — ensure existing tests still pass.
+3. **Add new tests** — at least 3 for the specific false positive patterns from the database:
+   - "Search Google for toucan price in California" (navigate) → should NOT trigger
+   - "Press Enter to submit the word CRANE" (click on a game) → should NOT trigger
+   - "Navigate to birdbreeders.com listing page" → should NOT trigger
+   - Read-only actions → should NOT trigger even with risky keywords
+   - Navigate to checkout → should STILL trigger
+   - Submit form → should STILL trigger
+4. Run `pnpm run typecheck` and `node --test tests/*.test.mjs`.
+5. Update this log and commit.
+
+#### Implementation
+
+**`ApprovalPolicy.ts`** — Three calibration fixes added:
+
+**Fix 1 (read-only exemption)**: Added `READ_ONLY_ACTIONS` set containing `read_text`, `wait_for_text`, `screenshot`, `go_back`, `scroll`, `wait`, `hover`, `extract`, `focus`. In `classifyRisk()`, these return "low" immediately. In `collectApprovalReasons()`, these produce no reasons (except strict mode). These actions never modify page state.
+
+**Fix 2 (navigate exemption)**: Added `TRANSACTIONAL_NAV_PATTERNS` array containing `checkout`, `/payment`, `/pay/`, `/billing`, `/order/confirm`, `/place-order`, `/purchase`. Navigate actions return "low" unless text matches a transactional pattern. Prevents false positives like "Search Google for toucan price" from triggering approval.
+
+**Fix 3 (submission co-occurrence)**: Added `CONTEXT_DEPENDENT_KEYWORDS` set (`submit`, `confirm`) and `TRANSACTIONAL_CONTEXT` array (`form`, `order`, `payment`, `account`, `registration`, `application`, `checkout`, `cart`, `billing`, `survey`, `request`, `booking`, `reservation`). "submit"/"confirm" only trigger HIGH when accompanied by transactional context. Fixes the Wordle "submit the word CRANE" false positive.
+
+Key design decisions:
+- Strong keywords (buy, delete, send, password, etc.) still trigger unconditionally.
+- `classifyRiskClass()` unchanged — risk CLASS is orthogonal to LEVEL.
+- Strict mode behavior unchanged.
+
+#### Files Changed
+
+- `packages/security/src/ApprovalPolicy.ts` — 3 calibration fixes: read-only exemption, navigate exemption, submission co-occurrence
+- `tests/approval-policy.test.mjs` — 8 new T24 tests
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1107/1107 pass (+8 new tests)
+- All 37 approval-related tests pass (19 deny-continue + 10 approval-policy + 8 new T24)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T24 is complete. Approval gates now only fire on genuinely risky actions.
+- PM task ordering: T25 (planner anti-loop strategies) is next — #1 failure mode (8/35 failures). Prompt-only change.
+- After T25: T26 (graceful session cleanup on tab close).
+
+*Session log entry written: 2026-03-16 (Session 131)*
