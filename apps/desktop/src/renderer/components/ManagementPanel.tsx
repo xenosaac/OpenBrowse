@@ -14,9 +14,10 @@ import { HistoryPanel } from "./HistoryPanel";
 import { CookiePanel } from "./CookiePanel";
 import { TaskHistoryPanel } from "./TaskHistoryPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
+import { WatchesPanel } from "./WatchesPanel";
 import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts" | "watches";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -48,6 +49,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "cookies", label: "Cookies" },
   { key: "taskHistory", label: "Task History" },
   { key: "shortcuts", label: "Shortcuts" },
+  { key: "watches", label: "Watches" },
   { key: "runtime", label: "Runtime" }
 ];
 
@@ -181,6 +183,8 @@ export function ManagementPanel({
               onOverridesChanged={onKeybindingOverridesChanged}
             />
           )}
+
+          {activeTab === "watches" && <WatchesPanel />}
 
           {activeTab === "runtime" && (
             <RuntimeStatus runtime={runtime} />

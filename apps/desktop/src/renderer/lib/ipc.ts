@@ -66,6 +66,25 @@ export const ipc = {
       markdown: string;
     } | null>,
   },
+  scheduler: {
+    list: () => window.openbrowse.listWatches() as Promise<Array<{
+      id: string;
+      intent: { id: string; goal: string; metadata?: Record<string, string> };
+      intervalMinutes: number;
+      active: boolean;
+      createdAt: string;
+      nextRunAt: string;
+      lastTriggeredAt?: string;
+      lastCompletedAt?: string;
+      consecutiveFailures: number;
+      lastError?: string;
+      backoffUntil?: string;
+    }>>,
+    register: (params: { goal: string; startUrl?: string; intervalMinutes: number }) =>
+      window.openbrowse.registerWatch(params) as Promise<{ watchId: string }>,
+    unregister: (watchId: string) =>
+      window.openbrowse.unregisterWatch(watchId) as Promise<{ ok: boolean }>,
+  },
   events: {
     subscribe: (callback: (event: unknown) => void) => window.openbrowse.onRuntimeEvent(callback),
   },

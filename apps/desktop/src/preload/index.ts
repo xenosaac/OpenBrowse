@@ -135,6 +135,25 @@ const api = {
   saveKeybindings: (entries: Array<{ key: string; value: string }>): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke("keybindings:save", entries),
 
+  // Watch scheduler
+  listWatches: (): Promise<Array<{
+    id: string;
+    intent: { id: string; goal: string; metadata?: Record<string, string> };
+    intervalMinutes: number;
+    active: boolean;
+    createdAt: string;
+    nextRunAt: string;
+    lastTriggeredAt?: string;
+    lastCompletedAt?: string;
+    consecutiveFailures: number;
+    lastError?: string;
+    backoffUntil?: string;
+  }>> => ipcRenderer.invoke("scheduler:list"),
+  registerWatch: (params: { goal: string; startUrl?: string; intervalMinutes: number }): Promise<{ watchId: string }> =>
+    ipcRenderer.invoke("scheduler:register", params),
+  unregisterWatch: (watchId: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke("scheduler:unregister", watchId),
+
   // Real-time events
   onRuntimeEvent: (callback: (event: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, data: unknown) => callback(data);

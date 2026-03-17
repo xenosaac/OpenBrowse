@@ -538,4 +538,32 @@ export function registerIpcHandlers(
     await services.preferenceStore.saveNamespaceSettings("keybindings", entries);
     return { ok: true };
   });
+
+  // --- Watch Scheduler ---
+  register("scheduler:list", async () => {
+    if (!services.scheduler.listWatches) return [];
+    return services.scheduler.listWatches();
+  });
+
+  register("scheduler:register", async (_event, params: { goal: string; startUrl?: string; intervalMinutes: number }) => {
+    const metadata: Record<string, string> = {};
+    if (params.startUrl) metadata.startUrl = params.startUrl;
+    const intent: TaskIntent = {
+      id: `task_watch_${Date.now()}`,
+      goal: params.startUrl ? `${params.goal} (start at ${params.startUrl})` : params.goal,
+      constraints: [],
+      metadata,
+      source: "scheduler",
+      createdAt: new Date().toISOString(),
+    };
+    const watchId = await services.scheduler.registerWatch(intent, params.intervalMinutes);
+    return { watchId };
+  });
+
+  register("scheduler:unregister", async (_event, watchId: string) => {
+    if (services.scheduler.unregisterWatch) {
+      await services.scheduler.unregisterWatch(watchId);
+    }
+    return { ok: true };
+  });
 }
