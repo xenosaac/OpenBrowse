@@ -586,7 +586,7 @@ test("recordBrowserResult tracks urlVisitCounts for navigate actions", () => {
   assert.equal(run.checkpoint.urlVisitCounts["https://a.com"], 2);
 });
 
-test("recordBrowserResult tracks urlVisitCounts using lastKnownUrl for non-navigate", () => {
+test("recordBrowserResult does NOT increment urlVisitCounts for non-navigate actions", () => {
   const o = makeOrchestrator();
   let run = makeRunning(o);
   run.checkpoint.lastKnownUrl = "https://current.com";
@@ -596,7 +596,9 @@ test("recordBrowserResult tracks urlVisitCounts using lastKnownUrl for non-navig
     summary: "clicked",
   }));
 
-  assert.equal(run.checkpoint.urlVisitCounts["https://current.com"], 1);
+  // Non-navigate actions should not count as URL visits —
+  // they are productive work on the current page, not revisitation.
+  assert.equal(run.checkpoint.urlVisitCounts["https://current.com"], undefined);
 });
 
 test("recordBrowserResult records targetUrl for navigate actions", () => {

@@ -267,10 +267,13 @@ export class TaskOrchestrator {
       ? (run.checkpoint.totalSoftFailures ?? 0) + 1
       : (run.checkpoint.totalSoftFailures ?? 0);
 
-    // Track URL visit counts
+    // Track URL visit counts — only navigate actions count as "visits".
+    // Non-navigate interactions (click, type, scroll, etc.) on the same URL
+    // are productive work, not revisitation. This prevents single-page apps
+    // (Wordle, Google Flights, etc.) from hitting the visit limit prematurely.
     const visitedUrl = result.action.type === "navigate"
       ? result.action.value
-      : run.checkpoint.lastKnownUrl;
+      : undefined;
     const urlVisitCounts = { ...(run.checkpoint.urlVisitCounts ?? {}) };
     if (visitedUrl) {
       urlVisitCounts[visitedUrl] = (urlVisitCounts[visitedUrl] ?? 0) + 1;
