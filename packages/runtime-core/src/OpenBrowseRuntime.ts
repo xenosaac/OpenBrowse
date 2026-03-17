@@ -423,6 +423,10 @@ export async function cancelTrackedRun(
   runId: string,
   summary = "Run cancelled by user."
 ): Promise<TaskRun | null> {
+  // Signal cooperative cancellation immediately — the planner loop's
+  // synchronous isCancelled() check will see this before any I/O.
+  services.pendingCancellations.add(runId);
+
   const run = await services.runCheckpointStore.load(runId);
   if (!run) return null;
 

@@ -35,6 +35,7 @@ function makeRun(overrides = {}) {
 
 function makeServices(runs = []) {
   return {
+    pendingCancellations: new Set(),
     runCheckpointStore: {
       load: async (id) => runs.find((r) => r.id === id) ?? null,
       listAll: async () => runs,

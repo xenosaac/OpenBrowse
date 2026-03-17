@@ -61,4 +61,7 @@ export interface RuntimeServices {
   cookieContainerStore?: CookieContainerStore;
   standaloneTabStore?: StandaloneTabStore;
   chatBridgeStateStore?: ChatBridgeStateStore;
+  /** Shared set for cooperative cancellation — cancelTrackedRun adds here,
+   *  CancellationController checks here in isCancelled(). */
+  pendingCancellations: Set<string>;
 }
