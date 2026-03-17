@@ -40,6 +40,31 @@ interface ManagedSession {
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const TARGET_ATTR = "data-openbrowse-target-id";
 
+/**
+ * Inline JS helper that resolves an element by targetId, including same-origin
+ * iframe traversal for frame-prefixed IDs like "frame0_el_5".
+ * Returns { el, iframe } where iframe is the containing iframe element (or null).
+ * This string is prepended inside callFunction bodies that need element resolution.
+ */
+const RESOLVE_TARGET_JS = `
+  function _resolve(targetAttr, targetId) {
+    var fm = targetId.match(/^frame(\\d+)_el_/);
+    if (fm) {
+      var fi = parseInt(fm[1], 10);
+      var ifs = document.querySelectorAll('iframe');
+      var si = 0;
+      for (var i = 0; i < ifs.length; i++) {
+        var d; try { d = ifs[i].contentDocument; } catch(e) { continue; }
+        if (!d || !d.body) continue;
+        if (si === fi) return { el: d.querySelector('[' + targetAttr + '="' + targetId + '"]'), iframe: ifs[i] };
+        si++;
+      }
+      return { el: null, iframe: null };
+    }
+    return { el: document.querySelector('[' + targetAttr + '="' + targetId + '"]'), iframe: null };
+  }
+`;
+
 function rejectAfterTimeout(ms: number, message: string): Promise<never> {
   return new Promise((_resolve, reject) => {
     setTimeout(() => reject(new Error(message)), ms);
@@ -303,11 +328,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
           // Scroll element into view and get its center coordinates
           const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return null;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              const rect = el.getBoundingClientRect();
-              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              var rect = r.el.getBoundingClientRect();
+              var ox = 0, oy = 0;
+              if (r.iframe) { var ir = r.iframe.getBoundingClientRect(); ox = ir.left; oy = ir.top; }
+              return { x: Math.round(ox + rect.left + rect.width / 2), y: Math.round(oy + rect.top + rect.height / 2) };
             }`,
             TARGET_ATTR,
             targetId
@@ -331,10 +359,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           // Focus element, scroll into view
           const found = await managed.cdp.callFunction<boolean>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return false;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return false;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
               return true;
             }`,
             TARGET_ATTR,
@@ -372,10 +401,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           // Dispatch input + change for framework compatibility
           await managed.cdp.callFunction(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (el) {
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (r.el) {
+                r.el.dispatchEvent(new Event('input', { bubbles: true }));
+                r.el.dispatchEvent(new Event('change', { bubbles: true }));
               }
             }`,
             TARGET_ATTR,
@@ -391,24 +421,25 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const value = this.requireActionValue(action);
           await managed.cdp.callFunction(
             `function(targetAttr, targetId, value) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) throw new Error('Target not found: ' + targetId);
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) throw new Error('Target not found: ' + targetId);
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
 
               // Use native setter to trigger internal state update
               var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
                 window.HTMLSelectElement.prototype, 'value'
               )?.set;
               if (nativeInputValueSetter) {
-                nativeInputValueSetter.call(el, value);
+                nativeInputValueSetter.call(r.el, value);
               } else {
-                el.value = value;
+                r.el.value = value;
               }
 
               // Dispatch both native and synthetic events for framework compat
-              el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+              r.el.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+              r.el.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
             }`,
             TARGET_ATTR,
             targetId,
@@ -428,8 +459,9 @@ export class ElectronBrowserKernel implements BrowserKernel {
             validateElementTargetId(tid);
             await managed.cdp.callFunction(
               `function(targetAttr, targetId, delta) {
-                const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-                if (el) el.scrollBy({ top: delta, behavior: 'smooth' });
+                ${RESOLVE_TARGET_JS}
+                var r = _resolve(targetAttr, targetId);
+                if (r.el) r.el.scrollBy({ top: delta, behavior: 'smooth' });
               }`,
               TARGET_ATTR,
               tid,
@@ -445,10 +477,11 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const targetId = this.requireTargetId(action);
           const found = await managed.cdp.callFunction<boolean>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return false;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              el.focus();
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return false;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              r.el.focus();
               return true;
             }`,
             TARGET_ATTR,
@@ -462,11 +495,14 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const targetId = this.requireTargetId(action);
           const coords = await managed.cdp.callFunction<{ x: number; y: number } | null>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return null;
-              el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-              const rect = el.getBoundingClientRect();
-              return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              r.el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+              var rect = r.el.getBoundingClientRect();
+              var ox = 0, oy = 0;
+              if (r.iframe) { var ir = r.iframe.getBoundingClientRect(); ox = ir.left; oy = ir.top; }
+              return { x: Math.round(ox + rect.left + rect.width / 2), y: Math.round(oy + rect.top + rect.height / 2) };
             }`,
             TARGET_ATTR,
             targetId
@@ -548,9 +584,10 @@ export class ElectronBrowserKernel implements BrowserKernel {
           const targetId = this.requireTargetId(action);
           const text = await managed.cdp.callFunction<string | null>(
             `function(targetAttr, targetId) {
-              const el = document.querySelector('[' + targetAttr + '="' + targetId + '"]');
-              if (!el) return null;
-              return (el.innerText || '').trim().slice(0, 2000);
+              ${RESOLVE_TARGET_JS}
+              var r = _resolve(targetAttr, targetId);
+              if (!r.el) return null;
+              return (r.el.innerText || '').trim().slice(0, 2000);
             }`,
             TARGET_ATTR,
             targetId

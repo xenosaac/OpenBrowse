@@ -219,6 +219,25 @@ describe("mapRawToPageModel", () => {
     assert.equal(form.fields?.length, 1);
     assert.equal(form.submitRef, "el_5");
   });
+
+  it("preserves iframeIndex on elements from same-origin iframes", () => {
+    const raw = {
+      url: "https://example.com",
+      title: "Test",
+      summary: "Test",
+      elements: [
+        { id: "el_0", role: "button", label: "Main", isActionable: true },
+        { id: "frame0_el_0", role: "textbox", label: "Iframe input", isActionable: true, iframeIndex: 0 },
+        { id: "frame0_el_1", role: "button", label: "Iframe submit", isActionable: true, iframeIndex: 0 },
+      ],
+      visibleText: "",
+    };
+    const result = mapRawToPageModel(raw, "sess_iframe");
+    assert.equal(result.elements.length, 3);
+    assert.equal(result.elements[0].iframeIndex, undefined);
+    assert.equal(result.elements[1].iframeIndex, 0);
+    assert.equal(result.elements[2].iframeIndex, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------

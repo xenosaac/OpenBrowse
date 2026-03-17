@@ -7904,3 +7904,93 @@ All 8 replacements are mechanical hex-to-token swaps. One genuine color correcti
 - T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
 
 *Session log entry written: 2026-03-16 (Session 129)*
+
+---
+
+### Session 130 — 2026-03-16: T23 — Iframe Content Interaction
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM task ordering: T20 → T22 → D12 → T23. T20, T22, and D12 are all done (Sessions 127-129). T23 is next: same-origin iframe element extraction + action targeting. Feature mode because this is a real capability extension — many real-world tasks require interacting with iframe-embedded content (payment flows, OAuth, embedded forms). Framework maturity checklist is satisfied.
+
+#### Plan
+
+1. **`extractPageModel.ts`**: After main-frame element enumeration, traverse same-origin iframes. For each same-origin iframe, enumerate interactive elements with IDs like `frame0_el_0`. Adjust bounding boxes by iframe offset. Cap at 50 elements per iframe, 3 same-origin iframes max. Cross-origin iframes: skip (already reported via iframeCount/iframeSources).
+2. **`validation.ts`**: Update `ELEMENT_TARGET_ID_RE` to accept both `el_N` and `frameN_el_M` formats.
+3. **`contracts/browser.ts`**: Add optional `iframeIndex?: number` to `PageElementModel`.
+4. **`mapRawToPageModel.ts`**: Add `iframeIndex` to `RawPageModelResult` element type.
+5. **`ElectronBrowserKernel.ts`**: Update click, type, select, focus, hover, read_text handlers to resolve elements inside same-origin iframes when targetId has `frame` prefix. Adjust coordinates for click/hover by iframe offset.
+6. **`buildPlannerPrompt.ts`**: Update iframe hint — same-origin iframe elements are now in the element list with `iframe[N]` annotation. Cross-origin iframes still show "navigate directly" workaround.
+7. **Tests**: Add tests for iframe element extraction, frame-prefixed validation, and planner prompt iframe guidance.
+8. Run `pnpm run typecheck` and `node --test tests/*.test.mjs`.
+9. Update this log and commit.
+
+#### Implementation
+
+**`extractPageModel.ts`** — Added same-origin iframe element traversal after main-frame enumeration:
+- After the main-frame element loop (capped at 300), enumerates visible same-origin iframes
+- For each iframe, tries `iframe.contentDocument` access — succeeds for same-origin, catches security errors for cross-origin
+- Runs `querySelectorAllDeep` on the iframe's document using the same `INTERACTIVE_SELECTOR`
+- Element IDs use `frame{N}_el_{M}` format (e.g., `frame0_el_0`, `frame1_el_3`)
+- Bounding boxes are adjusted by the iframe's own position to produce page-relative coordinates
+- Sets `iframeIndex` field on each iframe element for prompt annotation
+- Caps: 50 elements per iframe, 3 same-origin iframes max, 300 total elements still applies
+- Cross-origin iframes are silently skipped (already reported via `iframeCount`/`iframeSources`)
+
+**`validation.ts`** — Extended `validateElementTargetId` to accept both `el_N` and `frameN_el_M` formats:
+- Added `FRAME_ELEMENT_TARGET_ID_RE = /^frame(\d+)_el_(\d+)$/`
+- Returns the element index from whichever pattern matches
+
+**`contracts/browser.ts`** — Added `iframeIndex?: number` to `PageElementModel`:
+- Optional field indicating which same-origin iframe (0-indexed) contains this element
+- Undefined for main-frame elements
+
+**`mapRawToPageModel.ts`** — Added `iframeIndex` to `RawPageModelResult` element type:
+- Pass-through mapping — no transformation needed
+
+**`ElectronBrowserKernel.ts`** — Added iframe-aware element resolution to all action handlers:
+- Defined `RESOLVE_TARGET_JS` — a compact inline JS helper that resolves elements by targetId, traversing same-origin iframes when the ID has a `frame` prefix
+- Updated 8 callFunction bodies: click, type (focus), type (event dispatch), select, scroll (element-level), focus, hover, read_text
+- For click and hover: adjusts coordinates by iframe bounding box offset so CDP mouse events target the correct page-level position
+- For type, select, focus, read_text: uses the helper to find the element in the correct document context
+
+**`buildPlannerPrompt.ts`** — Updated iframe hint and element display:
+- Detects whether any elements have `iframeIndex` set (same-origin iframe elements present)
+- When same-origin iframe elements exist: tells planner "Same-origin iframe elements are included below — their IDs start with frame0_, frame1_, etc. You can interact with them normally"
+- When no same-origin elements: preserves the old "navigate directly to iframe source URL" workaround
+- Cross-origin iframe sources are always listed
+- Added `(iframe[N])` annotation to element lines for iframe elements
+
+**Tests** — 7 new tests (1092 → 1099):
+- `validation.test.mjs`: 4 tests for frame-prefixed IDs (accept `frame0_el_0`, `frame2_el_15`; reject `frameX_el_5`, `frame0_5`)
+- `mapRawToPageModel.test.mjs`: 1 test for iframeIndex pass-through on elements
+- `planner-prompt.test.mjs`: 2 tests for iframe element hint text and `(iframe[N])` annotation in element list
+
+#### Files Changed
+
+- `packages/browser-runtime/src/cdp/extractPageModel.ts` — same-origin iframe element traversal
+- `packages/browser-runtime/src/validation.ts` — frame-prefixed ID validation
+- `packages/contracts/src/browser.ts` — `iframeIndex` on PageElementModel
+- `packages/browser-runtime/src/mapRawToPageModel.ts` — `iframeIndex` in RawPageModelResult
+- `packages/browser-runtime/src/ElectronBrowserKernel.ts` — `RESOLVE_TARGET_JS` helper + 8 updated action handlers
+- `packages/planner/src/buildPlannerPrompt.ts` — updated iframe hint + element annotation
+- `tests/validation.test.mjs` — 4 new frame-prefixed ID tests
+- `tests/mapRawToPageModel.test.mjs` — 1 new iframeIndex test
+- `tests/planner-prompt.test.mjs` — 2 new iframe element tests + 1 updated test
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1099/1099 pass (+7 new tests)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T23 is complete. The planner can now see and interact with elements inside same-origin iframes. Cross-origin iframes are reported as opaque with source URLs.
+- PM task ordering (T20 → T22 → D12 → T23) is now fully complete.
+- D13 (management panel token sweep) and D14 (borderControl + controlHoverBg tokens) are available as design polish tasks.
+- T9 (manual end-to-end testing) remains the sole product validation gate — requires user action.
+- The iframe capability should improve success rates for tasks involving embedded forms, payment flows, and OAuth popups.
+
+*Session log entry written: 2026-03-16 (Session 130)*

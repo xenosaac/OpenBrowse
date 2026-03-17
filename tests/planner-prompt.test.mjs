@@ -1839,7 +1839,7 @@ test("iframe hint absent when iframeCount is undefined", () => {
   assert.doesNotMatch(user, /IFRAMES DETECTED/);
 });
 
-test("iframe hint includes sources when iframeSources provided", () => {
+test("iframe hint includes sources when iframeSources provided (no same-origin elements)", () => {
   const pm = makePageModel({
     iframeCount: 2,
     iframeSources: ["https://ads.example.com/banner", "https://maps.example.com/embed"]
@@ -1850,6 +1850,35 @@ test("iframe hint includes sources when iframeSources provided", () => {
   assert.match(user, /ads\.example\.com/);
   assert.match(user, /maps\.example\.com/);
   assert.match(user, /navigating directly to the iframe source URL/);
+});
+
+test("iframe hint mentions same-origin elements when present", () => {
+  const pm = makePageModel({
+    iframeCount: 2,
+    iframeSources: ["https://cross-origin.example.com"],
+    elements: [
+      { id: "el_0", role: "button", label: "Main btn", isActionable: true, boundingVisible: true },
+      { id: "frame0_el_0", role: "textbox", label: "Iframe input", isActionable: true, iframeIndex: 0, boundingVisible: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /IFRAMES DETECTED/);
+  assert.match(user, /Same-origin iframe elements are included/);
+  assert.match(user, /interact with them normally/);
+});
+
+test("iframe element shown with (iframe[N]) annotation in element list", () => {
+  const pm = makePageModel({
+    iframeCount: 1,
+    elements: [
+      { id: "el_0", role: "button", label: "Main btn", isActionable: true, boundingVisible: true },
+      { id: "frame0_el_0", role: "textbox", label: "Iframe input", isActionable: true, iframeIndex: 0, boundingVisible: true },
+    ]
+  });
+  const { user } = buildPlannerPrompt(makeRun(), pm);
+  assert.match(user, /\[frame0_el_0\].*textbox.*"Iframe input".*\(iframe\[0\]\)/);
+  // Main frame element should NOT have iframe annotation
+  assert.doesNotMatch(user, /\[el_0\].*\(iframe/);
 });
 
 // ---------------------------------------------------------------------------
