@@ -557,6 +557,32 @@ test("recordBrowserResult tracks network_error as soft failure", () => {
   assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
 });
 
+test("recordBrowserResult tracks interaction_failed as soft failure", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "interaction_failed",
+    summary: "click failed",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
+test("recordBrowserResult tracks navigation_timeout as soft failure", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "navigation_timeout",
+    summary: "timed out",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
 test("recordBrowserResult does not count non-soft failures", () => {
   const o = makeOrchestrator();
   let run = makeRunning(o);

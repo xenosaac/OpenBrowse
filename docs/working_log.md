@@ -8626,3 +8626,48 @@ Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T29, P
 - PM should re-validate with user re-testing. This fix should improve multi-step single-page task completion (e.g., Wordle, flight search).
 
 *Session log entry written: 2026-03-16 (Session 140)*
+
+---
+
+### Session 141 — 2026-03-16: Fix Soft Failure Counter Mismatch Between RunExecutor and TaskOrchestrator
+
+#### Mode: framework
+
+Rationale: Worktree clean, no unfinished task. All PM-directed tasks (T23-T29, Programs A-J) complete. PM diagnosis log explicitly identifies this as a real bug: RunExecutor treats 4 failure classes as soft (`element_not_found`, `network_error`, `interaction_failed`, `navigation_timeout`) but TaskOrchestrator.recordBrowserResult only counts 2 (`element_not_found`, `network_error`) toward consecutive/total soft failure limits. This means `interaction_failed` and `navigation_timeout` errors never increment the soft failure counters, so `MAX_CONSECUTIVE_SOFT_FAILURES = 5` and `MAX_TOTAL_SOFT_FAILURES = 8` never fire for these types. A run could waste all 50 steps on repeated navigation timeouts without triggering graceful termination. Database evidence shows navigation errors are the #1 failure class (31% of 35 failures = 11 runs).
+
+#### Plan
+
+1. In `packages/orchestrator/src/TaskOrchestrator.ts`, add `interaction_failed` and `navigation_timeout` to the `isSoftFailure` check in `recordBrowserResult`.
+2. Update or add tests in `tests/task-orchestrator.test.mjs` to verify all 4 soft failure types increment the counters.
+3. Run typecheck + tests.
+4. Update this log and commit.
+
+#### Implementation
+
+**`packages/orchestrator/src/TaskOrchestrator.ts`** — Added `interaction_failed` and `navigation_timeout` to `isSoftFailure` check in `recordBrowserResult` (lines 259-264):
+- Old: only `element_not_found` and `network_error` (2 types)
+- New: `element_not_found`, `network_error`, `interaction_failed`, `navigation_timeout` (4 types)
+- Now matches RunExecutor's `SOFT_FAILURE_CLASSES` set exactly.
+- Effect: `interaction_failed` and `navigation_timeout` now properly increment `consecutiveSoftFailures` and `totalSoftFailures` counters. `MAX_CONSECUTIVE_SOFT_FAILURES = 5` and `MAX_TOTAL_SOFT_FAILURES = 8` now fire correctly for all soft failure types, preventing runs from wasting all 50 steps on repeated navigation timeouts.
+
+**`tests/task-orchestrator.test.mjs`** — Added 2 tests:
+- "tracks interaction_failed as soft failure" — verifies counter increments to 1/1
+- "tracks navigation_timeout as soft failure" — verifies counter increments to 1/1
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/task-orchestrator.test.mjs` — 57/57 pass (was 55, +2 new)
+- `node --test tests/runExecutor.test.mjs` — 44/44 pass
+- `node --test tests/*.test.mjs` — 1121/1121 pass (was 1119, +2 new, no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- The soft failure counter now matches RunExecutor for all 4 soft failure types. Runs with repeated `interaction_failed` or `navigation_timeout` errors will now hit the 5-consecutive / 8-total limit and terminate gracefully instead of wasting all 50 steps.
+- The #1 failure class (navigation errors, 31% of 35 failures) will benefit: repeated navigation timeouts now trigger graceful termination after 5 consecutive failures.
+- PM-identified deeper fix: navigation retry at the infrastructure level (retry once on ERR_ABORTED/timeout before counting it as a failure). This would prevent many navigation errors from becoming failures at all.
+- All PM-directed tasks (T23-T29, Programs A-J) remain complete.
+
+*Session log entry written: 2026-03-16 (Session 141)*
