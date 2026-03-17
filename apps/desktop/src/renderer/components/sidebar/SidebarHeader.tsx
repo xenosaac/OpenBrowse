@@ -62,13 +62,13 @@ const styles: Record<string, React.CSSProperties> = {
   statusPip: { fontSize: "0.72rem" },
   newSessionButton: {
     width: 26, height: 26, borderRadius: 7,
-    background: colors.emeraldTint, border: "1px solid rgba(255,255,255,0.08)",
+    background: colors.emeraldTint, border: `1px solid ${colors.borderControl}`,
     color: colors.emerald, cursor: "pointer", fontSize: "1rem",
     display: "grid", placeItems: "center", flexShrink: 0
   },
   sessionListToggle: {
     ...glass.control, width: 26, height: 26, borderRadius: 7,
-    border: "1px solid rgba(255,255,255,0.08)",
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary, cursor: "pointer", fontSize: "0.72rem",
     display: "grid", placeItems: "center", flexShrink: 0
   } as React.CSSProperties

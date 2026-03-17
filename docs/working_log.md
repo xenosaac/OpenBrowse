@@ -8172,3 +8172,91 @@ Key design decisions:
 - Consider re-running failure audit after user tests to measure T24+T25+T26 impact on completion rate.
 
 *Session log entry written: 2026-03-16 (Session 133)*
+
+---
+
+### Session 134 — 2026-03-16: D14 + D15 — borderControl/controlHoverBg Tokens + Sidebar Width Clamp + AgentActivityBar Specular
+
+#### Mode: feature
+
+Rationale: Worktree is clean, no unfinished task. PM Program I (T24-T26, T23) fully complete. No severe correctness/security issues. UI design doc says D14 is the next design task (D-P3, small scope, high leverage) and D15 can be bundled in the same session (D-P5, two one-line fixes). Feature mode because this is design polish, not framework work.
+
+#### Plan
+
+**D14:**
+1. Add `borderControl` and `controlHoverBg` tokens to `tokens.ts`.
+2. Replace ~10 border instances of `rgba(255,255,255,0.08)` with `colors.borderControl` in TabBar, NavBar, SidebarHeader, HistoryPanel, CookiePanel, ManagementPanel.
+3. Replace ~4 hover background instances with `colors.controlHoverBg` in FindBar, BrowserPanel (reloadButtonHover), ChatMessageItem.
+4. Download bar micro-fixes: replace progress track `rgba(255,255,255,0.06)` with `colors.borderSubtle`, add hover state to downloadDismiss button.
+5. Exempt: `tokens.ts` line 111 (shadow composite), `App.tsx` CSS keyframe, `markdown.ts` inline template.
+
+**D15:**
+1. `useUILayout.ts`: Change sidebar max from 600 to 480.
+2. `AgentActivityBar.tsx`: Add `className: "ob-glass-panel"` and `position: 'relative'` to bar root.
+
+3. Run `pnpm run typecheck`.
+4. Update this log and commit.
+
+#### Implementation
+
+**D14 — `tokens.ts`** — Added two new tokens:
+- `borderControl: "rgba(255,255,255,0.08)"` — Tier 3 idle control border
+- `controlHoverBg: "rgba(255,255,255,0.08)"` — hover/active background tint for controls
+Both resolve to the same value today. Semantic separation allows future independent tuning.
+
+**D14 — Border replacements (10 instances across 6 files):**
+- `TabBar.tsx`: 2 instances (iconButton, addTabButton) → `colors.borderControl`
+- `NavBar.tsx`: 2 instances (iconButton, headerPill) → `colors.borderControl`
+- `SidebarHeader.tsx`: 2 instances (newSessionButton, sessionListToggle) → `colors.borderControl`
+- `HistoryPanel.tsx`: 1 instance (clearBtn) → `colors.borderControl`
+- `CookiePanel.tsx`: 2 instances (refreshBtn, clearBtn) → `colors.borderControl`
+- `ManagementPanel.tsx`: 1 instance (subTabBtn) → `colors.borderControl`
+
+**D14 — Hover background replacements (3 instances across 3 files):**
+- `FindBar.tsx`: btnHover background → `colors.controlHoverBg`
+- `BrowserPanel.tsx`: reloadButtonHover background → `colors.controlHoverBg`
+- `ChatMessageItem.tsx`: chatAvatarUser background → `colors.controlHoverBg`
+
+**D14 — Download bar micro-fixes (BrowserPanel.tsx):**
+- Progress track: `rgba(255,255,255,0.06)` → `colors.borderSubtle` (same value, now tokenized)
+- Dismiss button: added `onMouseEnter`/`onMouseLeave` with `background: colors.controlHoverBg`, `color: colors.textPrimary`
+
+**D14 — Exempt (unchanged per UI design spec):**
+- `tokens.ts` line 115: shadow composite string
+- `App.tsx`: CSS keyframe animation
+- `markdown.ts`: inline HTML template string
+
+**D15 — `useUILayout.ts`**: Changed sidebar max drag width from 600 to 480.
+
+**D15 — `AgentActivityBar.tsx`**: Added `className="ob-glass-panel"` and `position: "relative"` to bar root — activates the `::after` specular highlight that all other Tier 1 surfaces have.
+
+#### Files Changed
+
+- `apps/desktop/src/renderer/styles/tokens.ts` — 2 new tokens (borderControl, controlHoverBg)
+- `apps/desktop/src/renderer/components/chrome/TabBar.tsx` — 2 border → borderControl
+- `apps/desktop/src/renderer/components/chrome/NavBar.tsx` — 2 border → borderControl
+- `apps/desktop/src/renderer/components/sidebar/SidebarHeader.tsx` — 2 border → borderControl
+- `apps/desktop/src/renderer/components/HistoryPanel.tsx` — 1 border → borderControl
+- `apps/desktop/src/renderer/components/CookiePanel.tsx` — 2 border → borderControl
+- `apps/desktop/src/renderer/components/ManagementPanel.tsx` — 1 border → borderControl
+- `apps/desktop/src/renderer/components/chrome/FindBar.tsx` — 1 hover bg → controlHoverBg
+- `apps/desktop/src/renderer/components/BrowserPanel.tsx` — 1 hover bg → controlHoverBg, 1 progress track → borderSubtle, dismiss button hover added
+- `apps/desktop/src/renderer/components/sidebar/ChatMessageItem.tsx` — 1 bg → controlHoverBg
+- `apps/desktop/src/renderer/hooks/useUILayout.ts` — sidebar max width 600 → 480
+- `apps/desktop/src/renderer/components/AgentActivityBar.tsx` — ob-glass-panel className + position: relative
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/*.test.mjs` — 1114/1114 pass (no test changes needed — these are purely visual token swaps)
+
+#### Status: DONE
+
+#### Next Steps
+
+- D14 and D15 are complete. Zero raw `rgba(255,255,255,0.08)` in component files (only 3 exempt instances remain).
+- D13 (management panel common-token sweep) is the next design task — larger scope (~40 replacements + 2 new tokens).
+- After D13, the token system is essentially complete.
+- PM Program I results should be re-validated after user re-tests multi-step tasks to measure T24+T25+T26 impact.
+
+*Session log entry written: 2026-03-16 (Session 134)*

@@ -171,7 +171,7 @@ const styles: Record<string, React.CSSProperties> = {
     transition: `background ${transitions.fast}, color ${transitions.fast}`,
   },
   btnHover: {
-    background: "rgba(255,255,255,0.08)",
+    background: colors.controlHoverBg,
     color: colors.textPrimary,
   },
 };

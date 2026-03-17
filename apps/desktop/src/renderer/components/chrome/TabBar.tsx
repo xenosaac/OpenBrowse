@@ -130,7 +130,7 @@ const styles: Record<string, React.CSSProperties> = {
     overflowX: "auto", flex: 1, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    ...glass.control, color: colors.textSecondary, border: `1px solid rgba(255,255,255,0.08)`,
+    ...glass.control, color: colors.textSecondary, border: `1px solid ${colors.borderControl}`,
     borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
   } as React.CSSProperties,
@@ -161,7 +161,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   addTabButton: {
     ...glass.control, width: 28, height: 28, borderRadius: 7,
-    border: `1px solid rgba(255,255,255,0.08)`,
+    border: `1px solid ${colors.borderControl}`,
     color: colors.textSecondary, cursor: "pointer", fontSize: "1rem"
   } as React.CSSProperties
 };

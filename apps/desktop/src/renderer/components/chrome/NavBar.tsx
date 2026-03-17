@@ -147,7 +147,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", gap: 3, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   iconButton: {
-    ...glass.control, color: colors.textSecondary, border: `1px solid rgba(255,255,255,0.08)`,
+    ...glass.control, color: colors.textSecondary, border: `1px solid ${colors.borderControl}`,
     borderRadius: radii.md, minWidth: 30, height: 30,
     display: "grid", placeItems: "center", cursor: "pointer", fontSize: "0.88rem"
   } as React.CSSProperties,
@@ -170,7 +170,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", gap: 5, WebkitAppRegion: "no-drag"
   } as React.CSSProperties,
   headerPill: {
-    ...glass.control, color: colors.textPrimary, border: `1px solid rgba(255,255,255,0.08)`,
+    ...glass.control, color: colors.textPrimary, border: `1px solid ${colors.borderControl}`,
     borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontSize: "0.8rem"
   } as React.CSSProperties,
   waitingPip: {

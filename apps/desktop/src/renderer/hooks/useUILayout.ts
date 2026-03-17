@@ -23,7 +23,7 @@ export function useUILayout() {
 
     const handleMove = (moveEvent: MouseEvent) => {
       if (!isDraggingRef.current) return;
-      const newWidth = Math.max(240, Math.min(600, moveEvent.clientX));
+      const newWidth = Math.max(240, Math.min(480, moveEvent.clientX));
       setSidebarWidth(newWidth);
     };
 

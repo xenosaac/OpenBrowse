@@ -46,6 +46,7 @@ function errorCodeToMessage(code: number): string {
 export function BrowserPanel({ activeTab, covered, loadError, onReload, downloads = [], onDismissDownload }: Props) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [reloadHover, setReloadHover] = useState(false);
+  const [dismissHoverId, setDismissHoverId] = useState<string | null>(null);
 
   // Auto-dismiss completed/cancelled downloads after 5 seconds
   useEffect(() => {
@@ -190,8 +191,10 @@ export function BrowserPanel({ activeTab, covered, loadError, onReload, download
                   <span style={{ ...styles.downloadSize, color: colors.statusFailed }}>Failed</span>
                 )}
                 <button
-                  style={styles.downloadDismiss}
+                  style={dismissHoverId === dl.id ? { ...styles.downloadDismiss, background: colors.controlHoverBg, color: colors.textPrimary } : styles.downloadDismiss}
                   onClick={() => onDismissDownload?.(dl.id)}
+                  onMouseEnter={() => setDismissHoverId(dl.id)}
+                  onMouseLeave={() => setDismissHoverId(null)}
                   title="Dismiss"
                 >
                   ✕
@@ -282,7 +285,7 @@ const styles: Record<string, React.CSSProperties> = {
     outline: "none",
   },
   reloadButtonHover: {
-    background: "rgba(255,255,255,0.08)",
+    background: colors.controlHoverBg,
     borderColor: colors.borderHover,
   },
   // Download bar — Compact Chrome Widget pattern (like FindBar)
@@ -320,7 +323,7 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: 120,
     height: 4,
     borderRadius: 2,
-    background: "rgba(255,255,255,0.06)",
+    background: colors.borderSubtle,
     overflow: "hidden",
   },
   downloadProgressFill: {
