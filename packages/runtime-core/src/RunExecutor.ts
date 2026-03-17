@@ -21,6 +21,7 @@ const SOFT_FAILURE_CLASSES: ReadonlySet<BrowserActionFailureClass> = new Set([
   "network_error",
   "interaction_failed",
   "navigation_timeout",
+  "validation_error",
 ]);
 
 /**

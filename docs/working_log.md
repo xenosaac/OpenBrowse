@@ -8789,3 +8789,58 @@ Rationale: Worktree clean, no unfinished task. T30 (P1) and T31 (P1) done. PM di
 - After T34: Program K is fully complete. All PM-directed programs (A-K) will be done. PM guidance says next work should focus on user-visible browser value (bookmark support, tab pinning, address bar history) or re-testing.
 
 *Session log entry written: 2026-03-16 (Session 143)*
+
+---
+
+### Session 144 — 2026-03-16: T34 — Reclassify validation_error as Soft Failure
+
+#### Mode: framework
+
+Rationale: Worktree clean, no unfinished task. T32 and T33 done in Session 143. PM ordering: T32 → T33 → T34 → T35 → T36. T34 is next: add `validation_error` to `SOFT_FAILURE_CLASSES` in RunExecutor and to `isSoftFailure` in TaskOrchestrator. This makes form validation errors recoverable — the planner gets another iteration to re-fill the field or ask the user, instead of immediately terminating the run. Completes Program K (5/5).
+
+#### Plan
+
+1. Add `"validation_error"` to `SOFT_FAILURE_CLASSES` in `packages/runtime-core/src/RunExecutor.ts`.
+2. Add `"validation_error"` to the `isSoftFailure` condition in `packages/orchestrator/src/TaskOrchestrator.ts`.
+3. Add at least 2 tests: one in `runExecutor.test.mjs` (validation_error treated as soft), one in `task-orchestrator.test.mjs` (validation_error increments counters).
+4. Run typecheck + tests.
+5. Update this log and commit.
+
+#### Implementation
+
+**`packages/runtime-core/src/RunExecutor.ts`** — Added `"validation_error"` to `SOFT_FAILURE_CLASSES` set:
+- Old: 4 types (`element_not_found`, `network_error`, `interaction_failed`, `navigation_timeout`)
+- New: 5 types (+ `validation_error`)
+- Effect: form validation errors (e.g., "invalid email", "field required") now let the planner retry instead of immediately terminating the run. The planner can re-fill the field or ask the user for correct input.
+- Only `unknown` remains as a hard (immediate termination) failure class.
+
+**`packages/orchestrator/src/TaskOrchestrator.ts`** — Added `"validation_error"` to the `isSoftFailure` condition in `recordBrowserResult`:
+- Now matches RunExecutor's `SOFT_FAILURE_CLASSES` exactly (5 types).
+- `validation_error` increments `consecutiveSoftFailures` and `totalSoftFailures` counters.
+- Safety nets `MAX_CONSECUTIVE_SOFT_FAILURES = 5` and `MAX_TOTAL_SOFT_FAILURES = 8` now fire for validation errors too, preventing infinite form-retry loops.
+
+**`tests/runExecutor.test.mjs`** — Updated 2 existing tests:
+- "plannerLoop fails immediately on validation_error" → "plannerLoop continues on validation_error soft failure" — now expects `completed` status with a second decision (task_complete after recovery)
+- "continueResume fails if pending action has hard failure (validation_error)" → "continueResume recovers from pending action validation_error (soft failure, T34)" — now expects `completed` status with a recovery note
+
+**`tests/task-orchestrator.test.mjs`** — Added 1 new test:
+- "recordBrowserResult tracks validation_error as soft failure (T34)" — verifies counter increments to 1/1
+
+#### Verification
+
+- `pnpm run typecheck` — ✓ clean
+- `node --test tests/runExecutor.test.mjs` — 44/44 pass (2 tests updated)
+- `node --test tests/task-orchestrator.test.mjs` — 58/58 pass (was 57, +1 new)
+- `node --test tests/*.test.mjs` — 1132/1132 pass (was 1131, +1 new, no regressions)
+
+#### Status: DONE
+
+#### Next Steps
+
+- T34 complete. **Program K is now fully complete (5/5): T30 ✓, T31 ✓, T32 ✓, T33 ✓, T34 ✓.**
+- All PM-directed programs (A-K) are now done.
+- PM task ordering says next: T35 (planner action summary in chat messages) → T36 (extractable result copy-to-clipboard). Both are Program L (Run UX — Trust and Transparency).
+- T35 is renderer/UI work: surface the planner's action description as a compact line in the chat sidebar during runs.
+- Only `unknown` remains as a hard failure class. All other failure types are recoverable.
+
+*Session log entry written: 2026-03-16 (Session 144)*

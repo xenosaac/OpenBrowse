@@ -565,9 +565,9 @@ test("continueResume executes pending action before plannerLoop", async () => {
   assert.equal(result.status, "completed");
 });
 
-test("continueResume fails if pending action has hard failure (validation_error)", async () => {
-  const { services } = makeServices({
-    decisions: [],
+test("continueResume recovers from pending action validation_error (soft failure, T34)", async () => {
+  const { services, savedRuns } = makeServices({
+    decisions: [{ type: "task_complete", reasoning: "Done after validation recovery" }],
     executeResults: [
       { ok: true, summary: "Navigated" },
       { ok: false, summary: "Invalid input", failureClass: "validation_error" },
@@ -580,8 +580,9 @@ test("continueResume fails if pending action has hard failure (validation_error)
   const pendingAction = { type: "click", targetId: "btn_pending", description: "Pending click" };
   const result = await executor.continueResume(makeRun(), makeSession(), pendingAction);
 
-  assert.equal(result.status, "failed");
-  assert.ok(handoff.handoffs.length >= 1);
+  assert.equal(result.status, "completed");
+  const runWithNote = savedRuns.find(r => r.checkpoint.notes.some(n => n.includes("validation_error")));
+  assert.ok(runWithNote, "Should have a note about the validation_error soft failure");
 });
 
 test("continueResume recovers from pending action interaction_failed (soft failure)", async () => {
@@ -1042,12 +1043,13 @@ test("plannerLoop continues on navigation_timeout soft failure", async () => {
   assert.equal(result.status, "completed");
 });
 
-// --- plannerLoop: validation_error still treated as hard failure ---
+// --- plannerLoop: validation_error treated as soft failure (T34) ---
 
-test("plannerLoop fails immediately on validation_error", async () => {
+test("plannerLoop continues on validation_error soft failure", async () => {
   const { services } = makeServices({
     decisions: [
       { type: "browser_action", reasoning: "Type", action: { type: "type", targetId: "input", description: "Type text" } },
+      { type: "task_complete", reasoning: "Done after validation retry" },
     ],
     executeResults: [
       { ok: false, summary: "Invalid selector", failureClass: "validation_error" },
@@ -1059,8 +1061,7 @@ test("plannerLoop fails immediately on validation_error", async () => {
 
   const result = await executor.plannerLoop(makeRun(), makeSession());
 
-  assert.equal(result.status, "failed");
-  assert.ok(handoff.handoffs.length >= 1);
+  assert.equal(result.status, "completed");
 });
 
 // --- plannerLoop: network_error treated as soft failure ---

@@ -583,6 +583,19 @@ test("recordBrowserResult tracks navigation_timeout as soft failure", () => {
   assert.equal(run.checkpoint.totalSoftFailures, 1);
 });
 
+test("recordBrowserResult tracks validation_error as soft failure (T34)", () => {
+  const o = makeOrchestrator();
+  let run = makeRunning(o);
+
+  run = o.recordBrowserResult(run, makeActionResult({
+    ok: false,
+    failureClass: "validation_error",
+    summary: "invalid email",
+  }));
+  assert.equal(run.checkpoint.consecutiveSoftFailures, 1);
+  assert.equal(run.checkpoint.totalSoftFailures, 1);
+});
+
 test("recordBrowserResult does not count non-soft failures", () => {
   const o = makeOrchestrator();
   let run = makeRunning(o);
