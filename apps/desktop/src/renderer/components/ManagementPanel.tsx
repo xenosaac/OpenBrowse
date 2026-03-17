@@ -16,9 +16,10 @@ import { TaskHistoryPanel } from "./TaskHistoryPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { WatchesPanel } from "./WatchesPanel";
 import { TemplatesPanel } from "./TemplatesPanel";
+import { AnalyticsPanel } from "./AnalyticsPanel";
 import type { KeyBindingOverrides } from "../lib/keybindings";
 
-export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "shortcuts" | "watches" | "templates";
+export type ManagementTab = "config" | "demos" | "sessions" | "profiles" | "runtime" | "bookmarks" | "history" | "cookies" | "taskHistory" | "analytics" | "shortcuts" | "watches" | "templates";
 type SessionsSubTab = "tasks" | "log" | "handoff";
 
 interface Props {
@@ -50,6 +51,7 @@ const TABS: { key: ManagementTab; label: string }[] = [
   { key: "history", label: "History" },
   { key: "cookies", label: "Cookies" },
   { key: "taskHistory", label: "Task History" },
+  { key: "analytics", label: "Analytics" },
   { key: "shortcuts", label: "Shortcuts" },
   { key: "watches", label: "Watches" },
   { key: "templates", label: "Templates" },
@@ -180,6 +182,8 @@ export function ManagementPanel({
           {activeTab === "cookies" && <CookiePanel activeSessionId={activeSessionId} />}
 
           {activeTab === "taskHistory" && <TaskHistoryPanel />}
+
+          {activeTab === "analytics" && <AnalyticsPanel />}
 
           {activeTab === "shortcuts" && (
             <KeyboardShortcutsPanel

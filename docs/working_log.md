@@ -12553,3 +12553,69 @@ T69 is P1, so it goes first. It's a renderer-only change: update the 4 suggestio
 - Phase 1 still requires ≥7 more user test tasks including multi-step
 
 *Session log entry written: 2026-03-17 (Session 225)*
+
+---
+
+### Session 226 — 2026-03-17: T68 — Run Analytics Panel in Management Panel
+
+#### Mode: feature (PM-directed — Program V Phase 0.5)
+
+T69 (P1) done in Session 225. T68 is next in Phase 0.5 priority order (P2). T68 adds a run analytics summary to the Management Panel so the user and PM can see task success rate at a glance without querying the database.
+
+#### Plan
+
+1. Create `apps/desktop/src/renderer/lib/runAnalytics.ts` — pure function `computeRunAnalytics(runs)` returning aggregate stats (total, completed/failed/cancelled counts and percentages, avg step count for completed, last 10 runs)
+2. Create `apps/desktop/src/renderer/components/AnalyticsPanel.tsx` — component that calls `listRecentRuns(200)` and displays analytics
+3. Add "Analytics" tab to ManagementPanel
+4. Write tests for `computeRunAnalytics` in `tests/runAnalytics.test.mjs`
+5. Run typecheck + tests
+6. Update this log and commit
+
+#### Implementation
+
+**Created `apps/desktop/src/renderer/lib/runAnalytics.ts`:**
+- `computeRunAnalytics(runs)` pure function — no React/DOM deps
+- Returns: totalRuns, completed/failed/cancelled/running/other counts, completionRate (%), failureRate (%), avgStepsCompleted (for completed runs only), recentRuns (last 10)
+- Counts running/suspended/queued all as "running"
+- Rounds percentages to integers, avgSteps to 1 decimal
+
+**Created `apps/desktop/src/renderer/components/AnalyticsPanel.tsx`:**
+- Fetches up to 200 runs via `listRecentRuns(200)`
+- 4 stat cards at top: Total Runs, Completion Rate, Failure Rate, Avg Steps
+- Status breakdown with horizontal bar chart (completed/failed/cancelled/running)
+- Last 10 runs list with status dot, status label, goal (ellipsized), step count
+- Loading state, empty state
+- Uses existing token system (glass.card, colors.*)
+
+**Updated `apps/desktop/src/renderer/components/ManagementPanel.tsx`:**
+- Added "analytics" to `ManagementTab` union type
+- Added "Analytics" tab between "Task History" and "Shortcuts"
+- Renders `<AnalyticsPanel />` when active
+- Imported AnalyticsPanel
+
+**Created `tests/runAnalytics.test.mjs` — 10 tests:**
+- Empty array → zeroed analytics
+- Correct status counting (completed/failed/cancelled)
+- Running/suspended/queued counted as running
+- Avg step count from completed runs only
+- Missing stepCount handled gracefully
+- recentRuns limited to 10
+- recentRuns field correctness
+- Unknown statuses counted as other
+- Percentage rounding
+- avgSteps rounding
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/runAnalytics.test.mjs`: 10/10 pass
+- `node --test tests/*.test.mjs`: 1362/1362 pass (was 1352, +10 new)
+
+#### Status: DONE
+
+#### Next Steps
+
+- **T70 (token usage in task timeline, P2)** — last task in Phase 0.5
+- Phase 1 still requires ≥7 more user test tasks including multi-step
+
+*Session log entry written: 2026-03-17 (Session 226)*
