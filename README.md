@@ -180,4 +180,4 @@ Code signing requires `CSC_LINK` and `CSC_KEY_PASSWORD` environment variables.
 
 ## License
 
-Private. All rights reserved.
+MIT License. See [LICENSE](LICENSE) for details.
