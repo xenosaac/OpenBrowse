@@ -490,6 +490,10 @@ export class RunExecutor {
           });
           // T88: Re-capture pageModel from the new tab so stuck detection uses
           // the correct URL, not the old tab's stale pageModel.
+          // Settle delay: the page's load event fires before SPA hydration completes.
+          // Without this, the capture returns skeleton/loading content (Session 249:
+          // Best Buy showed "Amazon.com" 75ms after tab open).
+          await new Promise((r) => setTimeout(r, 1500));
           let newTabPageModel = pageModel;
           try {
             newTabPageModel = await this.services.browserKernel.capturePageModel(newSession);

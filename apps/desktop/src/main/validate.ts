@@ -27,6 +27,7 @@ import {
   type RuntimeServices
 } from "@openbrowse/runtime-core";
 import { DefaultApprovalPolicy } from "@openbrowse/security";
+import { ClaudePlannerGateway } from "@openbrowse/planner";
 import type { TaskIntent, TaskRun } from "@openbrowse/contracts";
 
 // ---------------------------------------------------------------------------
@@ -231,6 +232,16 @@ app.whenReady().then(async () => {
   });
 
   await hydrateRuntimeSettings(services);
+
+  // Use Sonnet for validation runs — Opus triggers 429 rate limits that
+  // cascade across the multi-task harness (Sessions 249-251). The production
+  // app still uses whatever model is in user settings.
+  const validationModel = process.env.PLANNER_MODEL || "claude-sonnet-4-6";
+  services.planner = new ClaudePlannerGateway({ apiKey, model: validationModel });
+  (services.descriptor as { planner: { mode: string; detail: string } }).planner = {
+    mode: "live",
+    detail: `Validation planner using ${validationModel}.`
+  };
 
   // Auto-approve all actions during validation so tasks don't hang on
   // approval gates. The real app's approval policy is preserved in the
