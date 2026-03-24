@@ -432,9 +432,12 @@ export class ElectronBrowserKernel implements BrowserKernel {
             await managed.cdp.send("Input.insertText", { text: value });
           } else {
             for (const char of value) {
+              // Match Puppeteer's keystroke pattern: keyDown (with text) + keyUp.
+              // The previous 3-event pattern (keyDown + char + keyUp) caused double
+              // character insertion on framework-heavy sites (Angular, React Material)
+              // because both keyDown.text and the char event inserted the character.
               await managed.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: char, text: char });
-              await managed.cdp.send("Input.dispatchKeyEvent", { type: "char", key: char, text: char });
-              await managed.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: char, text: char });
+              await managed.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: char });
             }
           }
 
