@@ -35,3 +35,4 @@ docs/*
 UI_Design_Figma/
 
 # Validation harness output — tracked per T77 acceptance criteria
+.gstack/

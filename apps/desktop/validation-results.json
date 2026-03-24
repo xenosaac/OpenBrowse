@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-17T18:49:13.541Z",
+  "timestamp": "2026-03-24T19:23:18.211Z",
   "tasks": [
     {
       "goal": "What is the current weather in San Francisco?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 15201,
+      "duration_ms": 17462,
       "extractedData": [
         {
           "label": "Location",
@@ -13,15 +13,15 @@
         },
         {
           "label": "Temperature",
-          "value": "69°F (21°C)"
+          "value": "66°F"
         },
         {
           "label": "Condition",
-          "value": "Mostly sunny"
+          "value": "Sunny"
         },
         {
           "label": "Time",
-          "value": "Tuesday 11:00 AM"
+          "value": "Tuesday 12:00 PM"
         },
         {
           "label": "Precipitation",
@@ -29,19 +29,19 @@
         },
         {
           "label": "Humidity",
-          "value": "55%"
+          "value": "46%"
         },
         {
           "label": "Wind",
           "value": "6 mph"
         },
         {
-          "label": "Today's High/Low",
-          "value": "77°F / 56°F"
+          "label": "Today's High",
+          "value": "68°F"
         },
         {
-          "label": "Advisory",
-          "value": "Heat Advisory in effect for California"
+          "label": "Today's Low",
+          "value": "53°F"
         }
       ]
     },
@@ -49,36 +49,27 @@
       "goal": "What is the population of Tokyo?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 16193,
+      "duration_ms": 19245,
       "extractedData": [
         {
-          "label": "Tokyo Metropolis (Prefecture/City Proper)",
-          "value": "~14.25 million (as of May 2025)"
+          "label": "Tokyo Metropolis (Prefecture/City-proper)",
+          "value": "Approximately 14 million"
         },
         {
-          "label": "Tokyo Metropolitan Area (Greater Tokyo)",
-          "value": "~37 million+ (often cited as the world's largest urban area)"
+          "label": "Greater Tokyo Area (Metropolitan) - 2025-2026 estimates",
+          "value": "Approximately 33 to 37 million residents"
         },
         {
-          "label": "UN Ranking Figure",
-          "value": "33.4 million (ranked 3rd globally per UN 2025 report)"
+          "label": "World Population Review estimate (2026)",
+          "value": "Approximately 36.95 million"
         },
         {
-          "label": "Future Projection",
-          "value": "Population projected to decline to ~30.7 million by 2050 due to Japan's aging demographics"
-        }
-      ]
-    },
-    {
-      "goal": "Compare the price of AirPods Pro on Amazon and Best Buy. Open each site in a separate tab and report both prices.",
-      "status": "failed",
-      "steps": 3,
-      "duration_ms": 83762,
-      "failure_reason": "Planner request failed after retries",
-      "extractedData": [
+          "label": "UN Projections (2025)",
+          "value": "33.4 million"
+        },
         {
-          "label": "Amazon price",
-          "value": "Apple AirPods Pro 3: $209.99 (List: $249.00) on Amazon"
+          "label": "Note",
+          "value": "Population figures vary significantly between sources due to differing definitions of metropolitan boundaries. Tokyo is experiencing a slow population decline due to falling birth rates and is projected to drop to the world's 7th largest city by 2050."
         }
       ]
     },
@@ -86,91 +77,104 @@
       "goal": "Go to news.ycombinator.com and extract the titles of the top 5 stories",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 46455,
+      "duration_ms": 14241,
       "extractedData": [
         {
           "label": "Story #1",
-          "value": "Illinois Introducing Operating System Account Age Bill (ilga.gov)"
+          "value": "Arm AGI CPU"
         },
         {
           "label": "Story #2",
-          "value": "Microsoft's 'unhackable' Xbox One has been hacked by 'Bliss' (tomshardware.com)"
+          "value": "Apple Business"
         },
         {
           "label": "Story #3",
-          "value": "Kagi Small Web (kagi.com)"
+          "value": "Hypura – A storage-tier-aware LLM inference scheduler for Apple Silicon"
         },
         {
           "label": "Story #4",
-          "value": "Node.js needs a virtual file system (platformatic.dev)"
+          "value": "No Terms. No Conditions"
         },
         {
           "label": "Story #5",
-          "value": "If you thought the code writing speed was your problem; you have bigger problems (andrewmurphy.io)"
+          "value": "Tell HN: Litellm 1.82.7 and 1.82.8 on PyPI are compromised"
         }
       ]
     },
     {
       "goal": "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
       "status": "completed",
-      "steps": 3,
-      "duration_ms": 44839,
+      "steps": 4,
+      "duration_ms": 34254,
       "extractedData": [
         {
           "label": "Featured Article Title",
-          "value": "Corleck Head"
+          "value": "Despre tine"
         },
         {
           "label": "First Paragraph",
-          "value": "The Corleck Head is a 1st or 2nd century AD three-faced Irish stone idol discovered in Drumeague in County Cavan c. 1855. It may have been buried, perhaps about 900–1200 AD, possibly due to its paganism and association with human sacrifice. Its dating is based on its iconography, similar to that of contemporary Celtic art artefacts. It is believed to depict a Celtic god and was intended to be placed on top of a larger shrine. The head is carved from a single block of limestone into three simply described faces, each with similar features, including protruding eyes, thin and narrow mouths and enigmatic expressions. The faces may depict all-knowing, all-seeing gods representing the unity of the past, present and future. The head is assumed to have been intended for ceremonial use on the nearby Corleck Hill, a major religious centre at the time and a site for celebration of the Lughnasadh, a pre-Christian harvest festival. It is on permanent exhibit at the National Museum of Ireland."
+          "value": "\"Despre tine\" (Romanian for 'About You') is a dance-pop song by the Moldovan band O-Zone, released as a single by Media Services in Romania around December 2002. Written and produced by the band's founder Dan Balan, it was included on a reissue of their second studio album Number 1 (2002) and later on their third studio album DiscO-Zone (2003). \"Despre tine\" was recorded in September 2002 at the MOF Records studio with the assistance of Bogdan Popoiag. Following the international success of O-Zone's 2003 single \"Dragostea din tei\", \"Despre tine\" was re-released in select European markets in August 2004. At the MTV Romania Music Awards 2003, \"Despre tine\" won Best Song and Best Dance. It also received a nomination for Best Dance-Pop Song at the Radio România Actualități Awards the same year. It topped the Romanian Top 100 in 2003 and reached number one in Norway in 2004. The song was certified double gold in Romania and gold in France."
         }
       ]
     },
     {
       "goal": "Find the cheapest flight from LAX to JFK next month",
       "status": "completed",
-      "steps": 5,
-      "duration_ms": 96730,
+      "steps": 3,
+      "duration_ms": 50266,
       "extractedData": [
         {
-          "label": "Cheapest Flight Price",
-          "value": "$289 round trip"
+          "label": "Cheapest Price",
+          "value": "$235 round trip"
         },
         {
           "label": "Airline",
-          "value": "Frontier Airlines"
+          "value": "Frontier"
         },
         {
           "label": "Departure",
-          "value": "11:00 PM on Fri, Apr 24"
+          "value": "10:00 PM (Thu, Apr 9)"
         },
         {
           "label": "Arrival",
-          "value": "11:50 AM on Sat, Apr 25"
+          "value": "10:29 AM+1 (Fri, Apr 10)"
         },
         {
           "label": "Duration",
-          "value": "9 hr 50 min"
+          "value": "9 hr 29 min"
         },
         {
           "label": "Stops",
-          "value": "1 stop (ATL - Hartsfield-Jackson Atlanta International Airport), 2 hr 39 min layover"
+          "value": "1 stop (ATL - Atlanta)"
         },
         {
           "label": "Route",
           "value": "LAX → JFK"
         },
         {
-          "label": "Carbon Emissions",
-          "value": "290 kg CO2, -15% below average"
-        },
-        {
           "label": "Return Date",
-          "value": "Thu, Apr 30"
+          "value": "Wed, Apr 15"
         },
         {
-          "label": "Next Cheapest Options",
-          "value": "Multiple airlines at $337 round trip (American, JetBlue, Delta) - all nonstop, ~5 hr 23-27 min"
+          "label": "Bags Included",
+          "value": "0 carry-on, 0 checked"
+        },
+        {
+          "label": "CO2 Emissions",
+          "value": "290 kg (-19% vs average)"
+        }
+      ]
+    },
+    {
+      "goal": "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
+      "status": "failed",
+      "steps": 3,
+      "duration_ms": 83773,
+      "failure_reason": "Planner request failed after retries",
+      "extractedData": [
+        {
+          "label": "Amazon price",
+          "value": "Apple AirPods Pro 3 on Amazon: $224.00 (List: $249.00)"
         }
       ]
     }

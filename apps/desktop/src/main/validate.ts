@@ -84,6 +84,11 @@ const TASKS: ValidationTask[] = [
   {
     goal: "Find the cheapest flight from LAX to JFK next month",
     timeoutMs: 180_000
+  },
+  // Multi-tab comparison task (T84 — Program AA)
+  {
+    goal: "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
+    timeoutMs: 240_000
   }
 ];
 
@@ -126,7 +131,7 @@ async function runTask(
         profileId: undefined,
         createdAt: intent.createdAt ?? new Date().toISOString(),
         checkpoint: { summary: "Validation timeout", notes: [], stepCount: 0 },
-        outcome: { summary: "TIMEOUT: task exceeded 180s" }
+        outcome: { summary: `TIMEOUT: task exceeded ${timeoutMs / 1000}s` }
       } as unknown as TaskRun);
     }, timeoutMs);
 
