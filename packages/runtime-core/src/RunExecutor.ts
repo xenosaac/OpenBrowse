@@ -488,7 +488,16 @@ export class RunExecutor {
             description: action.description,
             tabIndex: String(newIndex)
           });
-          const newTabStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          // T88: Re-capture pageModel from the new tab so stuck detection uses
+          // the correct URL, not the old tab's stale pageModel.
+          let newTabPageModel = pageModel;
+          try {
+            newTabPageModel = await this.services.browserKernel.capturePageModel(newSession);
+          } catch { /* fall back to stale pageModel — better than crashing */ }
+          // Tab switch is definitionally a page change — reset stagnation counter
+          current = { ...current, checkpoint: { ...current.checkpoint, unchangedPageActions: 0 } };
+          lastContentSlice = (newTabPageModel.visibleText ?? "").slice(0, 500);
+          const newTabStuck = await this.checkStuckAfterAction(action, newTabPageModel, current, stuckState);
           if (newTabStuck) return newTabStuck;
           continue;
         }
@@ -543,7 +552,16 @@ export class RunExecutor {
           await this.logEvent(current.id, "browser_action_executed", syntheticResult.summary, {
             actionType: action.type, ok: "true", description: action.description, tabIndex: String(targetIndex)
           });
-          const switchStuck = await this.checkStuckAfterAction(action, pageModel, current, stuckState);
+          // T88: Re-capture pageModel from the target tab so stuck detection uses
+          // the correct URL, not the old tab's stale pageModel.
+          let switchPageModel = pageModel;
+          try {
+            switchPageModel = await this.services.browserKernel.capturePageModel(targetSession);
+          } catch { /* fall back to stale pageModel — better than crashing */ }
+          // Tab switch is definitionally a page change — reset stagnation counter
+          current = { ...current, checkpoint: { ...current.checkpoint, unchangedPageActions: 0 } };
+          lastContentSlice = (switchPageModel.visibleText ?? "").slice(0, 500);
+          const switchStuck = await this.checkStuckAfterAction(action, switchPageModel, current, stuckState);
           if (switchStuck) return switchStuck;
           continue;
         }

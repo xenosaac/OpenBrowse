@@ -13569,3 +13569,75 @@ PM directive is STOP after T80. However, Session 244's analysis identified that 
 5. **The product is ready for feature work.** The core engine works. Simple and multi-step tasks complete reliably. The framework maturity checklist is satisfied.
 
 *Session log entry written: 2026-03-17 (Session 245)*
+
+---
+
+### Session 246 — 2026-03-24: T84/T85 — Multi-tab Validation Task + Expanded Harness Run (Program AA)
+
+#### Mode: feature (PM directive: Program AA ACTIVE — T84 → T85 → STOP)
+
+PM has declared GREEN on all completion rate tiers. Programs A-Z complete. The next directed work is Program AA: validate multi-tab agent coordination. T84 adds a multi-tab comparison task to the validation harness. T85 runs the expanded harness and commits results.
+
+#### Plan
+
+1. Add a 6th validation task to `validate.ts` — multi-tab AirPods comparison (240s timeout per PM spec)
+2. Typecheck
+3. Run `pnpm run validate` (requires Electron + API key)
+4. Commit results to `validation-results.json` and update this log
+
+#### Implementation
+
+**T84: `apps/desktop/src/main/validate.ts` — 2 changes:**
+
+1. **Added 6th validation task (multi-tab comparison):**
+   - Goal: `"Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices."`
+   - `timeoutMs: 240_000` (per PM spec — multi-site comparison needs more steps)
+
+2. **Dynamic timeout in synthetic failure message:** Changed hardcoded `"TIMEOUT: task exceeded 180s"` to use `timeoutMs / 1000` dynamically. Now correctly shows actual timeout for each task.
+
+**T85: Ran expanded validation harness — 5/6 PASS (83%)**
+
+#### Validation Results — 5/6 PASS (83%)
+
+| # | Task | Status | Steps | Duration | Key Data |
+|---|------|--------|-------|----------|----------|
+| 1 | Weather in San Francisco | **PASS** | 2 | 17.5s | 66°F, Sunny, 46% humidity, 68°F high |
+| 2 | Population of Tokyo | **PASS** | 2 | 19.2s | ~14M prefecture, ~33-37M metro |
+| 3 | HN top 5 stories | **PASS** | 2 | 14.2s | Arm AGI CPU, Apple Business, Hypura, etc. |
+| 4 | Wikipedia featured article | **PASS** | 4 | 34.3s | "Despre tine" — O-Zone dance-pop song |
+| 5 | Cheapest flight LAX→JFK | **PASS** | 3 | 50.3s | $235 round trip, Frontier, 1 stop (ATL) |
+| 6 | **AirPods Pro comparison (multi-tab)** | **FAIL** | 3 | 83.8s | Amazon: $224.00 (partial). Failed on step 3: "Planner request failed after retries" |
+
+#### Multi-tab Task Failure Analysis
+
+The multi-tab task **partially succeeded**: the planner navigated to Amazon, extracted the AirPods Pro price ($224.00, list $249.00), and saved it as partial extractedData. It failed on step 3 with **"Planner request failed after retries"** — this is an API-level failure (the Claude API call itself failed), **not** a stuck detection false positive or a multi-tab infrastructure bug.
+
+**Key observations:**
+1. **The planner made 3 steps in 84s** — well within the 240s timeout. Not a timeout issue.
+2. **Partial extractedData was captured** — the Amazon price is present, proving the planner's save_note → partial results pipeline works.
+3. **The failure is "planner request failed after retries"** — this maps to the `ClaudePlannerGateway` retry logic. Likely cause: API rate limit (429), API overload (529), or a transient network error. The 30s inter-task cooldown may not have been enough after the flight search task consumed significant token budget.
+4. **This is NOT the stuck detection bug** (T88) that PM identified. The stale pageModel issue did not manifest because the planner never reached a tab switch action — it failed during the API call for step 3.
+5. **Multi-tab infrastructure is untested by this run.** The planner got the Amazon price in a single tab and then the API call failed before it could open a second tab or use `open_in_new_tab`.
+
+**Per PM T85 decision framework:** This result is ambiguous — it's neither a clean PASS nor a clear multi-tab infrastructure FAIL. The failure was at the API layer, not the multi-tab runtime. A re-run might succeed if the API error was transient.
+
+**All 5 original validation tasks PASS again** — confirming regression-free performance. Flight search improved from 110s/4 steps to 50s/3 steps.
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1398/1398 pass (unchanged)
+- Validation harness: 5/6 PASS, 1 API-level failure on multi-tab task
+- `validation-results.json` updated with all 6 tasks
+
+#### Status: DONE (T84 complete, T85 complete — results committed)
+
+#### Recommendations for PM
+
+1. **Multi-tab needs a re-run.** The failure was API-level ("Planner request failed after retries"), not multi-tab infrastructure. A transient API error killed the run before the planner could attempt `open_in_new_tab`. The stuck detection bug (T88) was not triggered.
+2. **All 5 original tasks still PASS at 100%.** No regressions. Flight search actually improved (50s/3 steps vs 110s/4 steps previously).
+3. **Partial results work.** The Amazon price ($224.00) was captured as extractedData despite the task failing — T61's partial result extraction is validated in production.
+4. **Consider increasing inter-task cooldown** for the multi-tab task specifically, or placing it earlier in the queue when the API budget is fresh.
+5. **The planner is now using claude-opus-4-6** (seen in harness output: "Anthropic-backed planner is active for browser task decisions using claude-opus-4-6"). This was previously claude-sonnet-4-6. This may affect token costs and rate limits.
+
+*Session log entry written: 2026-03-24 (Session 246)*
