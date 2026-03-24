@@ -13967,3 +13967,50 @@ The settle delay and Sonnet override are both correct and verified (typecheck + 
 4. **The settle delay improves ALL future multi-tab runs** — not just validation — by ensuring the planner sees the actual new tab content instead of stale data from the previous tab
 
 *Session log entry written: 2026-03-24 (Session 251)*
+
+---
+
+### Session 252 — 2026-03-24: Multi-tab Timeout 360s (PM Decision Table Directive)
+
+#### Mode: repair (following PM decision table for TIMEOUT result)
+
+PM decision table (product_manager.md line 1557): "TIMEOUT — actively progressing but 240s isn't enough → Raise timeout to 360s and re-run. Not a real failure." Multi-tab task timed out at 240s across all 3 validation runs (Sessions 246, 249, 250) with 4-5 steps, actively progressing. This is not self-directed work — it's the PM's explicit prescribed action for this failure mode.
+
+Session 251 already added (a) 1500ms settle delay for tab switch page model and (b) Sonnet model override for the validation harness. With Sonnet's higher rate limits, the 360s timeout should be safe — the cascading 429 problem that plagued Opus+300s (Session 251 attempt 1) won't apply.
+
+API credits are currently exhausted, so validation cannot be re-run this iteration. This session makes the code change; the next validation run after credit replenishment will test it.
+
+#### Plan
+
+1. In `validate.ts`: change multi-tab timeout from 240_000 to 360_000
+2. Typecheck + tests
+3. Update this log, commit
+
+#### Implementation
+
+**`apps/desktop/src/main/validate.ts` — 1 change:**
+
+Multi-tab task timeout raised from 240_000 to 360_000 (240s → 360s). This follows the PM decision table directly: "TIMEOUT — actively progressing but 240s isn't enough → Raise timeout to 360s and re-run." Sessions 249-250 showed the multi-tab task reaching 4-5 steps in 241s (1s over the limit), actively progressing. With 360s + Sonnet override (Session 251), the task should have enough budget: ~80s for Amazon extraction + ~120s for Best Buy (including page load) + ~60s for comparison/output + ~100s margin.
+
+The `isMultiTab` cooldown logic (line 276: `TASKS[i].timeoutMs > 180_000`) still correctly identifies this task for the 45s pre-task cooldown.
+
+#### Verification
+
+- `pnpm run typecheck`: clean (0 errors)
+- `node --test tests/*.test.mjs`: 1400/1400 pass (unchanged)
+- Validation re-run: BLOCKED by API credit exhaustion (no code logic changed, only a timeout constant)
+
+#### Status: DONE
+
+#### Next Steps
+
+1. **API credits need replenishment** before the next validation run
+2. **Once credits are available:** run `pnpm run validate` — the full fix stack is now in place:
+   - Sonnet model override (Session 251) — higher rate limits, no cascading 429
+   - 1500ms settle delay after tab switch (Session 251) — planner sees real new-tab content
+   - 360s timeout (this session) — 50% more time budget for multi-tab task
+   - T88 stuck detection fix (Session 246) — tab switch resets stagnation counter
+3. **If multi-tab PASSES with these fixes:** PM should activate T86 + T87 (research compilation UX)
+4. **If multi-tab still FAILS at 360s with Sonnet:** the failure is likely page-load speed or Best Buy anti-bot, not rate limits — may need to switch to a different comparison target
+
+*Session log entry written: 2026-03-24 (Session 252)*
