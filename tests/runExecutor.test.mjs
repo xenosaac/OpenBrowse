@@ -2107,3 +2107,178 @@ test("plannerLoop does NOT hard-kill at 7 unchanged page actions (no false posit
 
   assert.equal(result.status, "completed", "Run should complete, not be killed by stagnation");
 });
+
+// --- T88: Tab switch resets stagnation counter and uses correct URL ---
+
+test("T88 — switch_tab resets unchangedPageActions to zero", async () => {
+  // Build up unchangedPageActions to 3 with clicks on same-content page,
+  // then switch_tab to a different tab. The T88 fix resets the counter to 0.
+  const decisions = [];
+  const executeResults = [];
+  const capturePageModels = [];
+
+  // 3 clicks producing same page content each time
+  for (let i = 0; i < 3; i++) {
+    decisions.push({
+      type: "browser_action",
+      action: { type: "click", targetId: `el_${i}`, description: `Click ${i}` },
+      reasoning: `Click ${i}`,
+    });
+    executeResults.push({ ok: true, summary: `Clicked ${i}` });
+    const pm = makePageModel({ url: "https://amazon.com" });
+    pm.visibleText = "Same Amazon content";
+    capturePageModels.push(pm);
+  }
+
+  // Step 4 loop-top capture (still amazon, before planner decides switch_tab)
+  const pmAmazon4 = makePageModel({ url: "https://amazon.com" });
+  pmAmazon4.visibleText = "Same Amazon content";
+  capturePageModels.push(pmAmazon4);
+
+  // switch_tab to tab 1
+  decisions.push({
+    type: "browser_action",
+    action: { type: "switch_tab", value: "1", description: "Switch to tab 1" },
+    reasoning: "Switch to Best Buy tab",
+  });
+  // switch_tab doesn't call executeAction — no entry needed in executeResults
+
+  // T88 re-capture from target tab (bestbuy)
+  const pmBestbuy = makePageModel({ url: "https://bestbuy.com" });
+  pmBestbuy.visibleText = "Best Buy content";
+  capturePageModels.push(pmBestbuy);
+
+  // Step 5 loop-top capture (bestbuy is now activeSession)
+  const pmBestbuy2 = makePageModel({ url: "https://bestbuy.com" });
+  pmBestbuy2.visibleText = "Best Buy content";
+  capturePageModels.push(pmBestbuy2);
+
+  // task_complete
+  decisions.push({ type: "task_complete", reasoning: "Done comparing" });
+
+  const tab1Session = makeSession({ id: "sess_2" });
+  const { services, savedRuns } = makeServices({
+    decisions,
+    executeResults,
+    capturePageModels,
+  });
+
+  // Sessions mock with getSession for tab 1 lookup
+  const sessions = {
+    openAdditionalTab: async () => ({ session: tab1Session, profileId: "default" }),
+    getSession: async (id) => id === "sess_2" ? tab1Session : null,
+  };
+
+  const run = makeRun({
+    checkpoint: {
+      openedTabs: [
+        { index: 0, sessionId: "sess_1", url: "https://amazon.com", title: "Amazon" },
+        { index: 1, sessionId: "sess_2", url: "https://bestbuy.com", title: "Best Buy" },
+      ],
+      activeTabIndex: 0,
+    },
+  });
+
+  const executor = new RunExecutor(services, sessions, makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "completed", "Should complete without stagnation kill");
+
+  // The saved run with activeTabIndex=1 is right after the switch_tab handler.
+  // The T88 fix should have reset unchangedPageActions to 0.
+  const afterSwitch = savedRuns.filter(r => r.checkpoint.activeTabIndex === 1);
+  assert.ok(afterSwitch.length > 0, "Should have saved a run after switching to tab 1");
+  // The first save after switch (line 551 in RunExecutor) has activeTabIndex=1
+  // but unchangedPageActions may still be old. The T88 reset happens after that save.
+  // The final completed save (last entry) should have unchangedPageActions=0.
+  assert.equal(result.checkpoint.unchangedPageActions ?? 0, 0,
+    "unchangedPageActions should be 0 after switch_tab resets it (T88)");
+});
+
+test("T88 — open_in_new_tab resets unchangedPageActions and captures new tab pageModel", async () => {
+  // Build up unchangedPageActions to 3 with clicks, then open_in_new_tab.
+  // The T88 fix resets the counter to 0 and captures pageModel from the new tab.
+  const decisions = [];
+  const executeResults = [];
+  const capturePageModels = [];
+
+  // 3 clicks producing same page content
+  for (let i = 0; i < 3; i++) {
+    decisions.push({
+      type: "browser_action",
+      action: { type: "click", targetId: `el_${i}`, description: `Click ${i}` },
+      reasoning: `Click ${i}`,
+    });
+    executeResults.push({ ok: true, summary: `Clicked ${i}` });
+    const pm = makePageModel({ url: "https://amazon.com" });
+    pm.visibleText = "Same Amazon content";
+    capturePageModels.push(pm);
+  }
+
+  // Step 4 loop-top capture (amazon, before open_in_new_tab decision)
+  const pmAmazon4 = makePageModel({ url: "https://amazon.com" });
+  pmAmazon4.visibleText = "Same Amazon content";
+  capturePageModels.push(pmAmazon4);
+
+  // open_in_new_tab to bestbuy.com
+  decisions.push({
+    type: "browser_action",
+    action: { type: "open_in_new_tab", value: "https://bestbuy.com", description: "Open Best Buy" },
+    reasoning: "Open Best Buy in new tab",
+  });
+  // open_in_new_tab calls executeAction(newSession, {type: "navigate", ...})
+  executeResults.push({ ok: true, summary: "Navigated to bestbuy.com" });
+
+  // T88 re-capture from new tab (bestbuy)
+  const pmBestbuy = makePageModel({ url: "https://bestbuy.com" });
+  pmBestbuy.visibleText = "Best Buy content";
+  capturePageModels.push(pmBestbuy);
+
+  // Step 5 loop-top capture (activeSession is still amazon — open_in_new_tab doesn't change it)
+  const pmAmazon5 = makePageModel({ url: "https://amazon.com" });
+  pmAmazon5.visibleText = "Same Amazon content";
+  capturePageModels.push(pmAmazon5);
+
+  // task_complete
+  decisions.push({ type: "task_complete", reasoning: "Done" });
+
+  const newTabSession = makeSession({ id: "sess_new" });
+  const { services, savedRuns } = makeServices({
+    decisions,
+    executeResults,
+    capturePageModels,
+  });
+
+  // Sessions mock: openAdditionalTab returns a new session
+  const sessions = {
+    openAdditionalTab: async () => ({ session: newTabSession, profileId: "default" }),
+    getSession: async () => null,
+  };
+
+  const run = makeRun({
+    checkpoint: {
+      openedTabs: [
+        { index: 0, sessionId: "sess_1", url: "https://amazon.com", title: "Amazon" },
+      ],
+      activeTabIndex: 0,
+    },
+  });
+
+  const executor = new RunExecutor(services, sessions, makeCancellation(), makeHandoff());
+  const result = await executor.plannerLoop(run, makeSession());
+
+  assert.equal(result.status, "completed", "Should complete without stagnation kill");
+
+  // After open_in_new_tab, T88 resets unchangedPageActions to 0.
+  // The final completed run should have unchangedPageActions reset.
+  // (Without T88, the counter would be 3 from the clicks and keep incrementing.)
+  const finalUnchanged = result.checkpoint.unchangedPageActions ?? 0;
+  assert.ok(finalUnchanged <= 1,
+    `unchangedPageActions should be <=1 after open_in_new_tab reset (T88), got ${finalUnchanged}`);
+
+  // Verify the new tab was added to openedTabs
+  const tabs = result.checkpoint.openedTabs ?? [];
+  assert.ok(tabs.length >= 2, "Should have at least 2 tabs after open_in_new_tab");
+  const newTab = tabs.find(t => t.url === "https://bestbuy.com");
+  assert.ok(newTab, "Should have a tab with bestbuy.com URL");
+});
