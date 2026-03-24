@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-24T19:23:18.211Z",
+  "timestamp": "2026-03-24T20:39:28.725Z",
   "tasks": [
     {
       "goal": "What is the current weather in San Francisco?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 17462,
+      "duration_ms": 14522,
       "extractedData": [
         {
           "label": "Location",
@@ -13,15 +13,11 @@
         },
         {
           "label": "Temperature",
-          "value": "66°F"
+          "value": "68°F"
         },
         {
           "label": "Condition",
           "value": "Sunny"
-        },
-        {
-          "label": "Time",
-          "value": "Tuesday 12:00 PM"
         },
         {
           "label": "Precipitation",
@@ -29,34 +25,41 @@
         },
         {
           "label": "Humidity",
-          "value": "46%"
+          "value": "44%"
         },
         {
           "label": "Wind",
-          "value": "6 mph"
+          "value": "8 mph"
         },
         {
-          "label": "Today's High",
-          "value": "68°F"
+          "label": "As of",
+          "value": "Tuesday 1:00 PM"
         },
         {
-          "label": "Today's Low",
-          "value": "53°F"
+          "label": "Today's High/Low",
+          "value": "68°F / 52°F"
         }
       ]
+    },
+    {
+      "goal": "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
+      "status": "cancelled",
+      "steps": 4,
+      "duration_ms": 241032,
+      "failure_reason": "Validation timeout"
     },
     {
       "goal": "What is the population of Tokyo?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 19245,
+      "duration_ms": 17263,
       "extractedData": [
         {
-          "label": "Tokyo Metropolis (Prefecture/City-proper)",
+          "label": "Tokyo Metropolis (city-proper/prefecture)",
           "value": "Approximately 14 million"
         },
         {
-          "label": "Greater Tokyo Area (Metropolitan) - 2025-2026 estimates",
+          "label": "Greater Tokyo Area (metropolitan area) - 2025-2026 estimates",
           "value": "Approximately 33 to 37 million residents"
         },
         {
@@ -64,12 +67,12 @@
           "value": "Approximately 36.95 million"
         },
         {
-          "label": "UN Projections (2025)",
+          "label": "UN projection via nippon.com (2025)",
           "value": "33.4 million"
         },
         {
           "label": "Note",
-          "value": "Population figures vary significantly between sources due to differing definitions of metropolitan boundaries. Tokyo is experiencing a slow population decline due to falling birth rates and is projected to drop to the world's 7th largest city by 2050."
+          "value": "Tokyo is experiencing a slow population decline due to falling birth rates. Recent 2025 UN reports rank it as the 3rd largest city behind Jakarta and Dhaka, though it was long considered #1."
         }
       ]
     },
@@ -77,7 +80,7 @@
       "goal": "Go to news.ycombinator.com and extract the titles of the top 5 stories",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 14241,
+      "duration_ms": 12601,
       "extractedData": [
         {
           "label": "Story #1",
@@ -93,96 +96,33 @@
         },
         {
           "label": "Story #4",
-          "value": "No Terms. No Conditions"
+          "value": "Tell HN: Litellm 1.82.7 and 1.82.8 on PyPI are compromised"
         },
         {
           "label": "Story #5",
-          "value": "Tell HN: Litellm 1.82.7 and 1.82.8 on PyPI are compromised"
+          "value": "Wine 11 rewrites how Linux runs Windows games at kernel with massive speed gains"
         }
       ]
     },
     {
       "goal": "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
-      "status": "completed",
+      "status": "failed",
       "steps": 4,
-      "duration_ms": 34254,
-      "extractedData": [
-        {
-          "label": "Featured Article Title",
-          "value": "Despre tine"
-        },
-        {
-          "label": "First Paragraph",
-          "value": "\"Despre tine\" (Romanian for 'About You') is a dance-pop song by the Moldovan band O-Zone, released as a single by Media Services in Romania around December 2002. Written and produced by the band's founder Dan Balan, it was included on a reissue of their second studio album Number 1 (2002) and later on their third studio album DiscO-Zone (2003). \"Despre tine\" was recorded in September 2002 at the MOF Records studio with the assistance of Bogdan Popoiag. Following the international success of O-Zone's 2003 single \"Dragostea din tei\", \"Despre tine\" was re-released in select European markets in August 2004. At the MTV Romania Music Awards 2003, \"Despre tine\" won Best Song and Best Dance. It also received a nomination for Best Dance-Pop Song at the Radio România Actualități Awards the same year. It topped the Romanian Top 100 in 2003 and reached number one in Norway in 2004. The song was certified double gold in Romania and gold in France."
-        }
-      ]
+      "duration_ms": 121077,
+      "failure_reason": "Planner request failed after retries"
     },
     {
       "goal": "Find the cheapest flight from LAX to JFK next month",
-      "status": "completed",
-      "steps": 3,
-      "duration_ms": 50266,
-      "extractedData": [
-        {
-          "label": "Cheapest Price",
-          "value": "$235 round trip"
-        },
-        {
-          "label": "Airline",
-          "value": "Frontier"
-        },
-        {
-          "label": "Departure",
-          "value": "10:00 PM (Thu, Apr 9)"
-        },
-        {
-          "label": "Arrival",
-          "value": "10:29 AM+1 (Fri, Apr 10)"
-        },
-        {
-          "label": "Duration",
-          "value": "9 hr 29 min"
-        },
-        {
-          "label": "Stops",
-          "value": "1 stop (ATL - Atlanta)"
-        },
-        {
-          "label": "Route",
-          "value": "LAX → JFK"
-        },
-        {
-          "label": "Return Date",
-          "value": "Wed, Apr 15"
-        },
-        {
-          "label": "Bags Included",
-          "value": "0 carry-on, 0 checked"
-        },
-        {
-          "label": "CO2 Emissions",
-          "value": "290 kg (-19% vs average)"
-        }
-      ]
-    },
-    {
-      "goal": "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
-      "status": "failed",
-      "steps": 3,
-      "duration_ms": 83773,
-      "failure_reason": "Planner request failed after retries",
-      "extractedData": [
-        {
-          "label": "Amazon price",
-          "value": "Apple AirPods Pro 3 on Amazon: $224.00 (List: $249.00)"
-        }
-      ]
+      "status": "cancelled",
+      "steps": 8,
+      "duration_ms": 181016,
+      "failure_reason": "Validation timeout"
     }
   ],
   "summary": {
     "total": 6,
-    "passed": 5,
-    "failed": 1,
-    "rate": "83%"
+    "passed": 3,
+    "failed": 3,
+    "rate": "50%"
   }
 }
