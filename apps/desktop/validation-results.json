@@ -1,11 +1,11 @@
 {
-  "timestamp": "2026-03-24T20:39:28.725Z",
+  "timestamp": "2026-03-24T21:03:15.877Z",
   "tasks": [
     {
       "goal": "What is the current weather in San Francisco?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 14522,
+      "duration_ms": 15516,
       "extractedData": [
         {
           "label": "Location",
@@ -29,37 +29,41 @@
         },
         {
           "label": "Wind",
-          "value": "8 mph"
+          "value": "10 mph"
         },
         {
-          "label": "As of",
+          "label": "Time of Report",
           "value": "Tuesday 1:00 PM"
         },
         {
-          "label": "Today's High/Low",
-          "value": "68°F / 52°F"
+          "label": "Today's High",
+          "value": "68°F"
+        },
+        {
+          "label": "Today's Low",
+          "value": "52°F"
         }
       ]
     },
     {
       "goal": "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
       "status": "cancelled",
-      "steps": 4,
-      "duration_ms": 241032,
+      "steps": 5,
+      "duration_ms": 241028,
       "failure_reason": "Validation timeout"
     },
     {
       "goal": "What is the population of Tokyo?",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 17263,
+      "duration_ms": 16698,
       "extractedData": [
         {
-          "label": "Tokyo Metropolis (city-proper/prefecture)",
+          "label": "Tokyo Metropolis (Prefecture/City-proper)",
           "value": "Approximately 14 million"
         },
         {
-          "label": "Greater Tokyo Area (metropolitan area) - 2025-2026 estimates",
+          "label": "Greater Tokyo Area (Metropolitan Area) - 2025-2026 estimates",
           "value": "Approximately 33 to 37 million residents"
         },
         {
@@ -67,12 +71,12 @@
           "value": "Approximately 36.95 million"
         },
         {
-          "label": "UN projection via nippon.com (2025)",
+          "label": "UN projections via nippon.com (2025)",
           "value": "33.4 million"
         },
         {
           "label": "Note",
-          "value": "Tokyo is experiencing a slow population decline due to falling birth rates. Recent 2025 UN reports rank it as the 3rd largest city behind Jakarta and Dhaka, though it was long considered #1."
+          "value": "Population figures vary between sources due to differing definitions of metropolitan boundaries. Tokyo is experiencing a slow population decline due to falling birth rates and is projected to drop to the world's 7th largest city by 2050."
         }
       ]
     },
@@ -80,11 +84,11 @@
       "goal": "Go to news.ycombinator.com and extract the titles of the top 5 stories",
       "status": "completed",
       "steps": 2,
-      "duration_ms": 12601,
+      "duration_ms": 71191,
       "extractedData": [
         {
           "label": "Story #1",
-          "value": "Arm AGI CPU"
+          "value": "GitHub is once again down"
         },
         {
           "label": "Story #2",
@@ -92,37 +96,99 @@
         },
         {
           "label": "Story #3",
-          "value": "Hypura – A storage-tier-aware LLM inference scheduler for Apple Silicon"
+          "value": "Is anybody else bored of talking about AI?"
         },
         {
           "label": "Story #4",
-          "value": "Tell HN: Litellm 1.82.7 and 1.82.8 on PyPI are compromised"
+          "value": "Arm AGI CPU"
         },
         {
           "label": "Story #5",
-          "value": "Wine 11 rewrites how Linux runs Windows games at kernel with massive speed gains"
+          "value": "Tell HN: Litellm 1.82.7 and 1.82.8 on PyPI are compromised"
         }
       ]
     },
     {
       "goal": "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
-      "status": "failed",
+      "status": "completed",
       "steps": 4,
-      "duration_ms": 121077,
-      "failure_reason": "Planner request failed after retries"
+      "duration_ms": 36936,
+      "extractedData": [
+        {
+          "label": "Featured Article Title",
+          "value": "Despre tine"
+        },
+        {
+          "label": "First Paragraph",
+          "value": "\"Despre tine\" (Romanian for 'About You') is a dance-pop song by the Moldovan band O-Zone, released as a single by Media Services in Romania around December 2002. Written and produced by the band's founder Dan Balan, it was included on a reissue of their second studio album Number 1 (2002) and later on their third studio album DiscO-Zone (2003). \"Despre tine\" was recorded in September 2002 at the MOF Records studio with the assistance of Bogdan Popoiag. Following the international success of O-Zone's 2003 single \"Dragostea din tei\", \"Despre tine\" was re-released in select European markets in August 2004. At the MTV Romania Music Awards 2003, \"Despre tine\" won Best Song and Best Dance. It also received a nomination for Best Dance-Pop Song at the Radio România Actualități Awards the same year. It topped the Romanian Top 100 in 2003 and reached number one in Norway in 2004. The song was certified double gold in Romania and gold in France."
+        }
+      ]
     },
     {
       "goal": "Find the cheapest flight from LAX to JFK next month",
-      "status": "cancelled",
-      "steps": 8,
-      "duration_ms": 181016,
-      "failure_reason": "Validation timeout"
+      "status": "completed",
+      "steps": 5,
+      "duration_ms": 104439,
+      "extractedData": [
+        {
+          "label": "Cheapest Price",
+          "value": "$235 round trip"
+        },
+        {
+          "label": "Airline",
+          "value": "Frontier Airlines"
+        },
+        {
+          "label": "Flight Number (1st leg)",
+          "value": "F9 3216"
+        },
+        {
+          "label": "Aircraft",
+          "value": "Airbus A321neo"
+        },
+        {
+          "label": "Route",
+          "value": "LAX → ATL (layover) → JFK"
+        },
+        {
+          "label": "Departure",
+          "value": "Thu, Apr 9 at 10:00 PM from LAX"
+        },
+        {
+          "label": "Arrival",
+          "value": "Fri, Apr 10 at 10:29 AM at JFK"
+        },
+        {
+          "label": "Stops",
+          "value": "1 stop — 2 hr 22 min layover at Atlanta (ATL)"
+        },
+        {
+          "label": "First Leg Duration",
+          "value": "4 hr 38 min (overnight)"
+        },
+        {
+          "label": "Emissions",
+          "value": "290 kg CO2e (-19% vs typical)"
+        },
+        {
+          "label": "Bags Included",
+          "value": "0 carry-on, 0 checked"
+        },
+        {
+          "label": "Delay Warning",
+          "value": "Often delayed by 30+ min"
+        },
+        {
+          "label": "Next Cheapest (Nonstop)",
+          "value": "$342 — JetBlue nonstop, departs 2:29 PM, arrives 10:55 PM"
+        }
+      ]
     }
   ],
   "summary": {
     "total": 6,
-    "passed": 3,
-    "failed": 3,
-    "rate": "50%"
+    "passed": 5,
+    "failed": 1,
+    "rate": "83%"
   }
 }

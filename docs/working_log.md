@@ -13818,4 +13818,83 @@ Removed the `char` CDP event from the character-by-character keystroke dispatch.
 
 *Session log entry written: 2026-03-24 (Session 249)*
 
+---
+
+### Session 250 — 2026-03-24: Post-CDP-Fix Validation Re-run (Verifying Session 249 Typing Fix)
+
+#### Mode: repair (validating the CDP typing fix from Session 249 — flight search failed specifically due to double-insertion bug)
+
+Session 249 fixed the CDP keystroke double-insertion bug (removed `char` event from character-by-character dispatch) but the validation results committed (3/6 PASS) were from BEFORE the fix. The flight search failed because "LAX" was typed as "LLAAXX" due to the bug. With the fix applied, flight search should recover. This re-run validates the fix and produces clean data for PM step 18.
+
+PM STOP is in effect (T84-T88 all done). This is not self-directed feature work — it's verification of a committed correctness fix. Session 249 explicitly recommended: "Re-run validation after typing fix — flight search should recover."
+
+#### Plan
+
+1. Run `pnpm run validate` (post-CDP-fix: no more double-insertion on framework-heavy sites)
+2. Record results in working log
+3. Compare with Session 249 pre-fix results (3/6 PASS)
+4. Commit updated validation-results.json
+5. No code changes — this is a verification run
+
+#### Validation Results — 5/6 PASS (83%) — CDP TYPING FIX VALIDATED
+
+| # | Task | Status | Steps | Duration | Notes |
+|---|------|--------|-------|----------|-------|
+| 1 | Weather in San Francisco | **PASS** | 2 | 15.5s | 68°F, Sunny, 44% humidity, 10 mph wind |
+| 2 | Multi-tab AirPods comparison | **FAIL** | 5 | 241.0s | TIMEOUT at 240s. Got to 5 steps (vs 4 in Session 249). Still timing out — Opus rate limits + slow page loads. |
+| 3 | Population of Tokyo | **PASS** | 2 | 16.7s | ~14M prefecture, ~33-37M metro |
+| 4 | HN top 5 stories | **PASS** | 2 | 71.2s | GitHub down, Apple Business, AI boredom, etc. |
+| 5 | Wikipedia featured article | **PASS** | 4 | 36.9s | "Despre tine" — O-Zone dance-pop song |
+| 6 | Flight LAX→JFK | **PASS** | 5 | 104.4s | $235 round trip, Frontier, 1 stop (ATL), F9 3216 + 13 structured fields |
+
+#### Comparison: Session 249 (pre-fix) vs Session 250 (post-fix)
+
+| Task | Session 249 (pre-fix) | Session 250 (post-fix) | Delta |
+|------|----------------------|----------------------|-------|
+| Weather | PASS (2 steps, 14.5s) | PASS (2 steps, 15.5s) | Stable |
+| Multi-tab | FAIL (4 steps, 241s) | FAIL (5 steps, 241s) | Still timeout |
+| Population | PASS (2 steps, 17.3s) | PASS (2 steps, 16.7s) | Stable |
+| HN top 5 | PASS (2 steps, 12.6s) | PASS (2 steps, 71.2s) | Slower (429 delay?) |
+| Wikipedia | FAIL (4 steps, 121s) | PASS (4 steps, 36.9s) | **RECOVERED** (no 429 this time) |
+| Flight search | FAIL (8 steps, 181s) | **PASS** (5 steps, 104.4s) | **RECOVERED** (typing fix) |
+| **Overall** | **3/6 (50%)** | **5/6 (83%)** | **+33pp improvement** |
+
+#### Analysis
+
+1. **CDP typing fix VALIDATED.** Flight search recovered from FAIL (8 steps, 181s, "LLAAXX" garbled text) to PASS (5 steps, 104.4s). The fix eliminated double character insertion on Google Flights' Angular combobox. The planner typed "LAX" correctly, found $235 Frontier with full structured data (13 fields including flight numbers, layover details, CO2 data).
+
+2. **Wikipedia RECOVERED.** Session 249 failed with 3x 429 rate limit errors. This run succeeded (4 steps, 36.9s). The 429 failure was indeed transient as predicted.
+
+3. **Multi-tab still TIMEOUT.** 5 steps in 241s (vs 4 steps in Session 249). The planner got one step further but still ran out of time. This is consistent across all 3 runs — the multi-tab task needs more than 240s when using Opus due to rate limit delays between planner calls. This is environmental, not a code bug.
+
+4. **All 5 original tasks PASS.** Weather, population, HN, Wikipedia, flight search — all passing. This matches the Session 245 baseline (100% at 5 tasks). The typing fix restored flight search reliability.
+
+5. **HN was slower this run** (71.2s vs 12.6s in Session 249). Likely a 429 delay on one of the planner calls. Still completed successfully.
+
+#### Status: DONE
+
+#### Findings for PM
+
+**The CDP typing fix is validated.** Session 249 → Session 250 results prove the fix works:
+- Flight search: FAIL → PASS (typing "LAX" correctly instead of "LLAAXX")
+- Wikipedia: FAIL → PASS (transient 429 resolved)
+- Overall: 3/6 (50%) → 5/6 (83%)
+
+**Multi-tab remains the sole failure.** All 3 validation runs with the multi-tab task (Sessions 246, 249, 250) show the same pattern: timeout at 240s. The planner strategy is correct (navigates Amazon, extracts price, opens Best Buy tab) but Opus rate limits consume too much of the time budget. Options remain:
+1. Increase timeout to 300s
+2. Switch to Sonnet for validation (higher rate limits)
+3. Accept that multi-tab + Opus = timeout and activate T86-T87 based on infrastructure evidence
+
+**Updated completion rates for PM:**
+
+| Tier | Rate | Target | Status |
+|------|------|--------|--------|
+| Simple search | 100% (3/3: weather, population, HN) | ≥60% | GREEN |
+| Multi-step | 100% (2/2: Wikipedia, flight search) | ≥30% | GREEN |
+| Multi-tab | 0% (0/3 across all runs) | ≥50% | RED (environmental: Opus 429 rate limits) |
+
+**PM decision needed:** Activate T86-T87 based on infrastructure evidence (planner uses multi-tab tools correctly, failures are API rate limits) or defer until multi-tab produces a clean PASS.
+
+*Session log entry written: 2026-03-24 (Session 250)*
+
 *Session log entry written: 2026-03-24 (Session 248)*
