@@ -63,11 +63,19 @@ interface ValidationReport {
 // ---------------------------------------------------------------------------
 
 const TASKS: ValidationTask[] = [
-  // Light single-site tasks first (2 steps each, low token cost)
+  // 1. Warmup: lightest single-site task to initialize browser + planner
   {
     goal: "What is the current weather in San Francisco?",
     timeoutMs: 180_000
   },
+  // 2. Multi-tab comparison task (T84 — Program AA) — run early while API
+  //    budget is fresh. Previously ran last (position 6) and failed on API
+  //    rate limit exhaustion after 5 token-heavy tasks.
+  {
+    goal: "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
+    timeoutMs: 240_000
+  },
+  // 3-4. Remaining light single-site tasks
   {
     goal: "What is the population of Tokyo?",
     timeoutMs: 180_000
@@ -76,7 +84,7 @@ const TASKS: ValidationTask[] = [
     goal: "Go to news.ycombinator.com and extract the titles of the top 5 stories",
     timeoutMs: 180_000
   },
-  // Heavier multi-step tasks last (3-4+ steps, high token cost)
+  // 5-6. Heavier multi-step tasks last
   {
     goal: "Go to wikipedia.org and find the featured article of the day, then extract its title and first paragraph",
     timeoutMs: 180_000
@@ -84,11 +92,6 @@ const TASKS: ValidationTask[] = [
   {
     goal: "Find the cheapest flight from LAX to JFK next month",
     timeoutMs: 180_000
-  },
-  // Multi-tab comparison task (T84 — Program AA)
-  {
-    goal: "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
-    timeoutMs: 240_000
   }
 ];
 
@@ -255,11 +258,14 @@ app.whenReady().then(async () => {
   const results: TaskResult[] = [];
 
   const INTER_TASK_COOLDOWN_MS = 30_000; // 30s between tasks to avoid rate limit saturation
+  const MULTI_TAB_COOLDOWN_MS = 45_000; // 45s before multi-tab task (more API-intensive)
 
   for (let i = 0; i < TASKS.length; i++) {
     if (i > 0) {
-      console.log(`  (cooling down ${INTER_TASK_COOLDOWN_MS / 1000}s to avoid rate limits...)`);
-      await new Promise((r) => setTimeout(r, INTER_TASK_COOLDOWN_MS));
+      const isMultiTab = TASKS[i].timeoutMs > 180_000;
+      const cooldown = isMultiTab ? MULTI_TAB_COOLDOWN_MS : INTER_TASK_COOLDOWN_MS;
+      console.log(`  (cooling down ${cooldown / 1000}s to avoid rate limits...)`);
+      await new Promise((r) => setTimeout(r, cooldown));
     }
     const task = TASKS[i];
     console.log(`[${i + 1}/${TASKS.length}] ${task.goal}`);
