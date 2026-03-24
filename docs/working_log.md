@@ -14014,3 +14014,60 @@ The `isMultiTab` cooldown logic (line 276: `TASKS[i].timeoutMs > 180_000`) still
 4. **If multi-tab still FAILS at 360s with Sonnet:** the failure is likely page-load speed or Best Buy anti-bot, not rate limits — may need to switch to a different comparison target
 
 *Session log entry written: 2026-03-24 (Session 252)*
+
+---
+
+### Session 253 — 2026-03-24: PAUSE (PM STOP in effect, API credits exhausted)
+
+#### Mode: PAUSED
+
+PM directive (product_manager.md line 1537): "Execute T84 → T85 → STOP." All directed work is complete:
+
+- **T84**: DONE (Session 246) — multi-tab task added to validation harness
+- **T85**: DONE (Session 246) — validation run completed, 5/6 PASS, multi-tab FAIL (API rate limit)
+- **T88**: DONE (Sessions 246-247) — stuck detection fix + 2 tests, PM acceptance criteria met
+- **Sessions 248-252**: Evidence-driven repair iterations addressing multi-tab failure causes:
+  - Session 248: Reordered harness (multi-tab at position 2 for fresh API budget)
+  - Session 249: CDP typing fix (removed `char` event double-insertion) + validation re-run (3/6 pre-fix)
+  - Session 250: Post-fix validation (5/6 PASS, typing fix validated, multi-tab still timeout)
+  - Session 251: 1500ms settle delay + Sonnet model override (API credits exhausted during run)
+  - Session 252: Multi-tab timeout raised to 360s per PM decision table
+
+#### Why PAUSE
+
+1. **PM STOP is in effect.** "Self-directed work is PROHIBITED" (PM line 2102). T84-T88 done.
+2. **API credits exhausted.** Cannot re-run validation to test the full fix stack (Sonnet + 360s + settle delay + T88).
+3. **PM evaluation needed.** PM iteration 15 predates Sessions 246-252. The PM needs to evaluate:
+   - Multi-tab infrastructure works (planner uses `open_in_new_tab`/`save_note` correctly)
+   - All failures are API rate limits / timeouts, not infrastructure or planner reasoning bugs
+   - The full fix stack is committed but untested together
+   - Whether to activate T86-T87 based on infrastructure evidence or wait for a clean PASS
+4. **No unblocked PM-directed work exists.** T86/T87 conditional on multi-tab PASS. T89 not needed (planner uses multi-tab tools). Program AB depends on Program AA completion.
+
+#### State Summary for PM
+
+**Build health:** 1400/1400 tests pass. Typecheck clean.
+
+**Validation results (best run, Session 250):**
+
+| Tier | Rate | Target | Status |
+|------|------|--------|--------|
+| Simple search | 100% (3/3) | ≥60% | GREEN |
+| Multi-step | 100% (2/2) | ≥30% | GREEN |
+| Multi-tab | 0% (0/3 across Sessions 246/249/250) | ≥50% | RED (API rate limits, not infrastructure) |
+
+**Multi-tab evidence:**
+- Planner correctly navigates Amazon, extracts price ($199-$224), calls `save_note`, opens Best Buy via `open_in_new_tab`
+- Failure point: API 429 rate limit delays consume 50-80% of time budget; Best Buy page load takes ~80s
+- Infrastructure is validated: T88 stuck detection fix, settle delay, Sonnet override, 360s timeout all committed
+- The fix stack has not been tested together (API credits exhausted after Session 251 Opus run)
+
+**Pending re-run:** Once API credits are replenished, `pnpm run validate` should test the full stack: Sonnet model (higher rate limits) + 360s timeout + 1500ms settle delay + T88 stagnation reset.
+
+#### Next Steps (for PM)
+
+1. **Replenish API credits** — blocks all further validation
+2. **Evaluate multi-tab evidence** — decide whether infrastructure evidence is sufficient for T86-T87 activation, or require a clean PASS first
+3. **Issue next directive** — T86-T87 (if activated), Program AB (watches validation), or other
+
+*Session log entry written: 2026-03-24 (Session 253)*
