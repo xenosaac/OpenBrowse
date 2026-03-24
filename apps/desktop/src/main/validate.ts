@@ -72,9 +72,11 @@ const TASKS: ValidationTask[] = [
   // 2. Multi-tab comparison task (T84 — Program AA) — run early while API
   //    budget is fresh. Previously ran last (position 6) and failed on API
   //    rate limit exhaustion after 5 token-heavy tasks.
+  //    Timeout raised from 240s to 360s per PM decision table: "TIMEOUT —
+  //    actively progressing but 240s isn't enough → Raise timeout to 360s."
   {
     goal: "Compare the price of the Apple AirPods Pro on amazon.com and bestbuy.com. Open each site in a separate tab and report both prices.",
-    timeoutMs: 240_000
+    timeoutMs: 360_000
   },
   // 3-4. Remaining light single-site tasks
   {
