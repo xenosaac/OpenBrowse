@@ -2,6 +2,10 @@
 
 OpenBrowse is a macOS-native agentic browser — a standalone desktop app that combines a full Chromium-based browser shell with an embedded AI task runtime. It browses real websites autonomously, suspends when it needs human input, and resumes from exactly where it stopped.
 
+<p align="center">
+  <img src="demo.gif" alt="OpenBrowse Demo — agent executing a task through natural conversation" width="90%">
+</p>
+
 ## What It Does
 
 - **Real browser, real websites.** Not a script runner or extension — a full browser shell with tabs, address bar, bookmarks, history, and cookies.
